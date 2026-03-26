@@ -1,0 +1,81 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Environments
+.env
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.core
+*.swo
+
+# Go
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+*.o
+*.a
+*.cgo1.go
+*.cgo2.c
+_cgo_defun.c
+_cgo_gotypes.go
+_cgo_export.*
+_testmain.go
+
+# Vendor dir (usually kept out of version control unless explicitly needed)
+vendor/
+
+# AI Assistants
+.claude/
+.cursor/
+
+# Docker volumes and database temp data
+# Ignore database data directories to avoid committing binary data
+*/db_data/
+*/db-data/
+*/data/
+mysql-data/
+postgres-data/
+mongo-data/
+
+# General logs and tmp
+logs/
+*.log
+tmp/
+CLAUDE.md

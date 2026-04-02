@@ -1,3 +1,24 @@
+// =============================================================================
+// Seeder: zones
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// Populates the zones collection with the physical areas of the nuclear plant.
+// Each zone includes ZTNA policy parameters that define the Zero Trust access
+// requirements: minimum trust score, MFA enforcement, session duration limits,
+// permitted device types, and allowed network segments.
+//
+// Zone hierarchy:
+//   ZONE-MAIN (root)
+//     +-- ZONE-CR-01   (control room)
+//     +-- ZONE-RC-01   (reactor containment)
+//     |     +-- ZONE-RC-01A (containment lower level)
+//     |     +-- ZONE-RC-01B (containment upper level)
+//     +-- ZONE-TB-01   (turbine hall)
+//     +-- ZONE-AUX-01  (auxiliary building)
+//     +-- ZONE-SF-01   (spent fuel storage)
+//     +-- ZONE-ADM-01  (administration building)
+// =============================================================================
+
 package seeders
 
 import (
@@ -11,20 +32,28 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// strPtr returns a pointer to the given string. Used for optional fields.
 func strPtr(s string) *string {
 	return &s
 }
 
+// SeedZones inserts all plant zone definitions into the zones collection.
+// Skips insertion if the collection already contains data (idempotent).
 func SeedZones(ctx context.Context, db *mongo.Database) {
 	coll := db.Collection("zones")
 
 	count, _ := coll.CountDocuments(ctx, bson.M{})
 	if count > 0 {
-		fmt.Println("⏭️  zones already seeded, skipping")
+		log.Println("[SEED] zones already populated, skipping")
 		return
 	}
 
 	zones := []interface{}{
+		// -----------------------------------------------------------------
+		// ZONE-MAIN: Root zone encompassing the entire plant campus.
+		// Controlled access with basic PPE requirements.
+		// ZTNA: Moderate trust score, no MFA required, broad device/network access.
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-MAIN",
 			ClassificationLevel:    models.ClassInternal,
@@ -43,7 +72,21 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: nil,
 			SubZones:   []string{"ZONE-CR-01", "ZONE-RC-01", "ZONE-TB-01", "ZONE-AUX-01", "ZONE-SF-01", "ZONE-ADM-01"},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.3,
+				RequireMFA:                false,
+				MaxSessionDurationMinutes: 480,
+				AllowedDeviceTypes:        []string{models.DeviceTypeWorkstation, models.DeviceTypeMobile, models.DeviceTypeTablet},
+				AllowedNetworks:           []string{models.NetworkPlantInternal, models.NetworkAdmin, models.NetworkVPN},
+				ContinuousMonitoring:      false,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-CR-01: Main Control Room - restricted to licensed operators.
+		// ZTNA: High trust score, MFA required, control terminals only,
+		//       control room network only, continuous monitoring enabled.
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-CR-01",
 			ClassificationLevel:    models.ClassSecret,
@@ -61,7 +104,21 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-MAIN"),
 			SubZones:   []string{},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.7,
+				RequireMFA:                true,
+				MaxSessionDurationMinutes: 240,
+				AllowedDeviceTypes:        []string{models.DeviceTypeTerminal, models.DeviceTypeWorkstation},
+				AllowedNetworks:           []string{models.NetworkControlRoom, models.NetworkPlantInternal},
+				ContinuousMonitoring:      true,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-RC-01: Reactor Containment Building - highest restriction.
+		// ZTNA: Very high trust score, MFA mandatory, short sessions,
+		//       control terminals only, plant internal network only.
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-RC-01",
 			ClassificationLevel:    models.ClassSecret,
@@ -81,7 +138,19 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-MAIN"),
 			SubZones:   []string{"ZONE-RC-01A", "ZONE-RC-01B"},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.85,
+				RequireMFA:                true,
+				MaxSessionDurationMinutes: 120,
+				AllowedDeviceTypes:        []string{models.DeviceTypeTerminal},
+				AllowedNetworks:           []string{models.NetworkPlantInternal},
+				ContinuousMonitoring:      true,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-RC-01A: Reactor Containment - Lower Level
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-RC-01A",
 			ClassificationLevel:    models.ClassSecret,
@@ -100,7 +169,19 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-RC-01"),
 			SubZones:   []string{},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.9,
+				RequireMFA:                true,
+				MaxSessionDurationMinutes: 60,
+				AllowedDeviceTypes:        []string{models.DeviceTypeTerminal},
+				AllowedNetworks:           []string{models.NetworkPlantInternal},
+				ContinuousMonitoring:      true,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-RC-01B: Reactor Containment - Upper Level
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-RC-01B",
 			ClassificationLevel:    models.ClassSecret,
@@ -119,7 +200,19 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-RC-01"),
 			SubZones:   []string{},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.85,
+				RequireMFA:                true,
+				MaxSessionDurationMinutes: 90,
+				AllowedDeviceTypes:        []string{models.DeviceTypeTerminal},
+				AllowedNetworks:           []string{models.NetworkPlantInternal},
+				ContinuousMonitoring:      true,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-TB-01: Turbine Hall
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-TB-01",
 			ClassificationLevel:    models.ClassConfidential,
@@ -137,7 +230,19 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-MAIN"),
 			SubZones:   []string{},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.5,
+				RequireMFA:                false,
+				MaxSessionDurationMinutes: 360,
+				AllowedDeviceTypes:        []string{models.DeviceTypeWorkstation, models.DeviceTypeTablet},
+				AllowedNetworks:           []string{models.NetworkPlantInternal},
+				ContinuousMonitoring:      false,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-AUX-01: Auxiliary Building
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-AUX-01",
 			ClassificationLevel:    models.ClassConfidential,
@@ -156,7 +261,21 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-MAIN"),
 			SubZones:   []string{},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.5,
+				RequireMFA:                false,
+				MaxSessionDurationMinutes: 360,
+				AllowedDeviceTypes:        []string{models.DeviceTypeWorkstation, models.DeviceTypeTablet},
+				AllowedNetworks:           []string{models.NetworkPlantInternal},
+				ContinuousMonitoring:      false,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-SF-01: Spent Fuel Storage - TOP_SECRET classification.
+		// ZTNA: Maximum trust score, MFA mandatory, very short sessions,
+		//       control terminals only, continuous monitoring.
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-SF-01",
 			ClassificationLevel:    models.ClassTopSecret,
@@ -175,7 +294,19 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-MAIN"),
 			SubZones:   []string{},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.9,
+				RequireMFA:                true,
+				MaxSessionDurationMinutes: 60,
+				AllowedDeviceTypes:        []string{models.DeviceTypeTerminal},
+				AllowedNetworks:           []string{models.NetworkPlantInternal},
+				ContinuousMonitoring:      true,
+			},
 		},
+
+		// -----------------------------------------------------------------
+		// ZONE-ADM-01: Administration Building - lower restriction.
+		// -----------------------------------------------------------------
 		models.Zone{
 			ZoneID:                 "ZONE-ADM-01",
 			ClassificationLevel:    models.ClassInternal,
@@ -193,12 +324,20 @@ func SeedZones(ctx context.Context, db *mongo.Database) {
 			ParentZone: strPtr("ZONE-MAIN"),
 			SubZones:   []string{},
 			Status:     "operational",
+			ZTNAPolicy: models.ZTNAPolicy{
+				MinTrustScore:             0.2,
+				RequireMFA:                false,
+				MaxSessionDurationMinutes: 480,
+				AllowedDeviceTypes:        []string{models.DeviceTypeWorkstation, models.DeviceTypeMobile, models.DeviceTypeTablet},
+				AllowedNetworks:           []string{models.NetworkPlantInternal, models.NetworkAdmin, models.NetworkVPN},
+				ContinuousMonitoring:      false,
+			},
 		},
 	}
 
 	result, err := coll.InsertMany(ctx, zones)
 	if err != nil {
-		log.Fatal("❌ Failed to seed zones:", err)
+		log.Fatalf("[SEED] Failed to seed zones: %v", err)
 	}
-	fmt.Printf("✅ Inserted %d zones\n", len(result.InsertedIDs))
+	log.Printf("[SEED] Inserted %d zones", len(result.InsertedIDs))
 }

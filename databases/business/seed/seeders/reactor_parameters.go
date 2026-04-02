@@ -1,7 +1,18 @@
+// =============================================================================
+// Seeder: reactor_parameters
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// Populates the reactor_parameters collection with time-series operational
+// data including a SHA-256 data integrity hash for tamper detection.
+// The hash covers critical parameter values and can be verified by the
+// security orchestrator to ensure data has not been altered in transit.
+// =============================================================================
+
 package seeders
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"time"
@@ -12,19 +23,29 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// computeIntegrityHash generates a SHA-256 hash of critical reactor parameters
+// for tamper detection. In production, this would use HMAC with a secret key.
+func computeIntegrityHash(thermalMW, electricalMW, pressureMPA, neutronFlux float64, boronPPM int, status string) string {
+	data := fmt.Sprintf("%.2f|%.2f|%.3f|%.4e|%d|%s",
+		thermalMW, electricalMW, pressureMPA, neutronFlux, boronPPM, status)
+	hash := sha256.Sum256([]byte(data))
+	return fmt.Sprintf("%x", hash)
+}
+
+// SeedReactorParameters inserts reactor operational readings into the collection.
 func SeedReactorParameters(ctx context.Context, db *mongo.Database) {
 	coll := db.Collection("reactor_parameters")
 
 	count, _ := coll.CountDocuments(ctx, bson.M{})
 	if count > 0 {
-		fmt.Println("⏭️  reactor_parameters already seeded, skipping")
+		log.Println("[SEED] reactor_parameters already populated, skipping")
 		return
 	}
 
 	baseTime := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
 
 	params := []interface{}{
-		// Lettura turno A (06:00)
+		// Shift A reading (06:00) - normal power operation
 		models.ReactorParameters{
 			ClassificationLevel: models.ClassSecret,
 			Timestamp:           baseTime.Add(6 * time.Hour),
@@ -48,9 +69,10 @@ func SeedReactorParameters(ctx context.Context, db *mongo.Database) {
 			Alerts:                []string{},
 			RecordedBy:            "NP-2024-0142",
 			ShiftID:               "SHIFT-2025-01-15-A",
+			DataIntegrityHash:     computeIntegrityHash(3200.5, 1050.2, 15.5, 2.5e13, 1200, models.ReactorPowerOperation),
 		},
 
-		// Lettura turno B (14:00)
+		// Shift B reading (14:00) - normal power operation
 		models.ReactorParameters{
 			ClassificationLevel: models.ClassSecret,
 			Timestamp:           baseTime.Add(14 * time.Hour),
@@ -74,9 +96,10 @@ func SeedReactorParameters(ctx context.Context, db *mongo.Database) {
 			Alerts:                []string{},
 			RecordedBy:            "NP-2024-0143",
 			ShiftID:               "SHIFT-2025-01-15-B",
+			DataIntegrityHash:     computeIntegrityHash(3198.1, 1049.5, 15.5, 2.48e13, 1198, models.ReactorPowerOperation),
 		},
 
-		// Lettura turno C (22:00) - con alert
+		// Shift C reading (22:00) - minor alert
 		models.ReactorParameters{
 			ClassificationLevel: models.ClassSecret,
 			Timestamp:           baseTime.Add(22 * time.Hour),
@@ -100,9 +123,10 @@ func SeedReactorParameters(ctx context.Context, db *mongo.Database) {
 			Alerts:                []string{"Minor coolant pressure fluctuation detected"},
 			RecordedBy:            "NP-2024-0142",
 			ShiftID:               "SHIFT-2025-01-15-C",
+			DataIntegrityHash:     computeIntegrityHash(3195.0, 1048.0, 15.6, 2.51e13, 1195, models.ReactorPowerOperation),
 		},
 
-		// Giorno precedente - Hot Standby
+		// Previous day - hot standby for maintenance
 		models.ReactorParameters{
 			ClassificationLevel: models.ClassSecret,
 			Timestamp:           baseTime.Add(-18 * time.Hour),
@@ -126,9 +150,10 @@ func SeedReactorParameters(ctx context.Context, db *mongo.Database) {
 			Alerts:                []string{"Reactor in hot standby for scheduled maintenance"},
 			RecordedBy:            "NP-2024-0143",
 			ShiftID:               "SHIFT-2025-01-14-A",
+			DataIntegrityHash:     computeIntegrityHash(0, 0, 15.5, 1.0e8, 2000, models.ReactorHotStandby),
 		},
 
-		// Startup dopo manutenzione
+		// Startup after maintenance
 		models.ReactorParameters{
 			ClassificationLevel: models.ClassSecret,
 			Timestamp:           baseTime.Add(-6 * time.Hour),
@@ -152,12 +177,13 @@ func SeedReactorParameters(ctx context.Context, db *mongo.Database) {
 			Alerts:                []string{},
 			RecordedBy:            "NP-2024-0142",
 			ShiftID:               "SHIFT-2025-01-14-C",
+			DataIntegrityHash:     computeIntegrityHash(800.0, 250.0, 15.4, 5.0e12, 1600, models.ReactorStartup),
 		},
 	}
 
 	result, err := coll.InsertMany(ctx, params)
 	if err != nil {
-		log.Fatal("❌ Failed to seed reactor_parameters:", err)
+		log.Fatalf("[SEED] Failed to seed reactor_parameters: %v", err)
 	}
-	fmt.Printf("✅ Inserted %d reactor parameter readings\n", len(result.InsertedIDs))
+	fmt.Printf("[SEED] Inserted %d reactor parameter readings\n", len(result.InsertedIDs))
 }

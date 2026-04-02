@@ -1,3 +1,13 @@
+// =============================================================================
+// Seeder: documents
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// Populates the documents collection with technical documents spanning all
+// classification levels (INTERNAL through TOP_SECRET) and all document types
+// (procedures, manuals, drawings, reports, analyses).
+// The applicable_roles field enables role-based access decisions by the PDP.
+// =============================================================================
+
 package seeders
 
 import (
@@ -12,12 +22,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// SeedDocuments inserts technical documents into the documents collection.
 func SeedDocuments(ctx context.Context, db *mongo.Database) {
 	coll := db.Collection("documents")
 
 	count, _ := coll.CountDocuments(ctx, bson.M{})
 	if count > 0 {
-		fmt.Println("⏭️  documents already seeded, skipping")
+		log.Println("[SEED] documents already populated, skipping")
 		return
 	}
 
@@ -66,7 +77,7 @@ func SeedDocuments(ctx context.Context, db *mongo.Database) {
 			ApplicableZones:   []string{"ZONE-CR-01"},
 			ApplicableRoles:   []string{models.RoleOperator, models.RolePlantManager},
 			FileReference:     "/docs/procedures/operational/PROC-OP-STARTUP-R12.pdf",
-			Keywords:          []string{"avviamento", "startup", "barre di controllo", "criticità"},
+			Keywords:          []string{"avviamento", "startup", "barre di controllo", "criticita"},
 			Status:            models.DocStatusApproved,
 			PreviousRevisions: []string{"DOC-PROC-2024-0120-R11"},
 			ReviewDate:        time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC),
@@ -152,11 +163,11 @@ func SeedDocuments(ctx context.Context, db *mongo.Database) {
 			UpdatedAt:         time.Date(2022, 7, 1, 0, 0, 0, 0, time.UTC),
 		},
 
-		// Security report - TOP_SECRET
+		// Security vulnerability report - TOP_SECRET
 		models.Document{
 			DocumentID:          "DOC-RPT-2024-0005",
 			ClassificationLevel: models.ClassTopSecret,
-			Title:               "Rapporto vulnerabilità sicurezza fisica impianto",
+			Title:               "Rapporto vulnerabilita sicurezza fisica impianto",
 			Type:                models.DocReport,
 			Category:            models.CatSafety,
 			Revision: models.Revision{
@@ -170,7 +181,7 @@ func SeedDocuments(ctx context.Context, db *mongo.Database) {
 			ApplicableZones:   []string{"ZONE-MAIN", "ZONE-SF-01"},
 			ApplicableRoles:   []string{models.RolePlantManager, models.RoleInspector},
 			FileReference:     "/docs/reports/RPT-SEC-VULN-R1.pdf",
-			Keywords:          []string{"vulnerabilità", "sicurezza fisica", "accessi", "perimetro"},
+			Keywords:          []string{"vulnerabilita", "sicurezza fisica", "accessi", "perimetro"},
 			Status:            models.DocStatusApproved,
 			PreviousRevisions: []string{},
 			ReviewDate:        time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
@@ -207,7 +218,7 @@ func SeedDocuments(ctx context.Context, db *mongo.Database) {
 
 	result, err := coll.InsertMany(ctx, docs)
 	if err != nil {
-		log.Fatal("❌ Failed to seed documents:", err)
+		log.Fatalf("[SEED] Failed to seed documents: %v", err)
 	}
-	fmt.Printf("✅ Inserted %d documents\n", len(result.InsertedIDs))
+	fmt.Printf("[SEED] Inserted %d documents\n", len(result.InsertedIDs))
 }

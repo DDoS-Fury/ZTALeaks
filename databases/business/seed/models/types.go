@@ -1,9 +1,33 @@
+// =============================================================================
+// Business Database Models - Go Struct Definitions
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// This file defines the Go structs that map to MongoDB documents for each
+// of the seven business collections. All structs use bson tags for correct
+// serialization to MongoDB.
+//
+// ZTNA Enhancement: Several structs include additional fields for Zero Trust
+// policy support, including:
+//   - ZTNAMetadata on personnel (trust scores, risk flags, auth state)
+//   - ZTNAPolicy on zones (minimum trust score, MFA requirements, session limits)
+//   - DataIntegrityHash on reactor parameters (tamper detection)
+//   - AccessContext on access badges (device and network context)
+//
+// These fields are designed to be consumed by the PDP (OPA) during policy
+// evaluation to implement continuous, context-aware access control.
+// =============================================================================
+
 package models
 
 import "time"
 
-// ==================== PERSONNEL ====================
+// ===========================================================================
+// PERSONNEL
+// ===========================================================================
 
+// Qualification represents a professional certification or training record
+// held by an employee. Qualifications have validity periods and are checked
+// against zone access requirements.
 type Qualification struct {
 	Name       string    `bson:"name"`
 	IssuedBy   string    `bson:"issued_by"`
@@ -12,18 +36,50 @@ type Qualification struct {
 	Status     string    `bson:"status"`
 }
 
+// EmergencyContact stores contact information for employee emergency situations.
 type EmergencyContact struct {
 	Name     string `bson:"name"`
 	Phone    string `bson:"phone"`
 	Relation string `bson:"relation"`
 }
 
+// Contact holds employee contact information including an optional emergency contact.
 type Contact struct {
 	Email            string            `bson:"email"`
 	Phone            string            `bson:"phone"`
 	EmergencyContact *EmergencyContact `bson:"emergency_contact,omitempty"`
 }
 
+// ZTNAMetadata contains Zero Trust specific attributes for identity-based
+// policy evaluation. These fields are updated by the security orchestrator
+// and consumed by the PDP during access decisions.
+type ZTNAMetadata struct {
+	// TrustScore is a computed value between 0.0 and 1.0 reflecting the
+	// current trustworthiness of the identity based on behavior analytics.
+	TrustScore float64 `bson:"trust_score"`
+
+	// LastTrustEvaluation records when the trust score was last computed.
+	LastTrustEvaluation time.Time `bson:"last_trust_evaluation"`
+
+	// RiskFlags contains active risk indicators (e.g., "expired_qualification",
+	// "anomalous_access_pattern", "failed_auth_threshold").
+	RiskFlags []string `bson:"risk_flags"`
+
+	// MFAEnrolled indicates whether the employee has configured MFA.
+	MFAEnrolled bool `bson:"mfa_enrolled"`
+
+	// LastSuccessfulAuth records the timestamp of the last successful authentication.
+	LastSuccessfulAuth time.Time `bson:"last_successful_auth"`
+
+	// FailedAuthCount tracks failed authentication attempts in the current window.
+	FailedAuthCount int `bson:"failed_auth_count"`
+
+	// AccessReviewDate records when the employee's access was last reviewed
+	// as part of periodic access certification.
+	AccessReviewDate time.Time `bson:"access_review_date"`
+}
+
+// Personnel represents an employee record in the nuclear plant.
 type Personnel struct {
 	EmployeeID          string          `bson:"employee_id"`
 	ClassificationLevel string          `bson:"classification_level"`
@@ -39,20 +95,35 @@ type Personnel struct {
 	Status              string          `bson:"status"`
 	HireDate            time.Time       `bson:"hire_date"`
 	LastMedicalCheck    time.Time       `bson:"last_medical_check"`
+	ZTNAMetadata        ZTNAMetadata    `bson:"ztna_metadata"`
 	CreatedAt           time.Time       `bson:"created_at"`
 	UpdatedAt           time.Time       `bson:"updated_at"`
 }
 
-// ==================== ACCESS BADGES ====================
+// ===========================================================================
+// ACCESS BADGES
+// ===========================================================================
 
-type AccessLogEntry struct {
-	Timestamp   time.Time `bson:"timestamp"`
-	GateID      string    `bson:"gate_id"`
-	Direction   string    `bson:"direction"`
-	ZoneEntered string    `bson:"zone_entered"`
-	Status      string    `bson:"status"`
+// AccessContext captures the device and network context at the time of a
+// physical access event. This information supports correlation between
+// physical and digital access patterns in the ZTA model.
+type AccessContext struct {
+	DeviceType string `bson:"device_type,omitempty"`
+	Network    string `bson:"network,omitempty"`
+	IPAddress  string `bson:"ip_address,omitempty"`
 }
 
+// AccessLogEntry records a single physical access event at a gate.
+type AccessLogEntry struct {
+	Timestamp   time.Time     `bson:"timestamp"`
+	GateID      string        `bson:"gate_id"`
+	Direction   string        `bson:"direction"` // "in" or "out"
+	ZoneEntered string        `bson:"zone_entered"`
+	Status      string        `bson:"status"` // "granted" or "denied"
+	Context     AccessContext `bson:"context,omitempty"`
+}
+
+// AccessBadge represents a physical access badge assigned to an employee.
 type AccessBadge struct {
 	BadgeID             string           `bson:"badge_id"`
 	ClassificationLevel string           `bson:"classification_level"`
@@ -65,14 +136,44 @@ type AccessBadge struct {
 	AccessLog           []AccessLogEntry `bson:"access_log"`
 }
 
-// ==================== ZONES ====================
+// ===========================================================================
+// ZONES
+// ===========================================================================
 
+// AccessPoint describes a physical entry point to a zone.
 type AccessPoint struct {
 	GateID string `bson:"gate_id"`
-	Type   string `bson:"type"`
-	Status string `bson:"status"`
+	Type   string `bson:"type"`   // "badge_reader", "biometric", "airlock"
+	Status string `bson:"status"` // "active", "inactive", "maintenance"
 }
 
+// ZTNAPolicy defines zone-specific Zero Trust policy parameters that the
+// PDP evaluates when processing access requests for zone resources.
+type ZTNAPolicy struct {
+	// MinTrustScore is the minimum identity trust score required for zone access.
+	MinTrustScore float64 `bson:"min_trust_score"`
+
+	// RequireMFA indicates whether multi-factor authentication is mandatory.
+	RequireMFA bool `bson:"require_mfa"`
+
+	// MaxSessionDurationMinutes defines the maximum session length before
+	// the subject must re-authenticate.
+	MaxSessionDurationMinutes int `bson:"max_session_duration_minutes"`
+
+	// AllowedDeviceTypes lists the device categories permitted to access
+	// zone resources (e.g., "workstation", "control_terminal").
+	AllowedDeviceTypes []string `bson:"allowed_device_types"`
+
+	// AllowedNetworks lists the network segments from which zone access
+	// is permitted (e.g., "plant_internal", "control_room_net").
+	AllowedNetworks []string `bson:"allowed_networks"`
+
+	// ContinuousMonitoring indicates whether ongoing behavior analysis
+	// is required during the access session.
+	ContinuousMonitoring bool `bson:"continuous_monitoring"`
+}
+
+// Zone represents a physical area of the nuclear plant with its security requirements.
 type Zone struct {
 	ZoneID                 string        `bson:"zone_id"`
 	ClassificationLevel    string        `bson:"classification_level"`
@@ -89,15 +190,20 @@ type Zone struct {
 	ParentZone             *string       `bson:"parent_zone"`
 	SubZones               []string      `bson:"sub_zones"`
 	Status                 string        `bson:"status"`
+	ZTNAPolicy             ZTNAPolicy    `bson:"ztna_policy"`
 }
 
-// ==================== REACTOR PARAMETERS ====================
+// ===========================================================================
+// REACTOR PARAMETERS
+// ===========================================================================
 
+// ControlRodPosition records the insertion percentage of a control rod group.
 type ControlRodPosition struct {
 	RodGroup        string  `bson:"rod_group"`
 	PositionPercent float64 `bson:"position_percent"`
 }
 
+// ReactorParameters represents a time-series measurement of reactor operating conditions.
 type ReactorParameters struct {
 	ClassificationLevel   string               `bson:"classification_level"`
 	Timestamp             time.Time            `bson:"timestamp"`
@@ -116,10 +222,14 @@ type ReactorParameters struct {
 	Alerts                []string             `bson:"alerts"`
 	RecordedBy            string               `bson:"recorded_by"`
 	ShiftID               string               `bson:"shift_id"`
+	DataIntegrityHash     string               `bson:"data_integrity_hash"`
 }
 
-// ==================== MAINTENANCE ORDERS ====================
+// ===========================================================================
+// MAINTENANCE ORDERS
+// ===========================================================================
 
+// MaintenanceDates tracks lifecycle timestamps for a maintenance order.
 type MaintenanceDates struct {
 	Created        time.Time  `bson:"created"`
 	Approved       *time.Time `bson:"approved,omitempty"`
@@ -129,6 +239,7 @@ type MaintenanceDates struct {
 	ActualEnd      *time.Time `bson:"actual_end,omitempty"`
 }
 
+// Part represents a component required for a maintenance activity.
 type Part struct {
 	PartID   string `bson:"part_id"`
 	Name     string `bson:"name"`
@@ -136,6 +247,7 @@ type Part struct {
 	Status   string `bson:"status"`
 }
 
+// Approval records a single authorization decision in the approval chain.
 type Approval struct {
 	Role       string    `bson:"role"`
 	ApprovedBy string    `bson:"approved_by"`
@@ -143,6 +255,7 @@ type Approval struct {
 	Status     string    `bson:"status"`
 }
 
+// MaintenanceOrder represents a work order for plant maintenance activities.
 type MaintenanceOrder struct {
 	OrderID              string           `bson:"order_id"`
 	ClassificationLevel  string           `bson:"classification_level"`
@@ -165,8 +278,11 @@ type MaintenanceOrder struct {
 	ApprovalChain        []Approval       `bson:"approval_chain"`
 }
 
-// ==================== DOCUMENTS ====================
+// ===========================================================================
+// DOCUMENTS
+// ===========================================================================
 
+// Revision records document version information including authorship and approval.
 type Revision struct {
 	Number         int       `bson:"number"`
 	Date           time.Time `bson:"date"`
@@ -175,65 +291,73 @@ type Revision struct {
 	ChangesSummary string    `bson:"changes_summary"`
 }
 
+// Document represents a technical document, procedure, or report.
 type Document struct {
-	DocumentID          string    `bson:"document_id"`
-	ClassificationLevel string    `bson:"classification_level"`
-	Title               string    `bson:"title"`
-	Type                string    `bson:"type"`
-	Category            string    `bson:"category"`
-	Revision            Revision  `bson:"revision"`
-	ApplicableSystems   []string  `bson:"applicable_systems"`
-	ApplicableZones     []string  `bson:"applicable_zones"`
-	ApplicableRoles     []string  `bson:"applicable_roles"`
-	FileReference       string    `bson:"file_reference"`
-	Keywords            []string  `bson:"keywords"`
-	Status              string    `bson:"status"`
-	PreviousRevisions   []string  `bson:"previous_revisions"`
+	DocumentID          string   `bson:"document_id"`
+	ClassificationLevel string   `bson:"classification_level"`
+	Title               string   `bson:"title"`
+	Type                string   `bson:"type"`
+	Category            string   `bson:"category"`
+	Revision            Revision `bson:"revision"`
+	ApplicableSystems   []string `bson:"applicable_systems"`
+	ApplicableZones     []string `bson:"applicable_zones"`
+	ApplicableRoles     []string `bson:"applicable_roles"`
+	FileReference       string   `bson:"file_reference"`
+	Keywords            []string `bson:"keywords"`
+	Status              string   `bson:"status"`
+	PreviousRevisions   []string `bson:"previous_revisions"`
 	ReviewDate          time.Time `bson:"review_date"`
 	CreatedAt           time.Time `bson:"created_at"`
 	UpdatedAt           time.Time `bson:"updated_at"`
 }
 
-// ==================== NUCLEAR MATERIALS ====================
+// ===========================================================================
+// NUCLEAR MATERIALS
+// ===========================================================================
 
+// MaterialLocation describes the physical location of nuclear material.
 type MaterialLocation struct {
 	ZoneID      string  `bson:"zone_id"`
 	Position    string  `bson:"position"`
-	StorageRack *string `bson:"storage_rack"`
+	StorageRack *string `bson:"storage_rack,omitempty"`
 }
 
+// MaterialDates records key lifecycle dates for nuclear material.
 type MaterialDates struct {
 	Received          time.Time  `bson:"received"`
 	Loaded            *time.Time `bson:"loaded,omitempty"`
 	ExpectedDischarge *time.Time `bson:"expected_discharge,omitempty"`
 }
 
+// IAEASafeguards contains International Atomic Energy Agency safeguards data.
 type IAEASafeguards struct {
 	SealID         string    `bson:"seal_id"`
 	LastInspection time.Time `bson:"last_inspection"`
 	NextInspection time.Time `bson:"next_inspection"`
 }
 
+// Accountability records material inventory verification data.
 type Accountability struct {
 	LastInventory time.Time `bson:"last_inventory"`
 	VerifiedBy    string    `bson:"verified_by"`
 }
 
+// NuclearMaterial represents a nuclear or radioactive material inventory item.
 type NuclearMaterial struct {
-	MaterialID          string           `bson:"material_id"`
-	ClassificationLevel string           `bson:"classification_level"`
-	Type                string           `bson:"type"`
-	Description         string           `bson:"description"`
-	EnrichmentPercent   float64          `bson:"enrichment_percent,omitempty"`
-	MassKG              float64          `bson:"mass_kg"`
-	InitialU235KG       float64          `bson:"initial_u235_kg,omitempty"`
-	Status              string           `bson:"status"`
-	Location            MaterialLocation `bson:"location"`
-	BurnupMWDT          float64          `bson:"burnup_mwd_t,omitempty"`
-	CycleLoaded         int              `bson:"cycle_loaded,omitempty"`
-	Dates               MaterialDates    `bson:"dates"`
-	Supplier            string           `bson:"supplier"`
-	SerialNumber        string           `bson:"serial_number"`
-	IAEASafeguards      IAEASafeguards   `bson:"iaea_safeguards"`
-	Accountability      Accountability   `bson:"accountability"`
+	MaterialID          string            `bson:"material_id"`
+	ClassificationLevel string            `bson:"classification_level"`
+	Type                string            `bson:"type"`
+	Description         string            `bson:"description"`
+	EnrichmentPercent   float64           `bson:"enrichment_percent,omitempty"`
+	MassKG              float64           `bson:"mass_kg"`
+	InitialU235KG       float64           `bson:"initial_u235_kg,omitempty"`
+	Status              string            `bson:"status"`
+	Location            MaterialLocation  `bson:"location"`
+	BurnupMWDT          float64           `bson:"burnup_mwd_t,omitempty"`
+	CycleLoaded         int               `bson:"cycle_loaded,omitempty"`
+	Dates               MaterialDates     `bson:"dates"`
+	Supplier            string            `bson:"supplier"`
+	SerialNumber        string            `bson:"serial_number"`
+	IAEASafeguards      IAEASafeguards    `bson:"iaea_safeguards"`
+	Accountability      Accountability    `bson:"accountability"`
 }

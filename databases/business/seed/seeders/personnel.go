@@ -1,3 +1,21 @@
+// =============================================================================
+// Seeder: personnel
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// Populates the personnel collection with employee records covering all
+// six operational roles. Each employee includes ZTNA metadata with:
+//   - Trust score (computed from behavioral analytics)
+//   - Risk flags (active security indicators)
+//   - MFA enrollment status
+//   - Authentication history
+//   - Access review date
+//
+// The trust scores are calibrated to realistic values:
+//   - Long-tenured internal staff: 0.85-0.95
+//   - Newer staff: 0.70-0.80
+//   - External inspectors: 0.65-0.75 (lower due to less behavioral history)
+// =============================================================================
+
 package seeders
 
 import (
@@ -12,19 +30,23 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// SeedPersonnel inserts all employee records into the personnel collection.
 func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 	coll := db.Collection("personnel")
 
 	count, _ := coll.CountDocuments(ctx, bson.M{})
 	if count > 0 {
-		fmt.Println("⏭️  personnel already seeded, skipping")
+		log.Println("[SEED] personnel already populated, skipping")
 		return
 	}
 
 	now := time.Now()
 
 	personnel := []interface{}{
-		// Plant Manager - TOP_SECRET clearance
+		// -----------------------------------------------------------------
+		// Plant Manager - TOP_SECRET clearance, highest trust score.
+		// Has access to all zones and the broadest set of permissions.
+		// -----------------------------------------------------------------
 		models.Personnel{
 			EmployeeID:          "NP-2024-0001",
 			ClassificationLevel: models.ClassConfidential,
@@ -57,11 +79,22 @@ func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 			Status:           "active",
 			HireDate:         time.Date(2005, 3, 15, 0, 0, 0, 0, time.UTC),
 			LastMedicalCheck: time.Date(2024, 10, 5, 0, 0, 0, 0, time.UTC),
-			CreatedAt:        time.Date(2005, 3, 15, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:        now,
+			ZTNAMetadata: models.ZTNAMetadata{
+				TrustScore:          0.95,
+				LastTrustEvaluation: now.Add(-1 * time.Hour),
+				RiskFlags:           []string{},
+				MFAEnrolled:         true,
+				LastSuccessfulAuth:  now.Add(-2 * time.Hour),
+				FailedAuthCount:     0,
+				AccessReviewDate:    time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
+			},
+			CreatedAt: time.Date(2005, 3, 15, 0, 0, 0, 0, time.UTC),
+			UpdatedAt: now,
 		},
 
-		// Operator 1 - SECRET clearance
+		// -----------------------------------------------------------------
+		// Operator 1 - SECRET clearance, experienced operator.
+		// -----------------------------------------------------------------
 		models.Personnel{
 			EmployeeID:          "NP-2024-0142",
 			ClassificationLevel: models.ClassConfidential,
@@ -98,11 +131,22 @@ func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 			Status:           "active",
 			HireDate:         time.Date(2019, 6, 1, 0, 0, 0, 0, time.UTC),
 			LastMedicalCheck: time.Date(2024, 11, 20, 0, 0, 0, 0, time.UTC),
-			CreatedAt:        time.Date(2019, 6, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:        now,
+			ZTNAMetadata: models.ZTNAMetadata{
+				TrustScore:          0.82,
+				LastTrustEvaluation: now.Add(-30 * time.Minute),
+				RiskFlags:           []string{},
+				MFAEnrolled:         true,
+				LastSuccessfulAuth:  now.Add(-3 * time.Hour),
+				FailedAuthCount:     0,
+				AccessReviewDate:    time.Date(2024, 11, 15, 0, 0, 0, 0, time.UTC),
+			},
+			CreatedAt: time.Date(2019, 6, 1, 0, 0, 0, 0, time.UTC),
+			UpdatedAt: now,
 		},
 
-		// Operator 2 - SECRET clearance
+		// -----------------------------------------------------------------
+		// Operator 2 - SECRET clearance, newer operator.
+		// -----------------------------------------------------------------
 		models.Personnel{
 			EmployeeID:          "NP-2024-0143",
 			ClassificationLevel: models.ClassConfidential,
@@ -129,11 +173,23 @@ func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 			Status:           "active",
 			HireDate:         time.Date(2021, 9, 1, 0, 0, 0, 0, time.UTC),
 			LastMedicalCheck: time.Date(2024, 10, 15, 0, 0, 0, 0, time.UTC),
-			CreatedAt:        time.Date(2021, 9, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:        now,
+			ZTNAMetadata: models.ZTNAMetadata{
+				TrustScore:          0.75,
+				LastTrustEvaluation: now.Add(-45 * time.Minute),
+				RiskFlags:           []string{},
+				MFAEnrolled:         true,
+				LastSuccessfulAuth:  now.Add(-4 * time.Hour),
+				FailedAuthCount:     0,
+				AccessReviewDate:    time.Date(2024, 10, 1, 0, 0, 0, 0, time.UTC),
+			},
+			CreatedAt: time.Date(2021, 9, 1, 0, 0, 0, 0, time.UTC),
+			UpdatedAt: now,
 		},
 
-		// Maintenance Technician - CONFIDENTIAL clearance
+		// -----------------------------------------------------------------
+		// Maintenance Technician - CONFIDENTIAL clearance.
+		// Note: has a risk flag for an approaching qualification expiry.
+		// -----------------------------------------------------------------
 		models.Personnel{
 			EmployeeID:          "NP-2024-0201",
 			ClassificationLevel: models.ClassConfidential,
@@ -167,11 +223,22 @@ func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 			Status:           "active",
 			HireDate:         time.Date(2018, 2, 15, 0, 0, 0, 0, time.UTC),
 			LastMedicalCheck: time.Date(2024, 7, 5, 0, 0, 0, 0, time.UTC),
-			CreatedAt:        time.Date(2018, 2, 15, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:        now,
+			ZTNAMetadata: models.ZTNAMetadata{
+				TrustScore:          0.78,
+				LastTrustEvaluation: now.Add(-2 * time.Hour),
+				RiskFlags:           []string{"qualification_expiring_soon"},
+				MFAEnrolled:         true,
+				LastSuccessfulAuth:  now.Add(-5 * time.Hour),
+				FailedAuthCount:     0,
+				AccessReviewDate:    time.Date(2024, 9, 1, 0, 0, 0, 0, time.UTC),
+			},
+			CreatedAt: time.Date(2018, 2, 15, 0, 0, 0, 0, time.UTC),
+			UpdatedAt: now,
 		},
 
-		// Radiation Protection Officer - SECRET clearance
+		// -----------------------------------------------------------------
+		// Radiation Protection Officer - SECRET clearance.
+		// -----------------------------------------------------------------
 		models.Personnel{
 			EmployeeID:          "NP-2024-0067",
 			ClassificationLevel: models.ClassConfidential,
@@ -198,11 +265,22 @@ func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 			Status:           "active",
 			HireDate:         time.Date(2017, 4, 10, 0, 0, 0, 0, time.UTC),
 			LastMedicalCheck: time.Date(2024, 9, 20, 0, 0, 0, 0, time.UTC),
-			CreatedAt:        time.Date(2017, 4, 10, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:        now,
+			ZTNAMetadata: models.ZTNAMetadata{
+				TrustScore:          0.88,
+				LastTrustEvaluation: now.Add(-1 * time.Hour),
+				RiskFlags:           []string{},
+				MFAEnrolled:         true,
+				LastSuccessfulAuth:  now.Add(-6 * time.Hour),
+				FailedAuthCount:     0,
+				AccessReviewDate:    time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
+			},
+			CreatedAt: time.Date(2017, 4, 10, 0, 0, 0, 0, time.UTC),
+			UpdatedAt: now,
 		},
 
-		// Security Officer - SECRET clearance
+		// -----------------------------------------------------------------
+		// Security Officer - SECRET clearance.
+		// -----------------------------------------------------------------
 		models.Personnel{
 			EmployeeID:          "NP-2024-0180",
 			ClassificationLevel: models.ClassConfidential,
@@ -229,11 +307,24 @@ func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 			Status:           "active",
 			HireDate:         time.Date(2015, 8, 1, 0, 0, 0, 0, time.UTC),
 			LastMedicalCheck: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			CreatedAt:        time.Date(2015, 8, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:        now,
+			ZTNAMetadata: models.ZTNAMetadata{
+				TrustScore:          0.90,
+				LastTrustEvaluation: now.Add(-30 * time.Minute),
+				RiskFlags:           []string{},
+				MFAEnrolled:         true,
+				LastSuccessfulAuth:  now.Add(-8 * time.Hour),
+				FailedAuthCount:     0,
+				AccessReviewDate:    time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
+			},
+			CreatedAt: time.Date(2015, 8, 1, 0, 0, 0, 0, time.UTC),
+			UpdatedAt: now,
 		},
 
-		// Inspector - TOP_SECRET clearance (esterno)
+		// -----------------------------------------------------------------
+		// Inspector - TOP_SECRET clearance (external, IAEA).
+		// Lower trust score due to external affiliation and intermittent access.
+		// Risk flag: external_entity indicates non-resident status.
+		// -----------------------------------------------------------------
 		models.Personnel{
 			EmployeeID:          "NP-2024-0300",
 			ClassificationLevel: models.ClassConfidential,
@@ -260,14 +351,23 @@ func SeedPersonnel(ctx context.Context, db *mongo.Database) {
 			Status:           "active",
 			HireDate:         time.Date(2019, 4, 1, 0, 0, 0, 0, time.UTC),
 			LastMedicalCheck: time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC),
-			CreatedAt:        time.Date(2019, 4, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:        now,
+			ZTNAMetadata: models.ZTNAMetadata{
+				TrustScore:          0.70,
+				LastTrustEvaluation: now.Add(-24 * time.Hour),
+				RiskFlags:           []string{"external_entity"},
+				MFAEnrolled:         true,
+				LastSuccessfulAuth:  now.Add(-1 * time.Hour),
+				FailedAuthCount:     0,
+				AccessReviewDate:    time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC),
+			},
+			CreatedAt: time.Date(2019, 4, 1, 0, 0, 0, 0, time.UTC),
+			UpdatedAt: now,
 		},
 	}
 
 	result, err := coll.InsertMany(ctx, personnel)
 	if err != nil {
-		log.Fatal("❌ Failed to seed personnel:", err)
+		log.Fatalf("[SEED] Failed to seed personnel: %v", err)
 	}
-	fmt.Printf("✅ Inserted %d personnel records\n", len(result.InsertedIDs))
+	fmt.Printf("[SEED] Inserted %d personnel records\n", len(result.InsertedIDs))
 }

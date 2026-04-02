@@ -1,3 +1,12 @@
+// =============================================================================
+// Seeder: maintenance_orders
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// Populates the maintenance_orders collection with work orders in various
+// lifecycle states (created, scheduled, in_progress, completed) and
+// different priority/safety classifications to enable realistic policy testing.
+// =============================================================================
+
 package seeders
 
 import (
@@ -12,12 +21,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// SeedMaintenanceOrders inserts maintenance work orders into the collection.
 func SeedMaintenanceOrders(ctx context.Context, db *mongo.Database) {
 	coll := db.Collection("maintenance_orders")
 
 	count, _ := coll.CountDocuments(ctx, bson.M{})
 	if count > 0 {
-		fmt.Println("⏭️  maintenance_orders already seeded, skipping")
+		log.Println("[SEED] maintenance_orders already populated, skipping")
 		return
 	}
 
@@ -33,7 +43,7 @@ func SeedMaintenanceOrders(ctx context.Context, db *mongo.Database) {
 	completedEnd := time.Date(2024, 12, 10, 15, 30, 0, 0, time.UTC)
 
 	orders := []interface{}{
-		// Corrective - In Progress
+		// Corrective - in progress, high priority, safety-related
 		models.MaintenanceOrder{
 			OrderID:              "MO-2025-0234",
 			ClassificationLevel:  models.ClassInternal,
@@ -79,7 +89,7 @@ func SeedMaintenanceOrders(ctx context.Context, db *mongo.Database) {
 			},
 		},
 
-		// Preventive - Scheduled
+		// Preventive - scheduled
 		models.MaintenanceOrder{
 			OrderID:              "MO-2025-0240",
 			ClassificationLevel:  models.ClassInternal,
@@ -116,7 +126,7 @@ func SeedMaintenanceOrders(ctx context.Context, db *mongo.Database) {
 			},
 		},
 
-		// Completed
+		// Completed - low priority
 		models.MaintenanceOrder{
 			OrderID:              "MO-2024-0890",
 			ClassificationLevel:  models.ClassInternal,
@@ -154,7 +164,7 @@ func SeedMaintenanceOrders(ctx context.Context, db *mongo.Database) {
 			},
 		},
 
-		// Critical - Created (emergency)
+		// Critical - newly created, emergency ECCS repair
 		models.MaintenanceOrder{
 			OrderID:              "MO-2025-0250",
 			ClassificationLevel:  models.ClassConfidential,
@@ -184,7 +194,7 @@ func SeedMaintenanceOrders(ctx context.Context, db *mongo.Database) {
 
 	result, err := coll.InsertMany(ctx, orders)
 	if err != nil {
-		log.Fatal("❌ Failed to seed maintenance_orders:", err)
+		log.Fatalf("[SEED] Failed to seed maintenance_orders: %v", err)
 	}
-	fmt.Printf("✅ Inserted %d maintenance orders\n", len(result.InsertedIDs))
+	fmt.Printf("[SEED] Inserted %d maintenance orders\n", len(result.InsertedIDs))
 }

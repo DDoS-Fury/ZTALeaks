@@ -1,6 +1,23 @@
+// =============================================================================
+// Business Database Models - Enumeration Constants
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// This file defines all enumeration constants used across the seed data.
+// Using typed constants avoids hardcoded strings scattered throughout the
+// codebase, reduces the risk of typos, and makes schema changes traceable.
+//
+// The constants are organized by domain concept and match the enumeration
+// values defined in the MongoDB JSON Schema validators.
+// =============================================================================
+
 package models
 
-// Classification levels
+// ---------------------------------------------------------------------------
+// Classification levels - aligned with the data sensitivity model.
+// These values determine access control decisions in the ZTA policy engine.
+// The hierarchy is: PUBLIC < INTERNAL < CONFIDENTIAL < SECRET < TOP_SECRET
+// ---------------------------------------------------------------------------
+
 const (
 	ClassPublic       = "PUBLIC"
 	ClassInternal     = "INTERNAL"
@@ -9,17 +26,27 @@ const (
 	ClassTopSecret    = "TOP_SECRET"
 )
 
-// Roles
+// ---------------------------------------------------------------------------
+// Operational roles - represent functional positions within the plant.
+// Each role maps to a set of permitted operations and accessible resources
+// in the Zero Trust policy definitions.
+// ---------------------------------------------------------------------------
+
 const (
-	RoleOperator      = "operator"
-	RoleMaintTech     = "maintenance_technician"
-	RoleRadProtection = "radiation_protection_officer"
-	RoleSecurity      = "security_officer"
-	RolePlantManager  = "plant_manager"
-	RoleInspector     = "inspector"
+	RoleOperator       = "operator"
+	RoleMaintTech      = "maintenance_technician"
+	RoleRadProtection  = "radiation_protection_officer"
+	RoleSecurity       = "security_officer"
+	RolePlantManager   = "plant_manager"
+	RoleInspector      = "inspector"
 )
 
-// Zone types
+// ---------------------------------------------------------------------------
+// Zone types - categorize areas by access restriction level.
+// The PDP uses zone type in conjunction with clearance level and
+// qualifications to evaluate physical access requests.
+// ---------------------------------------------------------------------------
+
 const (
 	ZonePublic     = "public"
 	ZoneControlled = "controlled"
@@ -27,7 +54,10 @@ const (
 	ZoneExclusion  = "exclusion"
 )
 
-// Reactor status
+// ---------------------------------------------------------------------------
+// Reactor operational states
+// ---------------------------------------------------------------------------
+
 const (
 	ReactorShutdown          = "shutdown"
 	ReactorStartup           = "startup"
@@ -36,14 +66,16 @@ const (
 	ReactorEmergencyShutdown = "emergency_shutdown"
 )
 
-// Maintenance types
+// ---------------------------------------------------------------------------
+// Maintenance work order types and lifecycle states
+// ---------------------------------------------------------------------------
+
 const (
 	MaintPreventive = "preventive"
 	MaintCorrective = "corrective"
 	MaintPredictive = "predictive"
 )
 
-// Priority
 const (
 	PriorityLow      = "low"
 	PriorityMedium   = "medium"
@@ -51,7 +83,6 @@ const (
 	PriorityCritical = "critical"
 )
 
-// Maintenance status
 const (
 	StatusCreated    = "created"
 	StatusApproved   = "approved"
@@ -61,7 +92,10 @@ const (
 	StatusCancelled  = "cancelled"
 )
 
-// Document types
+// ---------------------------------------------------------------------------
+// Document types and categories
+// ---------------------------------------------------------------------------
+
 const (
 	DocProcedure = "procedure"
 	DocManual    = "manual"
@@ -70,7 +104,6 @@ const (
 	DocAnalysis  = "analysis"
 )
 
-// Document categories
 const (
 	CatOperational    = "operational"
 	CatEmergency      = "emergency"
@@ -79,16 +112,18 @@ const (
 	CatAdministrative = "administrative"
 )
 
-// Document status
 const (
-	DocStatusDraft       = "draft"
+	DocStatusDraft      = "draft"
 	DocStatusUnderReview = "under_review"
-	DocStatusApproved    = "approved"
-	DocStatusSuperseded  = "superseded"
-	DocStatusArchived    = "archived"
+	DocStatusApproved   = "approved"
+	DocStatusSuperseded = "superseded"
+	DocStatusArchived   = "archived"
 )
 
+// ---------------------------------------------------------------------------
 // Badge types
+// ---------------------------------------------------------------------------
+
 const (
 	BadgePermanent  = "permanent"
 	BadgeTemporary  = "temporary"
@@ -96,7 +131,10 @@ const (
 	BadgeContractor = "contractor"
 )
 
-// Nuclear material types
+// ---------------------------------------------------------------------------
+// Nuclear material types and disposition states
+// ---------------------------------------------------------------------------
+
 const (
 	MatFuelAssembly = "fuel_assembly"
 	MatSpentFuel    = "spent_fuel"
@@ -104,7 +142,6 @@ const (
 	MatSource       = "source"
 )
 
-// Nuclear material status
 const (
 	MatInStorage   = "in_storage"
 	MatInReactor   = "in_reactor"
@@ -113,9 +150,31 @@ const (
 	MatTransferred = "transferred"
 )
 
-// Safety classification
+// ---------------------------------------------------------------------------
+// Safety classification for systems and components
+// ---------------------------------------------------------------------------
+
 const (
 	SafetyRelated    = "safety_related"
 	NonSafety        = "non_safety"
 	AugmentedQuality = "augmented_quality"
+)
+
+// ---------------------------------------------------------------------------
+// ZTNA-specific constants
+// ---------------------------------------------------------------------------
+
+const (
+	DeviceTypeWorkstation = "workstation"
+	DeviceTypeMobile      = "mobile"
+	DeviceTypeTerminal    = "control_terminal"
+	DeviceTypeTablet      = "tablet"
+)
+
+const (
+	NetworkPlantInternal = "plant_internal"
+	NetworkControlRoom   = "control_room_net"
+	NetworkAdmin         = "admin_net"
+	NetworkVPN           = "vpn"
+	NetworkExternal      = "external"
 )

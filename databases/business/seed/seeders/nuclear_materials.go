@@ -1,3 +1,13 @@
+// =============================================================================
+// Seeder: nuclear_materials
+// Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+// =============================================================================
+// Populates the nuclear_materials collection with the most sensitive data in
+// the database. All entries are classified SECRET or TOP_SECRET.
+// Includes fuel assemblies (in reactor and in storage), spent fuel, and
+// radioactive waste with IAEA safeguards and accountability records.
+// =============================================================================
+
 package seeders
 
 import (
@@ -12,23 +22,23 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// SeedNuclearMaterials inserts nuclear material inventory into the collection.
 func SeedNuclearMaterials(ctx context.Context, db *mongo.Database) {
 	coll := db.Collection("nuclear_materials")
 
 	count, _ := coll.CountDocuments(ctx, bson.M{})
 	if count > 0 {
-		fmt.Println("⏭️  nuclear_materials already seeded, skipping")
+		log.Println("[SEED] nuclear_materials already populated, skipping")
 		return
 	}
 
 	loaded := time.Date(2022, 9, 1, 0, 0, 0, 0, time.UTC)
 	discharge := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-
 	loaded2 := time.Date(2023, 3, 15, 0, 0, 0, 0, time.UTC)
 	discharge2 := time.Date(2027, 3, 15, 0, 0, 0, 0, time.UTC)
 
 	materials := []interface{}{
-		// Fuel assembly in reactor
+		// Fuel assembly in reactor - core position H-7
 		models.NuclearMaterial{
 			MaterialID:          "NM-UO2-2022-0056",
 			ClassificationLevel: models.ClassTopSecret,
@@ -62,7 +72,7 @@ func SeedNuclearMaterials(ctx context.Context, db *mongo.Database) {
 			},
 		},
 
-		// Another fuel assembly in reactor
+		// Fuel assembly in reactor - core position D-4
 		models.NuclearMaterial{
 			MaterialID:          "NM-UO2-2023-0012",
 			ClassificationLevel: models.ClassTopSecret,
@@ -129,7 +139,7 @@ func SeedNuclearMaterials(ctx context.Context, db *mongo.Database) {
 			},
 		},
 
-		// Fresh fuel in storage
+		// Fresh fuel in storage - awaiting loading
 		models.NuclearMaterial{
 			MaterialID:          "NM-UO2-2024-0001",
 			ClassificationLevel: models.ClassTopSecret,
@@ -164,7 +174,7 @@ func SeedNuclearMaterials(ctx context.Context, db *mongo.Database) {
 			MaterialID:          "NM-WST-2024-0100",
 			ClassificationLevel: models.ClassSecret,
 			Type:                models.MatWaste,
-			Description:         "Rifiuto radioattivo a media attività - resine esaurite",
+			Description:         "Rifiuto radioattivo a media attivita - resine esaurite",
 			MassKG:              120.0,
 			Status:              models.MatInStorage,
 			Location: models.MaterialLocation{
@@ -190,7 +200,7 @@ func SeedNuclearMaterials(ctx context.Context, db *mongo.Database) {
 
 	result, err := coll.InsertMany(ctx, materials)
 	if err != nil {
-		log.Fatal("❌ Failed to seed nuclear_materials:", err)
+		log.Fatalf("[SEED] Failed to seed nuclear_materials: %v", err)
 	}
-	fmt.Printf("✅ Inserted %d nuclear materials\n", len(result.InsertedIDs))
+	fmt.Printf("[SEED] Inserted %d nuclear materials\n", len(result.InsertedIDs))
 }

@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package ztaleaks.auth;
+
+option go_package = "ztaleaks/api/auth";
+
+service SecurityOrchestrator {
+  // A placeholder RPC for ext_authz
+  rpc Check(CheckRequest) returns (CheckResponse);
+}
+
+message CheckRequest {
+  string req_id = 1;
+}
+
+message CheckResponse {
+  bool allowed = 1;
+}

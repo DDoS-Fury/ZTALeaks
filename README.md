@@ -37,15 +37,18 @@ Esecuzione: Se autorizzato, la richiesta raggiunge la Business Logic.
 Audit: Tutti i componenti inviano log a Splunk tramite lo stesso X-Request-ID per garantire la tracciabilità end-to-end.
 
 📂 Struttura delle Directory
-Plaintext
+```text
 .
-├── envoy/               # Configurazione Proxy (L4/L7) e mTLS
-├── services/
-│   ├── security-orch/   # Orchestratore (Go): JA3 Logic & DB Bridge
-│   └── business-app/    # Servizio di Backend (Go): Business Logic
-├── opa/                 # Policy as Code (Rego files)
-├── db/                  # Script di init e volumi MongoDB
-└── docker-compose.yml   # Orchestrazione dei container e network isolation
+├── deployments/         # Orchestrazione dei container (docker-compose) e test
+├── docs/                # Documentazione estesa sull'architettura e testing
+├── infra/
+│   ├── databases/       # Script di init e configurazioni MongoDB (Business e Security)
+│   ├── envoy/           # Configurazione Proxy (L4/L7) e mTLS
+│   └── opa/             # Policy as Code (Rego files)
+└── services/
+    ├── business-logic/  # Servizio di Backend (Go): Business Logic
+    └── security-orchestrator/ # Orchestratore (Go): JA3 Logic & DB Bridge
+```
 🔧 Specifiche Tecniche
 1. Fingerprinting JA3
 Il sistema utilizza l'ordine e la tipologia delle Cipher Suites e delle estensioni TLS per creare una firma univoca del client (browser/libreria). Questo permette di identificare bot o tentativi di impersonificazione anche se le credenziali sono corrette.
@@ -67,11 +70,16 @@ Correlation: Utilizzo di request_id per unire log di accesso e operazioni sul da
 Alerting: Query programmate per rilevare Impossible Travel o Credential Stuffing.
 
 🚀 Setup e Installazione
-Prerequisiti: Docker & Docker Compose installati.
 
-Configurazione: Clonare il repository e configurare il file .env con i token di Splunk e le password dei DB.
+📌 **Documentazione Completa:**
+- 📖 [Architettura e Componenti ZTA](docs/architecture.md)
+- 🚀 [Guida di Avvio e Testing](docs/getting-started.md)
 
-Avvio:
+**Prerequisiti:** Docker & Docker Compose installati.
 
-Bash
-docker-compose up -d --build
+**Configurazione:** Clonare il repository e configurare il file `.env` con i token di Splunk e le password dei DB.
+
+**Avvio:**
+```bash
+docker-compose -f deployments/docker-compose/docker-compose.yaml up -d --build
+```

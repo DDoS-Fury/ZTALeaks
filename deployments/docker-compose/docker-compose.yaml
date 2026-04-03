@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  envoy:
+    build:
+      context: ../../infra/envoy
+      dockerfile: Dockerfile
+    container_name: ztaleaks_envoy
+    ports:
+      - "8443:8443"
+    depends_on:
+      - security-orchestrator
+      - business-logic
+    restart: unless-stopped
+    networks:
+      - front-net
+
+  security-orchestrator:
+    build:
+      context: ../../services/security-orchestrator
+      dockerfile: Dockerfile
+    container_name: ztaleaks_security_orchestrator
+    ports:
+      - "9090:9090"
+    depends_on:
+      - opa
+      - security-db
+    env_file:
+      - ../../.env
+    restart: unless-stopped
+    networks:
+      - front-net
+      - auth-net
+
+  opa:
+    image: openpolicyagent/opa:latest-envoy
+    platform: linux/amd64
+    container_name: ztaleaks_opa
+    volumes:
+      - ../../infra/opa/policy.rego:/policy.rego
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--log-level=debug"
+      - "/policy.rego"
+    ports:
+      - "8181:8181"
+    restart: unless-stopped
+    networks:
+      - auth-net
+
+  business-logic:
+    build:
+      context: ../../services/business-logic
+      dockerfile: Dockerfile
+    container_name: ztaleaks_business_logic
+    ports:
+      - "${BUSINESS_LOGIC_PORT:-8080}:${BUSINESS_LOGIC_PORT:-8080}"
+    depends_on:
+      - business-db
+    env_file:
+      - ../../.env
+    environment:
+      - BUSINESS_LOGIC_PORT=${BUSINESS_LOGIC_PORT:-8080}
+    restart: unless-stopped
+    networks:
+      - back-net
+      - auth-net # Usually needs auth-net so OPA/Orchestrator can reach it, or Envoy routes directly
+
+  business-db:
+    build:
+      context: ../../infra/databases/business
+      dockerfile: Dockerfile
+    container_name: ztaleaks_business_db
+    ports:
+       - "27017:27017"
+    volumes:
+       - business-db-data:/data/db
+    restart: unless-stopped
+    networks:
+      - back-net
+
+  security-db:
+    image: mongo:6.0
+    container_name: ztaleaks_security_db
+    ports:
+       - "27018:27017"
+    volumes:
+       - ../../infra/databases/security/db_init:/docker-entrypoint-initdb.d
+       - security-db-data:/data/db
+    restart: unless-stopped
+    networks:
+      - auth-net
+
+  seeder:
+    build:
+      context: ../../tools/seeder
+      dockerfile: Dockerfile
+    container_name: ztaleaks_seeder
+    depends_on:
+      - business-db
+    environment:
+      - MONGO_URI=mongodb://seed_service:seedServicePass2025!@business-db:27017/nuclear_plant_db?authSource=nuclear_plant_db
+    profiles:
+      - seed
+    networks:
+      - back-net
+
+networks:
+  front-net:
+  auth-net:
+  back-net:
+
+volumes:
+  business-db-data:
+  security-db-data:

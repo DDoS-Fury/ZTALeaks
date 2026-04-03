@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  test_client:
+    build:
+      context: ../../tests/clients
+      dockerfile: Dockerfile
+    networks:
+      - front-net
+
+networks:
+  front-net:
+    name: docker-compose_front-net
+    external: true

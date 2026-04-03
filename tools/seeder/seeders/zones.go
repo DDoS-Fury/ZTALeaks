@@ -23,7 +23,7 @@ package seeders
 
 import (
 	"context"
-	"fmt"
+	
 	"log"
 
 	"nuclear-zta-seed/models"

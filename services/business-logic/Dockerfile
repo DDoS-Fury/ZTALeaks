@@ -1,5 +1,5 @@
 # Fase di build
-FROM golang:1.22 AS builder
+FROM golang:1.26 AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Compila l'applicazione staticamente
-RUN CGO_ENABLED=0 GOOS=linux go build -o business-server main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o business-server ./cmd/server/main.go
 
 # Fase finale (immagine minima)
 FROM alpine:latest

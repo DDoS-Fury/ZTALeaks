@@ -43,6 +43,7 @@ To thoroughly test the architecture, you need to simulate both legitimate traffi
 
 1. **Test Environment Spin-Up**:
    There is a dedicated testing docker-compose file available for isolated test runs or specific mock setups:
+   
    ```bash
    docker-compose -f deployments/docker-compose/docker-compose.test.yaml up -d --build
    ```

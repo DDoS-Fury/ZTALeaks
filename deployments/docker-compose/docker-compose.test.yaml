@@ -3,8 +3,15 @@ version: '3.8'
 services:
   test_client:
     build:
-      context: ../../tests/clients
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: tests/clients/Dockerfile
+    networks:
+      - front-net
+
+  test_client_2:
+    build:
+      context: ../../
+      dockerfile: tests/clients/Dockerfile
     networks:
       - front-net
 

@@ -1,0 +1,7 @@
+Obbiettivo: scrivere un firewall nftables con log delle richieste in docker
+Contesto: Un container con un servizio firewall che decide in base all ip se concedere o negare l accesso 
+Scrivi i file Dockerfile, nftables.conf e se serve un entrypoint.sh per il firewall.
+Modifica il docker compose per aggiungere il firewall prima di envoy
+Consigli: il firewall non deve mascherare l ip ad envoy ma fare solo da filtro 
+il test verrà eseguito come quelli precedenti con la cartella test e il docker compose test
+non usare altre cose che non ti ho detto.

@@ -1,19 +1,37 @@
 version: '3.8'
 
 services:
-  envoy:
+  firewall:
     build:
-      context: ../../infra/envoy
-      dockerfile: Dockerfile
-    container_name: ztaleaks_envoy
+      context: ../../
+      dockerfile: infra/nftables/Dockerfile
+    container_name: ztaleaks_firewall
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYSLOG
+      - SYS_ADMIN
     ports:
       - "8443:8443"
+    networks:
+      front-net:
+        aliases:
+          - envoy
+          - ztaleaks_envoy
+    restart: unless-stopped
+
+  envoy:
+    build:
+      context: ../../
+      dockerfile: infra/envoy/Dockerfile
+    container_name: ztaleaks_envoy
+    network_mode: service:firewall
     depends_on:
+      - firewall
       - security-orchestrator
       - business-logic
     restart: unless-stopped
-    networks:
-      - front-net
+    # networks rimossi essendo gestiti dal container firewall
 
   security-orchestrator:
     build:

@@ -1,0 +1,82 @@
+name: CI - Build Verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Infrastructure ---
+
+      - name: Build firewall (nftables)
+        run: docker build -f infra/nftables/Dockerfile -t ztaleaks/firewall .
+
+      - name: Build envoy proxy
+        run: docker build -f infra/envoy/Dockerfile -t ztaleaks/envoy .
+
+      - name: Build business-db
+        run: docker build -t ztaleaks/business-db ./infra/databases/business
+
+      # --- Go services (multi-stage) ---
+
+      - name: Build security-orchestrator
+        run: docker build -t ztaleaks/security-orchestrator ./services/security-orchestrator
+
+      - name: Build business-logic
+        run: docker build -t ztaleaks/business-logic ./services/business-logic
+
+      - name: Build seeder
+        run: docker build -t ztaleaks/seeder ./tools/seeder
+
+      # --- Test images ---
+
+      - name: Build test-client
+        run: docker build -f tests/clients/Dockerfile -t ztaleaks/test-client .
+
+  # Uncomment when OPA policies have test cases in tests/opa/:
+  #
+  # opa-tests:
+  #   name: OPA Policy Tests
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Run OPA tests
+  #       run: |
+  #         docker run --rm -v ${{ github.workspace }}:/workspace \
+  #           openpolicyagent/opa:latest \
+  #           test /workspace/infra/opa/ /workspace/tests/opa/ -v
+
+  # Uncomment when Go test files exist:
+  #
+  # go-checks:
+  #   name: Go Lint & Test
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       module:
+  #         - services/business-logic
+  #         - services/security-orchestrator
+  #         - tools/seeder
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v5
+  #       with:
+  #         go-version-file: ${{ matrix.module }}/go.mod
+  #     - name: Go vet
+  #       working-directory: ${{ matrix.module }}
+  #       run: go vet ./...
+  #     - name: Go test
+  #       working-directory: ${{ matrix.module }}
+  #       run: go test ./... -v

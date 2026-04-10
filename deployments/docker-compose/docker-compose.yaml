@@ -11,8 +11,12 @@ services:
       - NET_RAW
       - SYSLOG
       - SYS_ADMIN
+    env_file:
+      - ../../.env
+    environment:
+      - ENVOY_PORT=${ENVOY_PORT:-8443}
     ports:
-      - "8443:8443"
+      - "${ENVOY_PORT:-8443}:${ENVOY_PORT:-8443}"
     networks:
       front-net:
         aliases:
@@ -32,6 +36,19 @@ services:
       - business-logic
     restart: unless-stopped
     # networks rimossi essendo gestiti dal container firewall
+
+  snort:
+    build:
+      context: ../../
+      dockerfile: infra/snort/Dockerfile
+    container_name: ztaleaks_snort
+    network_mode: service:firewall
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - firewall
+    restart: unless-stopped
 
   security-orchestrator:
     build:

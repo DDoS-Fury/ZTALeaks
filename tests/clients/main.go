@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -83,6 +84,25 @@ func main() {
 		Certificates:       []tls.Certificate{clientCert},
 		ServerName:         "ztaleaks_envoy",
 	})
+
+	// 4. Simulate a Port Scan to trigger Snort IDS detection
+	portScanReqID := generateUUID()
+	log.Printf("\nStarting Port Scan Simulation. X-Request-ID: %s\n", portScanReqID)
+	simulatePortScan("ztaleaks_envoy")
+}
+
+func simulatePortScan(host string) {
+	// Attempt to connect to 15 target ports very quickly
+	// This triggers the Snort threshold rule detecting >5 SYN packets in 5 seconds
+	for port := 8000; port < 8015; port++ {
+		target := fmt.Sprintf("%s:%d", host, port)
+		// We only care about transmitting the SYN packet, so we ignore connection refused errors
+		conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+		}
+	}
+	log.Println("[PortScan] Finished sending SYN packets for port scan.")
 }
 
 func runRequest(name, urlStr, reqID string, tlsConfig *tls.Config) {

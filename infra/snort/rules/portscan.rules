@@ -1,0 +1,2 @@
+# Regola Snort 2.9 compatibile per il rilevamento passivo dei Port Scan.
+alert tcp any any -> any any (msg:"ZTA: TCP Port Scanning Detected"; flags:S; detection_filter:track by_src, count 5, seconds 5; classtype:attempted-recon; sid:1000001; rev:1;)

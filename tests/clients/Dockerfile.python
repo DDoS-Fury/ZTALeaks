@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY certs/ca.crt /app/certs/
+COPY certs/client.crt /app/certs/
+COPY certs/client.key /app/certs/
+
+COPY tests/clients/main.py ./
+
+# Il parametro -u evita il buffering dell'output nei log di Docker
+CMD ["python", "-u", "main.py"]

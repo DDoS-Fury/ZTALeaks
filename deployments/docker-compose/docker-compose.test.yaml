@@ -11,7 +11,7 @@ services:
   test_client_2:
     build:
       context: ../../
-      dockerfile: tests/clients/Dockerfile
+      dockerfile: tests/clients/Dockerfile.python
     networks:
       - front-net
 

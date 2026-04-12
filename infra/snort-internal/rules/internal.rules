@@ -1,0 +1,15 @@
+# Snort rules for internal traffic (Firewall -> Envoy)
+# Ping rule to test if Snort works:
+alert icmp any any -> any any (msg:"ZTA: ICMP Test Ping Detected"; itype:8; sid:1000004; rev:1;)
+
+# 1. mTLS Violation: Rileva l'assenza del certificato client nel flusso TLS (es. Handshake tipo 11 "Certificate" con payload nullo in TLS 1.2)
+alert tcp any any -> any any (msg:"ZTA: mTLS Violation Detected (Missing Client Certificate)"; content:"|0B 00 00 03 00 00 00|"; classtype:protocol-command-decode; sid:2000002; rev:5;)
+
+# 2. TLS Anomaly: Rilevamento handshake ClientHello con Cipher deprecata (RSA con AES-128-CBC-SHA = 0x00, 0x2F) tipica di strumenti legacy o minacce (JA3 inattesi)
+alert tcp any any -> any any (msg:"ZTA: Unexpected JA3/Deprecated Cipher Detected"; content:"|00 2F|"; classtype:suspicious-login; sid:2000003; rev:5;)
+
+# 3. TLS Anomaly: Uso di protocolli obsoleti (TLS 1.0 ClientHello ha versione record 16 03 01)
+alert tcp any any -> any any (msg:"ZTA: Obsolete TLS Version Detected (TLS 1.0)"; content:"|16 03 01|"; depth:3; classtype:bad-unknown; sid:2000005; rev:1;)
+
+# 4. Volumetric Network Attack: SYN Flood mirato verso Envoy (oltre 30 SYN in 2 secondi verso la stessa porta)
+alert tcp any any -> any ENV_ENVOY_PORT (msg:"ZTA: SYN Flood - Volumetric Network Attack Detected"; flags:S; detection_filter:track by_dst, count 30, seconds 2; classtype:attempted-dos; sid:2000006; rev:1;)

@@ -46,36 +46,53 @@ func main() {
 	time.Sleep(10 * time.Second)
 
 	targetURL := "https://ztaleaks_envoy:8443/"
+
 	caFilePath := "/app/certs/ca.crt"
 
 	clientCrtPath := "/app/certs/client.crt"
 	clientKeyPath := "/app/certs/client.key"
 
 	// Caricamento del certificato client
+
 	clientCert, err := tls.LoadX509KeyPair(clientCrtPath, clientKeyPath)
 	if err != nil {
 		log.Fatalf("Errore caricamento certificato client: %v", err)
 	}
 
-	// 1. Valid Request (Standard Modern Ciphers)
+	// 1. Valid Request (Standard Modern Ciphers but WITHOUT client cert -> triggers mTLS violation rule in TLS 1.2)
 	validReqID := generateUUID()
 	log.Printf("Starting Valid Request. X-Request-ID: %s\n", validReqID)
 	runRequest("Valid", targetURL, validReqID, &tls.Config{
-		InsecureSkipVerify: true, // We are testing the network/TLS handshake properties
+		InsecureSkipVerify: true,             // We are testing the network/TLS handshake properties
+		MaxVersion:         tls.VersionTLS12, // Forziamo TLS 1.2 per rendere visibile l'alert di certificato mancante a Snort
 	})
 
 	// 2. Anomalous Request (Restricted/Deprecated Cipher Suite)
+	// Questo scatenerà l'alert: ZTA: Unexpected JA3/Deprecated Cipher Detected
 	anomalousReqID := generateUUID()
 	log.Printf("\nStarting Anomalous Request. X-Request-ID: %s\n", anomalousReqID)
 	runRequest("Anomalous", targetURL, anomalousReqID, &tls.Config{
 		InsecureSkipVerify: true,
 		CipherSuites: []uint16{
-			tls.TLS_RSA_WITH_AES_128_CBC_SHA, // Less secure / identifiable cipher
+			tls.TLS_RSA_WITH_AES_128_CBC_SHA, // Cifra deprecata
 		},
 		MaxVersion: tls.VersionTLS12,
 	})
 
-	//3. Valid Request with real certificate
+	// 3. Obsolete TLS Version Test (TLS 1.0)
+	// Scatenerà l'alert predefinito: ZTA: Obsolete TLS Version Detected (TLS 1.0)
+	obsoleteReqID := generateUUID()
+	log.Printf("\nStarting Obsolete Protocol Test (TLS 1.0). X-Request-ID: %s\n", obsoleteReqID)
+	runRequest("Obsolete", targetURL, obsoleteReqID, &tls.Config{
+		InsecureSkipVerify: true,
+		MaxVersion:         tls.VersionTLS10,
+	})
+
+	// 4. Volumetric Network Attack: SYN Flood su porta 8443
+	log.Printf("\nStarting Volumetric Attack (SYN Flood su Envoy)...\n")
+	simulateSYNFlood("ztaleaks_envoy", 8443, 40) // Inviamo 40 SYN in un solo istante al medesimo port
+
+	// 5. Real Certificate Request (con certificato client valido)
 	realCertReqID := generateUUID()
 	log.Printf("\nStarting real Request. X-Request-ID: %s\n", realCertReqID)
 	runRequest("RealCert", targetURL, realCertReqID, &tls.Config{
@@ -85,10 +102,11 @@ func main() {
 		ServerName:         "ztaleaks_envoy",
 	})
 
-	// 4. Simulate a Port Scan to trigger Snort IDS detection
+	// 6. Port Scan Simulation (SYN Scan su porte comuni)
 	portScanReqID := generateUUID()
 	log.Printf("\nStarting Port Scan Simulation. X-Request-ID: %s\n", portScanReqID)
 	simulatePortScan("ztaleaks_envoy")
+
 }
 
 func simulatePortScan(host string) {
@@ -103,6 +121,22 @@ func simulatePortScan(host string) {
 		}
 	}
 	log.Println("[PortScan] Finished sending SYN packets for port scan.")
+}
+
+func simulateSYNFlood(host string, port int, amount int) {
+	target := fmt.Sprintf("%s:%d", host, port)
+
+	// Eseguo chiamate parallele massicce simulando un Flood sul target designato
+	for i := 0; i < amount; i++ {
+		go func() {
+			conn, _ := net.DialTimeout("tcp", target, 50*time.Millisecond)
+			if conn != nil {
+				conn.Close()
+			}
+		}()
+	}
+	time.Sleep(2 * time.Second) // Attendiamo per assicurarci che completino e l'alert scatti
+	log.Println("[SYN Flood] Finished sending SYN packets.")
 }
 
 func runRequest(name, urlStr, reqID string, tlsConfig *tls.Config) {

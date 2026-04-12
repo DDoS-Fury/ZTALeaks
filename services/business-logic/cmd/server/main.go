@@ -1,31 +1,103 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"ztaleaks/business-logic/internal/db"
 	"ztaleaks/business-logic/internal/handler"
 )
 
 func main() {
-	// Leggi la porta dall'ambiente, o usa un default
 	port := os.Getenv("BUSINESS_LOGIC_PORT")
 	if port == "" {
 		port = "8080"
-		log.Println("La variabile BUSINESS_LOGIC_PORT non è impostata. Utilizzo la porta di default: 8080")
 	}
 
-	// Inizializza il mux
-	mux := http.NewServeMux()
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://seed_service:seedServicePass2025!@business-db:27017/nuclear_plant_db?authSource=nuclear_plant_db"
+	}
 
-	// Collega i gestori alle rotte
+	dbName := os.Getenv("MONGO_DB")
+	if dbName == "" {
+		dbName = "nuclear_plant_db"
+	}
+
+	// Connect to MongoDB
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	mongoClient, err := db.Connect(ctx, mongoURI)
+	if err != nil {
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
+	}
+
+	if err := mongoClient.Ping(ctx); err != nil {
+		log.Fatalf("Failed to ping MongoDB: %v", err)
+	}
+	log.Println("Connected to MongoDB")
+
+	database := mongoClient.Client.Database(dbName)
+
+	// Instantiate repositories
+	personnelRepo := db.NewMongoPersonnelRepository(database)
+	zoneRepo := db.NewMongoZoneRepository(database)
+	badgeRepo := db.NewMongoBadgeRepository(database)
+	reactorRepo := db.NewMongoReactorRepository(database)
+	maintenanceRepo := db.NewMongoMaintenanceOrderRepository(database)
+	documentRepo := db.NewMongoDocumentRepository(database)
+	nuclearMaterialRepo := db.NewMongoNuclearMaterialRepository(database)
+
+	// Create API handler
+	api := handler.NewAPIHandler(
+		personnelRepo,
+		zoneRepo,
+		badgeRepo,
+		reactorRepo,
+		maintenanceRepo,
+		documentRepo,
+		nuclearMaterialRepo,
+	)
+
+	// Register routes
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
 	mux.HandleFunc("/", handler.HomeHandler)
 
-	// Avvia il server
-	address := ":" + port
-	log.Printf("Avvio del server Business Logic su %s...", address)
-	if err := http.ListenAndServe(address, mux); err != nil {
-		log.Fatalf("Errore nell'avvio del server: %v", err)
+	// Start server with graceful shutdown
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
 	}
+
+	go func() {
+		log.Printf("Business Logic server starting on :%s", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
+
+	if err := mongoClient.Disconnect(shutdownCtx); err != nil {
+		log.Printf("Error disconnecting from MongoDB: %v", err)
+	}
+
+	log.Println("Server stopped")
 }

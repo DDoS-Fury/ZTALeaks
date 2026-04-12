@@ -20,7 +20,21 @@ static_resources:
         "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
         enable_ja3_fingerprinting: true
     filter_chains:
-    - filters:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: true
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain:
+                filename: /etc/envoy/certs/server.crt
+              private_key:
+                filename: /etc/envoy/certs/server.key
+            validation_context:
+              trusted_ca:
+                filename: /etc/envoy/certs/ca.crt
+      filters:
       - name: envoy.filters.network.http_connection_manager
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
@@ -46,27 +60,31 @@ static_resources:
               domains: ["*"]
               routes:
               - match:
+                  prefix: "/api/v1/"
+                route:
+                  cluster: business_logic_cluster
+              - match:
                   prefix: "/"
                 direct_response:
                   status: 200
                   body:
-                    inline_string: "Envoy running"
+                    inline_string: "ZTALeaks PEP - Use /api/v1/ for business data"
           http_filters:
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-      transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-          require_client_certificate: true
-          common_tls_context:
-            tls_certificates:
-            - certificate_chain:
-                filename: /etc/envoy/certs/server.crt
-              private_key:
-                filename: /etc/envoy/certs/server.key
-            # --- NUOVO: Trust della CA per verificare il Client ---
-            validation_context:
-              trusted_ca:
-                filename: /etc/envoy/certs/ca.crt
+
+  clusters:
+  - name: business_logic_cluster
+    connect_timeout: 5s
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: business_logic_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: business-logic
+                port_value: 8080

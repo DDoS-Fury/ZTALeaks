@@ -12,7 +12,10 @@ ENVOY_PORT=${ENVOY_PORT:-8443}
 sed -i "s/ENV_ENVOY_PORT/$ENVOY_PORT/g" /etc/nftables.conf
 
 # Carica configurazione nftables
+# Nota: usiamo delete+add invece di "flush ruleset" per non cancellare
+# le regole NAT di Docker (127.0.0.11 DNS) che usano il backend nftables.
 echo "Caricamento regole nftables per la porta $ENVOY_PORT..."
+nft delete table inet filter 2>/dev/null || true
 nft -f /etc/nftables.conf
 echo "Regole nftables caricate con successo."
 

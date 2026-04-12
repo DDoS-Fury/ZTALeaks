@@ -71,12 +71,10 @@ func (r *mongoReactorRepo) GetByID(ctx context.Context, id string) (*models.Reac
 	reqID, _ := ctx.Value("X-Request-ID").(string)
 
 	var rp models.ReactorParameters
-	// Assuming `id` is a string timestamp or an explicit identifier. Using `_id` typically requires primitive.ObjectID.
-	// Assuming for now the `_id` is passed correctly as an interface or we fallback to an explicit query filter.
-	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&rp)
+	err := r.collection.FindOne(ctx, bson.M{"reactor_id": id}).Decode(&rp)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, nil
+			return nil, fmt.Errorf("reactor parameter not found")
 		}
 		slog.Error("failed to get reactor parameter by id", "error", err, "x_request_id", reqID)
 		return nil, fmt.Errorf("failed to get reactor parameter by id: %w", err)
@@ -124,10 +122,15 @@ func (r *mongoReactorRepo) Update(ctx context.Context, rp *models.ReactorParamet
 func (r *mongoReactorRepo) Delete(ctx context.Context, id string) error {
 	reqID, _ := ctx.Value("X-Request-ID").(string)
 
-	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	result, err := r.collection.DeleteOne(ctx, bson.M{"reactor_id": id})
 	if err != nil {
 		slog.Error("failed to delete reactor parameter", "error", err, "x_request_id", reqID)
 		return fmt.Errorf("failed to delete reactor parameter: %w", err)
 	}
+
+	if result.DeletedCount == 0 {
+		return fmt.Errorf("reactor parameter not found")
+	}
+
 	return nil
 }

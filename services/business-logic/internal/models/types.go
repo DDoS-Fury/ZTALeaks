@@ -279,6 +279,7 @@ type MaintenanceOrder struct {
 	EstimatedDoseMSV     float64          `bson:"estimated_dose_msv"`
 	Procedures           []string         `bson:"procedures"`
 	ApprovalChain        []Approval       `bson:"approval_chain"`
+	DataIntegrityHash    string           `bson:"data_integrity_hash" json:"data_integrity_hash"`
 }
 
 // ===========================================================================
@@ -312,6 +313,7 @@ type Document struct {
 	ReviewDate          time.Time `bson:"review_date"`
 	CreatedAt           time.Time `bson:"created_at"`
 	UpdatedAt           time.Time `bson:"updated_at"`
+	DataIntegrityHash   string    `bson:"data_integrity_hash" json:"data_integrity_hash"`
 }
 
 // ===========================================================================
@@ -363,4 +365,5 @@ type NuclearMaterial struct {
 	SerialNumber        string           `bson:"serial_number"`
 	IAEASafeguards      IAEASafeguards   `bson:"iaea_safeguards"`
 	Accountability      Accountability   `bson:"accountability"`
+	DataIntegrityHash   string           `bson:"data_integrity_hash" json:"data_integrity_hash"`
 }

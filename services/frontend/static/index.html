@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZTALeaks - Nuclear Plant Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>ZTALeaks</h1>
+                <p>Nuclear Plant DBMS</p>
+            </div>
+            <ul class="nav-list">
+                <li><a href="#" class="nav-link active" data-collection="personnel">Personnel</a></li>
+                <li><a href="#" class="nav-link" data-collection="zones">Zones</a></li>
+                <li><a href="#" class="nav-link" data-collection="badges">Access Badges</a></li>
+                <li><a href="#" class="nav-link" data-collection="reactor-parameters">Reactor Parameters</a></li>
+                <li><a href="#" class="nav-link" data-collection="maintenance-orders">Maintenance Orders</a></li>
+                <li><a href="#" class="nav-link" data-collection="documents">Documents</a></li>
+                <li><a href="#" class="nav-link" data-collection="nuclear-materials">Nuclear Materials</a></li>
+            </ul>
+        </nav>
+
+        <main class="content">
+            <header class="content-header">
+                <h2 id="page-title">Personnel</h2>
+                <div class="header-actions">
+                    <button id="btn-refresh" class="btn btn-secondary" title="Refresh">Refresh</button>
+                    <button id="btn-create" class="btn btn-primary">+ New Record</button>
+                </div>
+            </header>
+
+            <div id="loading" class="loading" style="display:none;">Loading...</div>
+            <div id="error-msg" class="error-msg" style="display:none;"></div>
+            <div id="table-container" class="table-container"></div>
+        </main>
+    </div>
+
+    <!-- Modal for Create/Edit -->
+    <div id="modal-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">New Record</h3>
+                <button id="modal-close" class="btn-close">&times;</button>
+            </div>
+            <form id="modal-form" class="modal-form"></form>
+            <div class="modal-footer">
+                <button id="modal-cancel" class="btn btn-secondary">Cancel</button>
+                <button id="modal-save" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detail view modal -->
+    <div id="detail-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h3 id="detail-title">Record Detail</h3>
+                <button id="detail-close" class="btn-close">&times;</button>
+            </div>
+            <div id="detail-content" class="detail-content"></div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>

@@ -22,6 +22,7 @@ services:
         aliases:
           - envoy
           - ztaleaks_envoy
+      back-net: {}
     restart: unless-stopped
 
   envoy:
@@ -141,6 +142,21 @@ services:
       - seed
     networks:
       - back-net
+
+  frontend:
+    build:
+      context: ../../services/frontend
+      dockerfile: Dockerfile
+    container_name: ztaleaks_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../../certs:/etc/nginx/certs:ro
+    depends_on:
+      - firewall
+    restart: unless-stopped
+    networks:
+      - front-net
 
 networks:
   front-net:

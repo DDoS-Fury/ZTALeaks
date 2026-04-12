@@ -51,6 +51,19 @@ services:
       - firewall
     restart: unless-stopped
 
+  snort-internal:
+    build:
+      context: ../../
+      dockerfile: infra/snort-internal/Dockerfile
+    container_name: ztaleaks_snort_internal
+    network_mode: service:firewall
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - firewall
+    restart: unless-stopped
+
   security-orchestrator:
     build:
       context: ../../services/security-orchestrator

@@ -104,8 +104,6 @@ services:
       context: ../../services/business-logic
       dockerfile: Dockerfile
     container_name: ztaleaks_business_logic
-    ports:
-      - "${BUSINESS_LOGIC_PORT:-8080}:${BUSINESS_LOGIC_PORT:-8080}"
     depends_on:
       - business-db
     env_file:

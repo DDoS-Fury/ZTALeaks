@@ -120,8 +120,6 @@ services:
       context: ../../infra/databases/business
       dockerfile: Dockerfile
     container_name: ztaleaks_business_db
-    ports:
-       - "27017:27017"
     volumes:
        - business-db-data:/data/db
     restart: unless-stopped

@@ -1,8 +1,14 @@
 #!/bin/bash
 set -e
 
+# Crea la directory di log per il volume
+mkdir -p /var/log/firewall
+
 # Crea il file di log per ulogd preventivamente
-touch /var/log/ulogd-syslogemu.log
+touch /var/log/firewall/ulogd-syslogemu.log
+
+# Ensure ownership so ulogd can write if needed
+chown -R root:root /var/log/firewall
 
 # Avvia ulogd in background
 ulogd -d -c /etc/ulogd.conf
@@ -20,4 +26,4 @@ nft -f /etc/nftables.conf
 echo "Regole nftables caricate con successo."
 
 # Leggi in continuo il file di log per stampare sullo stdout del container (utile a Splunk/Docker logs)
-exec tail -F /var/log/ulogd-syslogemu.log
+exec tail -F /var/log/firewall/ulogd-syslogemu.log

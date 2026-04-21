@@ -7,4 +7,8 @@ COPY certs/ca.crt /etc/envoy/certs/ca.crt
 
 COPY infra/envoy/envoy.yaml /etc/envoy/envoy.yaml
 
+USER root
+RUN mkdir -p /var/log/envoy && chown -R 101:101 /var/log/envoy
+USER envoy
+
 CMD /usr/local/bin/envoy -c /etc/envoy/envoy.yaml -l info

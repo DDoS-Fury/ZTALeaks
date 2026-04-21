@@ -17,6 +17,8 @@ services:
       - ENVOY_PORT=${ENVOY_PORT:-8443}
     ports:
       - "${ENVOY_PORT:-8443}:${ENVOY_PORT:-8443}"
+    volumes:
+      - firewall-logs:/var/log/firewall
     networks:
       front-net:
         aliases:
@@ -35,6 +37,8 @@ services:
       - firewall
       - security-orchestrator
       - business-logic
+    volumes:
+      - envoy-logs:/var/log/envoy
     restart: unless-stopped
     # networks rimossi essendo gestiti dal container firewall
 
@@ -49,6 +53,8 @@ services:
       - NET_RAW
     depends_on:
       - firewall
+    volumes:
+      - snort-logs:/var/log/snort
     restart: unless-stopped
 
   snort-internal:
@@ -62,6 +68,12 @@ services:
       - NET_RAW
     depends_on:
       - firewall
+    env_file:
+      - ../../.env
+    environment:
+      - ENVOY_PORT=${ENVOY_PORT:-8443}
+    volumes:
+      - snort-internal-logs:/var/log/snort
     restart: unless-stopped
 
   security-orchestrator:
@@ -175,3 +187,7 @@ networks:
 volumes:
   business-db-data:
   security-db-data:
+  firewall-logs:
+  envoy-logs:
+  snort-logs:
+  snort-internal-logs:

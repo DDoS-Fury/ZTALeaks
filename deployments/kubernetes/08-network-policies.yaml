@@ -1,0 +1,190 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# ==========================================
+# Common / Core
+# ==========================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# ==========================================
+# Front-Net
+# ==========================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {} # Allow external ingress
+  egress:
+  - {} # Allow everywhere
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pep-edge-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: pep-edge
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {} # Allow external ingress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: security-orchestrator
+    - podSelector:
+        matchLabels:
+          app: business-logic
+
+---
+# ==========================================
+# Auth-Net
+# ==========================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: security-orchestrator-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: security-orchestrator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: pep-edge
+    - podSelector:
+        matchLabels:
+          app: business-logic
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: opa
+    - podSelector:
+        matchLabels:
+          app: security-db
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: opa-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: opa
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: security-orchestrator
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: security-db-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: security-db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: security-orchestrator
+
+---
+# ==========================================
+# Back-Net
+# ==========================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: business-logic-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: business-logic
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: pep-edge
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: business-db
+    - podSelector:
+        matchLabels:
+          app: security-orchestrator
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: business-db-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: business-db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: business-logic
+    - podSelector:
+        matchLabels:
+          app: seeder

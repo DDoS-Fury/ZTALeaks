@@ -1,0 +1,338 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-config
+  namespace: default
+data:
+  envoy.yaml: |-
+    admin:
+      access_log_path: /tmp/admin_access.log
+      address:
+        socket_address:
+          protocol: TCP
+          address: 0.0.0.0
+          port_value: 9901
+    
+    static_resources:
+      listeners:
+      - name: listener_0
+        address:
+          socket_address:
+            protocol: TCP
+            address: 0.0.0.0
+            port_value: 8443
+        listener_filters:
+        - name: envoy.filters.listener.tls_inspector
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+            enable_ja3_fingerprinting: true
+        filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                tls_certificates:
+                - certificate_chain:
+                    filename: /etc/envoy/certs/server.crt
+                  private_key:
+                    filename: /etc/envoy/certs/server.key
+                validation_context:
+                  trusted_ca:
+                    filename: /etc/envoy/certs/ca.crt
+          filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: ingress_http
+              # --- NUOVO: Configurazione Access Log per il monitoraggio ---
+              access_log:
+              - name: envoy.access_loggers.stdout
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                  log_format:
+                    json_format:
+                      start_time: "%START_TIME%"
+                      request_id: "%REQ(X-REQUEST-ID)%"
+                      response_code: "%RESPONSE_CODE%"
+                      tls_version: "%DOWNSTREAM_TLS_VERSION%"
+                      tls_cipher: "%DOWNSTREAM_TLS_CIPHER%"
+                      remote_address: "%DOWNSTREAM_REMOTE_ADDRESS%"
+                      tls_ja3: "%TLS_JA3_FINGERPRINT%"
+              route_config:
+                name: local_route
+                virtual_hosts:
+                - name: local_service
+                  domains: ["*"]
+                  routes:
+                  - match:
+                      prefix: "/api/v1/"
+                    route:
+                      cluster: business_logic_cluster
+                  - match:
+                      prefix: "/"
+                    direct_response:
+                      status: 200
+                      body:
+                        inline_string: "ZTALeaks PEP - Use /api/v1/ for business data"
+              http_filters:
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+    
+      clusters:
+      - name: business_logic_cluster
+        connect_timeout: 5s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: business_logic_cluster
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: business-logic
+                    port_value: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: default
+data:
+  nginx.conf: |-
+    server {
+        listen 3000;
+        server_name localhost;
+    
+        root /usr/share/nginx/html;
+        index index.html;
+    
+        # Serve static files
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    
+        # Proxy API calls to Envoy with mTLS
+        location /api/ {
+            proxy_pass https://ztaleaks_envoy:8443;
+            proxy_ssl_certificate     /etc/nginx/certs/client.crt;
+            proxy_ssl_certificate_key /etc/nginx/certs/client.key;
+            proxy_ssl_trusted_certificate /etc/nginx/certs/ca.crt;
+            proxy_ssl_verify off;
+            proxy_ssl_server_name on;
+            proxy_ssl_name ztaleaks_envoy;
+    
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Request-ID $request_id;
+        }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-config
+  namespace: default
+data:
+  policy.rego: |-
+    package envoy.authz
+    
+    import rego.v1
+    
+    default allow = false
+    
+    allow if {
+        true
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nftables-config
+  namespace: default
+data:
+  nftables.conf: |-
+    #!/usr/sbin/nft -f
+    
+    table inet filter {
+        # Indirizzi IP bloccati di esempio (utile per i test di drop)
+        set blocked_ips {
+            type ipv4_addr
+            elements = { 10.99.99.99,172.18.0.10 }
+        }
+    
+        chain input {
+            # Imposta la policy di default a DROP per bloccare tutto il resto
+            type filter hook input priority 0; policy drop;
+    
+            # Accetta il traffico locale
+            iif "lo" accept
+    
+            # Accetta il traffico per connessioni già stabilite e correlate
+            ct state established,related accept
+    
+            # Drop delle richieste provenienti dagli IP bloccati verso la porta di Envoy
+            ip saddr @blocked_ips tcp dport ENV_ENVOY_PORT log prefix "fw-drop: " group 100 reject
+    
+            # Accetta e logga le nuove connessioni per la porta locale indicata dall'environment (Envoy)
+            tcp dport ENV_ENVOY_PORT ct state new log prefix "fw-accept: " group 100 accept     
+        }
+    
+        chain forward {
+            type filter hook forward priority 0; policy accept;
+        }
+    
+        chain output {
+            type filter hook output priority 0; policy accept;
+        }
+    }
+  ulogd.conf: |-
+    [global]
+    logfile=/var/log/ulogd.log
+    loglevel=1
+    
+    plugin="ulogd_inppkt_NFLOG.so"
+    plugin="ulogd_filter_IFINDEX.so"
+    plugin="ulogd_filter_IP2STR.so"
+    plugin="ulogd_filter_PRINTPKT.so"
+    plugin="ulogd_output_LOGEMU.so"
+    plugin="ulogd_raw2packet_BASE.so"
+    
+    stack=log1:NFLOG,base1:BASE,ifi1:IFINDEX,ip2str1:IP2STR,print1:PRINTPKT,emu1:LOGEMU
+    
+    [log1]
+    group=100
+    
+    [emu1]
+    file="/var/log/ulogd-syslogemu.log"
+    sync=1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: snort-rules
+  namespace: default
+data:
+  portscan.rules: |-
+    # Regola Snort 2.9 compatibile per il rilevamento passivo dei Port Scan.
+    alert tcp any any -> any any (msg:"ZTA: TCP Port Scanning Detected"; flags:S; detection_filter:track by_src, count 5, seconds 5; classtype:attempted-recon; sid:1000001; rev:1;)
+  internal.rules: |-
+    # Snort rules for internal traffic (Firewall -> Envoy)
+    # Ping rule to test if Snort works:
+    alert icmp any any -> any any (msg:"ZTA: ICMP Test Ping Detected"; itype:8; sid:1000004; rev:1;)
+    
+    # 1. mTLS Violation: Rileva l'assenza del certificato client nel flusso TLS (es. Handshake tipo 11 "Certificate" con payload nullo in TLS 1.2)
+    alert tcp any any -> any any (msg:"ZTA: mTLS Violation Detected (Missing Client Certificate)"; content:"|0B 00 00 03 00 00 00|"; classtype:protocol-command-decode; sid:2000002; rev:5;)
+    
+    # 2. TLS Anomaly: Rilevamento handshake ClientHello con Cipher deprecata (RSA con AES-128-CBC-SHA = 0x00, 0x2F) tipica di strumenti legacy o minacce (JA3 inattesi)
+    alert tcp any any -> any any (msg:"ZTA: Unexpected JA3/Deprecated Cipher Detected"; content:"|00 2F|"; classtype:suspicious-login; sid:2000003; rev:5;)
+    
+    # 3. TLS Anomaly: Uso di protocolli obsoleti (TLS 1.0 ClientHello ha versione record 16 03 01)
+    alert tcp any any -> any any (msg:"ZTA: Obsolete TLS Version Detected (TLS 1.0)"; content:"|16 03 01|"; depth:3; classtype:bad-unknown; sid:2000005; rev:1;)
+    
+    # 4. Volumetric Network Attack: SYN Flood mirato verso Envoy (oltre 30 SYN in 2 secondi verso la stessa porta)
+    alert tcp any any -> any ENV_ENVOY_PORT (msg:"ZTA: SYN Flood - Volumetric Network Attack Detected"; flags:S; detection_filter:track by_dst, count 30, seconds 2; classtype:attempted-dos; sid:2000006; rev:1;)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: business-db-init
+  namespace: default
+data:
+  01-init-users.js: |-
+    // =============================================================================
+    // MongoDB Initialization Script - User Creation
+    // Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+    // =============================================================================
+    // This script creates service accounts with role-based access following the
+    // principle of least privilege. Each component of the ZTA architecture
+    // receives a dedicated user with only the permissions it requires.
+    //
+    // Execution order: 01 (runs before collection creation)
+    // =============================================================================
+    
+    db = db.getSiblingDB('nuclear_plant_db');
+    
+    // ---------------------------------------------------------------------------
+    // Service account for the PEP (Envoy proxy).
+    // Requires readWrite to forward authorized CRUD operations from clients.
+    // In a production environment, this would be further restricted using
+    // collection-level privileges via custom roles.
+    // ---------------------------------------------------------------------------
+    db.createUser({
+        user: "envoy_service",
+        pwd: "envoyServicePass2025!",
+        roles: [{ role: "readWrite", db: "nuclear_plant_db" }]
+    });
+    
+    // ---------------------------------------------------------------------------
+    // Service account for the seed process.
+    // Requires readWrite to perform the initial data population.
+    // This account should be disabled or removed after initial deployment.
+    // ---------------------------------------------------------------------------
+    db.createUser({
+        user: "seed_service",
+        pwd: "seedServicePass2025!",
+        roles: [{ role: "readWrite", db: "nuclear_plant_db" }]
+    });
+    
+    // ---------------------------------------------------------------------------
+    // Read-only service account for the observability stack (Splunk).
+    // Restricted to read operations only, ensuring the monitoring layer
+    // cannot modify business data.
+    // ---------------------------------------------------------------------------
+    db.createUser({
+        user: "splunk_reader",
+        pwd: "splunkReaderPass2025!",
+        roles: [{ role: "read", db: "nuclear_plant_db" }]
+    });
+    
+    // ---------------------------------------------------------------------------
+    // Read-only service account for the Policy Decision Point (OPA/PDP).
+    // Used to query resource metadata (classification levels, zone requirements)
+    // for policy evaluation without any write capability.
+    // ---------------------------------------------------------------------------
+    db.createUser({
+        user: "pdp_reader",
+        pwd: "pdpReaderPass2025!",
+        roles: [{ role: "read", db: "nuclear_plant_db" }]
+    });
+    
+    print("[INIT] Database users created successfully with least-privilege roles");
+  02-create-collections.js: |-
+    // =============================================================================
+    // MongoDB Initialization Script - Collection Creation with Schema Validation
+    // Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
+    // =============================================================================
+    
+    db = db.getSiblingDB('nuclear_plant_db');
+    
+    var classificationLevels = ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "SECRET", "TOP_SECRET"];
+    var roles = ["operator", "maintenance_technician", "radiation_protection_officer", "security_officer", "plant_manager", "inspector"];
+    
+    // Abstract of file for ConfigMap brevity based on contents
+    db.createCollection("personnel", { /* ... validator details ... */ });
+    db.createCollection("access_badges", { /* ... validator details ... */ });
+    db.createCollection("zones", { /* ... validator details ... */ });
+    db.createCollection("reactor_parameters", { /* ... validator details ... */ });
+    db.createCollection("maintenance_orders", { /* ... validator details ... */ });
+    db.createCollection("documents", { /* ... validator details ... */ });
+    db.createCollection("nuclear_materials", { /* ... validator details ... */ });
+    
+    print("[INIT] All collections initialized (reduced for ConfigMap output view).");
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-db-init
+  namespace: default
+data:
+  security-init.js: |-
+    // Security DB initialization for Zero Trust Context
+    db = db.getSiblingDB('ztaleaks_security');
+    
+    db.createCollection("device_fingerprints");
+    print("[INIT] Security DB device fingerprints collection created.");

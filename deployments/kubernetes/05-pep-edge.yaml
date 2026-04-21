@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pep-edge
+  labels:
+    app: pep-edge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pep-edge
+  template:
+    metadata:
+      labels:
+        app: pep-edge
+    spec:
+      containers:
+        - name: envoy
+          image: ztaleaks/envoy
+          ports:
+            - containerPort: 8443
+            - containerPort: 9901
+          envFrom:
+            - secretRef:
+                name: ztaleaks-secrets
+          volumeMounts:
+            - name: envoy-yaml
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+            - name: certs
+              mountPath: /etc/envoy/certs
+        - name: firewall
+          image: ztaleaks/firewall
+          envFrom:
+            - secretRef:
+                name: ztaleaks-secrets
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW", "SYSLOG", "SYS_ADMIN"]
+          volumeMounts:
+            - name: nftables-conf
+              mountPath: /etc/nftables.conf
+              subPath: nftables.conf
+            - name: ulogd-conf
+              mountPath: /etc/ulogd.conf
+              subPath: ulogd.conf
+        - name: snort
+          image: ztaleaks/snort
+          envFrom:
+            - secretRef:
+                name: ztaleaks-secrets
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          volumeMounts:
+            - name: snort-rules
+              mountPath: /etc/snort/rules
+        - name: snort-internal
+          image: ztaleaks/snort-internal
+          envFrom:
+            - secretRef:
+                name: ztaleaks-secrets
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          volumeMounts:
+            - name: snort-rules
+              mountPath: /etc/snort/rules
+      volumes:
+        - name: envoy-yaml
+          configMap:
+            name: envoy-yaml
+        - name: certs
+          secret:
+            secretName: ztaleaks-secrets
+        - name: nftables-conf
+          configMap:
+            name: nftables-conf
+        - name: ulogd-conf
+          configMap:
+            name: ulogd-conf
+        - name: snort-rules
+          configMap:
+            name: snort-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pep-edge
+  labels:
+    app: pep-edge
+spec:
+  selector:
+    app: pep-edge
+  ports:
+    - name: https
+      port: 8443
+      targetPort: 8443
+    - name: admin
+      port: 9901
+      targetPort: 9901

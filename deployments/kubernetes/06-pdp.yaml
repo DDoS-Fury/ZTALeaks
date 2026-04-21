@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-orchestrator
+  labels:
+    app: security-orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: security-orchestrator
+  template:
+    metadata:
+      labels:
+        app: security-orchestrator
+    spec:
+      containers:
+      - name: security-orchestrator
+        image: ztaleaks/security-orchestrator
+        ports:
+        - containerPort: 9090
+        envFrom:
+        - secretRef:
+            name: ztaleaks-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: security-orchestrator
+  labels:
+    app: security-orchestrator
+spec:
+  selector:
+    app: security-orchestrator
+  ports:
+  - port: 9090
+    targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opa
+  labels:
+    app: opa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opa
+  template:
+    metadata:
+      labels:
+        app: opa
+    spec:
+      containers:
+      - name: opa
+        image: openpolicyagent/opa:latest-envoy
+        command: ["run", "--server", "/policy.rego"]
+        ports:
+        - containerPort: 8181
+        volumeMounts:
+        - name: opa-config-volume
+          mountPath: /policy.rego
+          subPath: policy.rego
+      volumes:
+      - name: opa-config-volume
+        configMap:
+          name: opa-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa
+  labels:
+    app: opa
+spec:
+  selector:
+    app: opa
+  ports:
+  - port: 8181
+    targetPort: 8181

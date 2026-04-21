@@ -144,11 +144,11 @@ services:
       dockerfile: Dockerfile
     container_name: ztaleaks_seeder
     depends_on:
-      - business-db
+      business-db:
+        condition: service_healthy
     environment:
       - MONGO_URI=mongodb://seed_service:seedServicePass2025!@business-db:27017/nuclear_plant_db?authSource=nuclear_plant_db
-    profiles:
-      - seed
+    restart: "no"
     networks:
       - back-net
 

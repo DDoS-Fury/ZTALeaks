@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"ztaleaks/business-logic/internal/models"
+
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // PersonnelRepository defines the interface for interacting with personnel data
@@ -67,4 +69,28 @@ type NuclearMaterialRepository interface {
 	Create(ctx context.Context, material *models.NuclearMaterial) error
 	Update(ctx context.Context, material *models.NuclearMaterial) error
 	Delete(ctx context.Context, id string) error
+}
+
+// Repositories groups all data repositories for easy injection
+type Repositories struct {
+	Personnel        PersonnelRepository
+	Zone             ZoneRepository
+	Badge            BadgeRepository
+	Reactor          ReactorRepository
+	MaintenanceOrder MaintenanceOrderRepository
+	Document         DocumentRepository
+	NuclearMaterial  NuclearMaterialRepository
+}
+
+// InitRepositories creates and returns a struct containing all initialized Mongo repositories
+func InitRepositories(database *mongo.Database) *Repositories {
+	return &Repositories{
+		Personnel:        NewMongoPersonnelRepository(database),
+		Zone:             NewMongoZoneRepository(database),
+		Badge:            NewMongoBadgeRepository(database),
+		Reactor:          NewMongoReactorRepository(database),
+		MaintenanceOrder: NewMongoMaintenanceOrderRepository(database),
+		Document:         NewMongoDocumentRepository(database),
+		NuclearMaterial:  NewMongoNuclearMaterialRepository(database),
+	}
 }

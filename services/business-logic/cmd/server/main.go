@@ -9,75 +9,35 @@ import (
 	"syscall"
 	"time"
 
+	"ztaleaks/business-logic/config"
 	"ztaleaks/business-logic/internal/db"
 	"ztaleaks/business-logic/internal/handler"
 )
 
 func main() {
-	port := os.Getenv("BUSINESS_LOGIC_PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://seed_service:seedServicePass2025!@business-db:27017/nuclear_plant_db?authSource=nuclear_plant_db"
-	}
-
-	dbName := os.Getenv("MONGO_DB")
-	if dbName == "" {
-		dbName = "nuclear_plant_db"
-	}
-
-	// Connect to MongoDB
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	mongoClient, err := db.Connect(ctx, mongoURI)
+	appConfig, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %v", err)
+		log.Fatalf("Configuration error: %v", err)
 	}
 
-	if err := mongoClient.Ping(ctx); err != nil {
-		log.Fatalf("Failed to ping MongoDB: %v", err)
-	}
-	log.Println("Connected to MongoDB")
+	database := appConfig.Database
 
-	database := mongoClient.Client.Database(dbName)
-
-	// Instantiate repositories
-	personnelRepo := db.NewMongoPersonnelRepository(database)
-	zoneRepo := db.NewMongoZoneRepository(database)
-	badgeRepo := db.NewMongoBadgeRepository(database)
-	reactorRepo := db.NewMongoReactorRepository(database)
-	maintenanceRepo := db.NewMongoMaintenanceOrderRepository(database)
-	documentRepo := db.NewMongoDocumentRepository(database)
-	nuclearMaterialRepo := db.NewMongoNuclearMaterialRepository(database)
-
-	// Create API handler
-	api := handler.NewAPIHandler(
-		personnelRepo,
-		zoneRepo,
-		badgeRepo,
-		reactorRepo,
-		maintenanceRepo,
-		documentRepo,
-		nuclearMaterialRepo,
-	)
+	// Initialize repositories and API handler
+	repos := db.InitRepositories(database)
+	api := handler.NewAPIHandler(repos)
 
 	// Register routes
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux)
-	mux.HandleFunc("/", handler.HomeHandler)
 
 	// Start server with graceful shutdown
 	server := &http.Server{
-		Addr:    ":" + port,
+		Addr:    ":" + appConfig.Port,
 		Handler: mux,
 	}
 
 	go func() {
-		log.Printf("Business Logic server starting on :%s", port)
+		log.Printf("Business Logic server starting on :%s", appConfig.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
@@ -95,7 +55,7 @@ func main() {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
 
-	if err := mongoClient.Disconnect(shutdownCtx); err != nil {
+	if err := appConfig.DBClient.Disconnect(shutdownCtx); err != nil {
 		log.Printf("Error disconnecting from MongoDB: %v", err)
 	}
 

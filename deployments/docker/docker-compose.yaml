@@ -81,8 +81,6 @@ services:
       context: ../../services/security-orchestrator
       dockerfile: Dockerfile
     container_name: ztaleaks_security_orchestrator
-    ports:
-      - "9090:9090"
     depends_on:
       - opa
       - security-db
@@ -141,8 +139,6 @@ services:
   security-db:
     image: mongo:6.0
     container_name: ztaleaks_security_db
-    ports:
-       - "27018:27017"
     volumes:
        - ../../infra/databases/security/db_init:/docker-entrypoint-initdb.d
        - security-db-data:/data/db

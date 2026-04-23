@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Materiali Nucleari - ZTALeaks</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .table-wrapper { 
+            width: 100%; 
+            overflow-x: auto; 
+            margin-top: 1rem; 
+            background: var(--bg-card); 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            text-align: left; 
+        }
+        th, td { 
+            padding: 1rem; 
+            border-bottom: 1px solid var(--border); 
+        }
+        th { 
+            background-color: var(--bg-sidebar); 
+            color: var(--text-muted); 
+            font-weight: bold; 
+            text-transform: uppercase; 
+            font-size: 0.85rem; 
+            letter-spacing: 1px; 
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+        .status-badge { 
+            padding: 0.25rem 0.5rem; 
+            border-radius: 999px; 
+            font-size: 0.75rem; 
+            font-weight: bold; 
+            display: inline-block;
+        }
+        .status-active { background-color: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .status-inactive { background-color: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .status-warning { background-color: rgba(245, 158, 11, 0.2); color: var(--accent); }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>ZTALeaks</h1>
+                <p>Nuclear Plant DBMS</p>
+            </div>
+            <ul class="nav-list">
+                <li><a href="/" class="nav-link">Home</a></li>
+                <li><a href="/materials" class="nav-link active">Materiali Nucleari</a></li>
+            </ul>
+        </nav>
+
+        <main class="content">
+            <header class="content-header">
+                <h2>Lista Materiali Nucleari</h2>
+                <div class="header-actions">
+                    <button class="btn btn-primary" onclick="loadMaterials()">Aggiorna Dati</button>
+                </div>
+            </header>
+
+            <div class="landing-card" id="loading-card" style="margin-top: 2rem;">
+                <h2>Caricamento...</h2>
+                <p>Recupero dati dal Database in corso tramite il protocollo API zero-trust.</p>
+            </div>
+
+            <div class="table-wrapper" id="table-card" style="display: none;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID Materiale</th>
+                            <th>Tipo</th>
+                            <th>Descrizione</th>
+                            <th>Massa (Kg)</th>
+                            <th>Livello Classificazione</th>
+                            <th>Stato</th>
+                        </tr>
+                    </thead>
+                    <tbody id="materials-table-body">
+                        <!-- Generazione JS -->
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        async function loadMaterials() {
+            document.getElementById('loading-card').style.display = 'block';
+            document.getElementById('table-card').style.display = 'none';
+
+            try {
+                const response = await fetch('/api/v1/nuclear-materials');
+                if (!response.ok) {
+                    throw new Error(`Errore di Accesso: ${response.status} ${response.statusText}`);
+                }
+                const responseJson = await response.json();
+                
+                // If the response holds raw array, or it's wrapped in API envelope:
+                const materials = responseJson.data ? responseJson.data : responseJson;
+                
+                const tableBody = document.getElementById('materials-table-body');
+                tableBody.innerHTML = '';
+
+                materials.forEach(mat => {
+                    const tr = document.createElement('tr');
+                    
+                    let statusClass = 'status-warning';
+                    if (mat.status && ['active', 'in_use', 'operational'].includes(mat.status.toLowerCase())) statusClass = 'status-active';
+                    if (mat.status && ['inactive', 'depleted', 'storage'].includes(mat.status.toLowerCase())) statusClass = 'status-inactive';
+
+                    tr.innerHTML = `
+                        <td style="font-family: monospace; color: var(--accent);">${mat.material_id || 'N/A'}</td>
+                        <td>${mat.type || 'N/A'}</td>
+                        <td>${mat.description || 'N/A'}</td>
+                        <td>${mat.mass_kg !== undefined ? mat.mass_kg.toFixed(2) : '0.00'}</td>
+                        <td><span style="border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem;">${mat.classification_level || 'N/A'}</span></td>
+                        <td><span class="status-badge ${statusClass}">${mat.status || 'N/A'}</span></td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+
+                document.getElementById('loading-card').style.display = 'none';
+                document.getElementById('table-card').style.display = 'block';
+            } catch (error) {
+                console.error("Errore di caricamento materiali:", error);
+                document.getElementById('loading-card').innerHTML = `
+                    <h2 style="color: var(--danger);">Autorizzazione Negata o Errore API</h2>
+                    <p>Impossibile recuperare i materiali nucleari. Accertati di essere autenticato all'interno del perimetro ZTA.</p>
+                    <p><code>${error.message}</code></p>
+                    <button class="btn btn-secondary" onclick="window.location.href='/login'" style="margin-top: 1rem;">Effettua Login</button>
+                `;
+            }
+        }
+
+        // Carica i materiali al caricamento della pagina
+        document.addEventListener('DOMContentLoaded', loadMaterials);
+    </script>
+</body>
+</html>

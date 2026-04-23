@@ -10,7 +10,8 @@ func (h *APIHandler) RegisterRoutes(mux *http.ServeMux) {
 
 	//Home page
 	mux.HandleFunc("/", HomeHandler)
-        mux.HandleFunc("/login", LoginHandler)
+	mux.HandleFunc("/login", LoginHandler)
+	mux.HandleFunc("/materials", MaterialsHandler)
 
 	// Personnel
 	mux.HandleFunc("GET /api/v1/personnel", h.ListPersonnel)

@@ -21,8 +21,9 @@ WORKDIR /app
 # Copia l'eseguibile compilato dal costruttore
 COPY --from=builder /app/business-server .
 
-# Copia i template
+# Copia i template e file statici (CSS, etc)
 COPY --from=builder /app/templates /app/templates
+COPY --from=builder /app/static /app/static
 
 EXPOSE $BUSINESS_LOGIC_PORT
 

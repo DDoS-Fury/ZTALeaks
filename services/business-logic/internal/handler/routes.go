@@ -5,6 +5,9 @@ import "net/http"
 // RegisterRoutes registers all API routes on the given ServeMux
 func (h *APIHandler) RegisterRoutes(mux *http.ServeMux) {
 
+	// Static files (CSS, etc.)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
 	//Home page
 	mux.HandleFunc("/", HomeHandler)
         mux.HandleFunc("/login", LoginHandler)

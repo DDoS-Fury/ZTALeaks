@@ -103,8 +103,6 @@ services:
       - "--addr=0.0.0.0:8181"
       - "--log-level=debug"
       - "/policy.rego"
-    ports:
-      - "8181:8181"
     restart: unless-stopped
     networks:
       - auth-net
@@ -159,21 +157,6 @@ services:
     restart: "no"
     networks:
       - back-net
-
-  frontend:
-    build:
-      context: ../../services/frontend
-      dockerfile: Dockerfile
-    container_name: ztaleaks_frontend
-    ports:
-      - "3000:3000"
-    volumes:
-      - ../../certs:/etc/nginx/certs:ro
-    depends_on:
-      - firewall
-    restart: unless-stopped
-    networks:
-      - front-net
 
 networks:
   front-net:

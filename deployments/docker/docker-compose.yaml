@@ -118,6 +118,8 @@ services:
       - ../../.env
     environment:
       - BUSINESS_LOGIC_PORT=${BUSINESS_LOGIC_PORT:-8080}
+    volumes:
+      - ztaleaks_logs:/var/log/ztaleaks
     restart: unless-stopped
     networks:
       - back-net
@@ -170,3 +172,4 @@ volumes:
   envoy-logs:
   snort-logs:
   snort-internal-logs:
+  ztaleaks_logs:

@@ -3,6 +3,7 @@ set -e
 
 # Crea la directory di log per il volume
 mkdir -p /var/log/firewall
+mkdir -p /var/log/ztaleaks/nftables
 
 # Crea il file di log per ulogd preventivamente
 touch /var/log/firewall/ulogd-syslogemu.log
@@ -25,5 +26,6 @@ nft delete table inet filter 2>/dev/null || true
 nft -f /etc/nftables.conf
 echo "Regole nftables caricate con successo."
 
-# Leggi in continuo il file di log per stampare sullo stdout del container (utile a Splunk/Docker logs)
+# Leggi in continuo il file di log e avvia il parser json
+/usr/local/bin/nftables-parser /var/log/firewall/ulogd-syslogemu.log /var/log/ztaleaks/nftables/firewall.jsonl &
 exec tail -F /var/log/firewall/ulogd-syslogemu.log

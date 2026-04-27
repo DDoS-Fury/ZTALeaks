@@ -45,7 +45,7 @@ func main() {
 	log.Println("Waiting 10 seconds for Envoy to start...")
 	time.Sleep(10 * time.Second)
 
-	targetURL := "https://ztaleaks_envoy:8443/"
+	targetURL := "https://localhost:8443/"
 
 	caFilePath := "/app/certs/ca.crt"
 

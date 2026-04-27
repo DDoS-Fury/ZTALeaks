@@ -8,14 +8,9 @@ services:
     networks:
       - front-net
 
-  test_client_2:
-    build:
-      context: ../../
-      dockerfile: tests/clients/Dockerfile.python
-    networks:
-      - front-net
+
 
 networks:
   front-net:
-    name: docker-compose_front-net
+    name: docker_front-net
     external: true

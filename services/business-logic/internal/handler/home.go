@@ -65,3 +65,9 @@ func ReservedHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Errore nell'esecuzione del template reserved: %v", err)
 	}
 }
+
+// NotFoundHandler gestisce le richieste a percorsi non esistenti
+func NotFoundHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("404 - Percorso non trovato: %s %s [Remote: %s]", r.Method, r.URL.Path, r.RemoteAddr)
+	http.Error(w, "404 page not found - ZTALeaks Debug", http.StatusNotFound)
+}

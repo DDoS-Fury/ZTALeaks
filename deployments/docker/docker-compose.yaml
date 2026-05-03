@@ -41,7 +41,6 @@ services:
     volumes:
       - envoy-logs:/var/log/ztaleaks/envoy
     restart: unless-stopped
-    # networks rimossi essendo gestiti dal container firewall
 
   snort:
     build:
@@ -100,12 +99,14 @@ services:
     container_name: ztaleaks_security_orchestrator
     depends_on:
       opa:
-        condition: service_started
+        condition: service_started # OPA deve essere in ascolto prima di avviare l'orchestrator
       security-db:
         condition: service_healthy
     env_file:
       - ../../.env
     restart: unless-stopped
+    environment:
+      - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
     networks:
       - front-net
       - auth-net
@@ -166,7 +167,7 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=ztpassword
     volumes:
        - security-db-data:/data/db
-       - security-db-logs:/var/log/ztaleaks/mongodb
+       - security-db-logs:/var/log/ztaleaks/security-db
     restart: unless-stopped
     networks:
       - auth-net

@@ -14,11 +14,14 @@ static_resources:
         protocol: TCP
         address: 0.0.0.0
         port_value: 8443
+    
+    # Ispeziona il traffico TLS per estrarre il JA3 (fondamentale per l'AI)
     listener_filters:
     - name: envoy.filters.listener.tls_inspector
       typed_config:
         "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
         enable_ja3_fingerprinting: true
+
     filter_chains:
     - transport_socket:
         name: envoy.transport_sockets.tls
@@ -34,12 +37,14 @@ static_resources:
             validation_context:
               trusted_ca:
                 filename: /etc/envoy/certs/ca.crt
+
       filters:
       - name: envoy.filters.network.http_connection_manager
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: ingress_http
-          # --- NUOVO: Configurazione Access Log per il monitoraggio ---
+
+          # Configurazione Access Log (per Splunk)
           access_log:
           - name: envoy.access_loggers.stdout
             typed_config:
@@ -49,10 +54,9 @@ static_resources:
                   start_time: "%START_TIME%"
                   request_id: "%REQ(X-REQUEST-ID)%"
                   response_code: "%RESPONSE_CODE%"
-                  tls_version: "%DOWNSTREAM_TLS_VERSION%"
-                  tls_cipher: "%DOWNSTREAM_TLS_CIPHER%"
                   remote_address: "%DOWNSTREAM_REMOTE_ADDRESS%"
                   tls_ja3: "%TLS_JA3_FINGERPRINT%"
+                  upstream_cluster: "%UPSTREAM_CLUSTER%"
           - name: envoy.access_loggers.file
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
@@ -62,12 +66,20 @@ static_resources:
                   start_time: "%START_TIME%"
                   request_id: "%REQ(X-REQUEST-ID)%"
                   response_code: "%RESPONSE_CODE%"
-                  tls_version: "%DOWNSTREAM_TLS_VERSION%"
-                  tls_cipher: "%DOWNSTREAM_TLS_CIPHER%"
-                  remote_address: "%DOWNSTREAM_REMOTE_ADDRESS%"
                   tls_ja3: "%TLS_JA3_FINGERPRINT%"
+                  upstream_cluster: "%UPSTREAM_CLUSTER%"
+
+          # Definizione delle rotte
           route_config:
             name: local_route
+            # Inserisce il JA3 negli header della richiesta
+            request_headers_to_add:
+            - header:
+                key: "x-ja3-fingerprint"
+                value: "%TLS_JA3_FINGERPRINT%"
+            - header:
+                key: "x-original-uri"
+                value: "%REQ(:path)%"
             virtual_hosts:
             - name: local_service
               domains: ["*"]
@@ -84,12 +96,58 @@ static_resources:
                   prefix: "/"
                 route:
                   cluster: business_logic_cluster
+
+          # --- PIPELINE DEI FILTRI HTTP ---
           http_filters:
+          # 1. Chiamata al Security Orchestrator (Go)
+          - name: envoy.filters.http.ext_authz
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+              http_service:
+                server_uri:
+                  uri: http://security-orchestrator:8081/api/v1/evaluate
+                  cluster: security_orchestrator_cluster
+                  timeout: 0.5s
+                path_prefix: "/api/v1/evaluate"
+                authorization_request:
+                  allowed_headers:
+                    patterns:
+                    - exact: "authorization"
+                    - exact: "cookie"
+                    - exact: "x-request-id"
+                    - exact: "x-ja3-fingerprint"
+                    - exact: "x-original-uri"
+                    - exact: "x-authz-request-path"
+                authorization_response:
+                  allowed_upstream_headers:
+                    patterns:
+                    - exact: "x-current-user"
+                    - exact: "x-risk-score"
+              # Se l'orchestratore non risponde, blocca tutto (Zero Trust)
+              failure_mode_allow: false 
+          
+          # 2. Router finale (deve essere sempre l'ultimo)
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
+  # Cluster del tuo Orchestratore in Go
+  - name: security_orchestrator_cluster
+    connect_timeout: 0.25s
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: security_orchestrator_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: security-orchestrator
+                port_value: 8081
+
+  # Cluster del servizio d'identità (Login/MFA)
   - name: identity_service_cluster
     connect_timeout: 5s
     type: STRICT_DNS
@@ -104,6 +162,7 @@ static_resources:
                 address: identity-service
                 port_value: 8082
 
+  # Cluster della Business Logic
   - name: business_logic_cluster
     connect_timeout: 5s
     type: STRICT_DNS

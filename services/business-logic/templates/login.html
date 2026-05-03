@@ -54,9 +54,42 @@
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" placeholder="Inserisci password" required>
             </div>
-            <button type="submit" class="btn btn-primary" onclick="event.preventDefault(); alert('Login function not implemented yet');">Accedi</button>
+            <!-- Modificato per inviare le credenziali all'identity-service via fetch() tramite l'Envoy -->
+            <button type="submit" class="btn btn-primary" onclick="handleLogin(event)">Accedi</button>
             <button type="button" class="btn btn-secondary" onclick="window.location.href='/'">Torna alla Home</button>
         </form>
     </div>
+
+    <script>
+        async function handleLogin(event) {
+            event.preventDefault();
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+
+            try {
+                // Invia la richiesta al nuovo route gestito da Envoy e mandato su identity-service
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: usernameInput.value,
+                        password: passwordInput.value
+                    })
+                });
+
+                if (res.ok) {
+                    // Autenticazione riuscita (il token è anche impostato nel cookie HttpOnly di identity-service)
+                    window.location.href = '/reserved';
+                } else {
+                    // Errore: credenziali o errore interno
+                    alert('Credenziali non valide o errore di autenticazione ');
+                    passwordInput.value = '';
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Errore di rete durante il login.');
+            }
+        }
+    </script>
 </body>
 </html>

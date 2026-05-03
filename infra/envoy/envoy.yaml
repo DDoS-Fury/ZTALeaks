@@ -73,6 +73,10 @@ static_resources:
               domains: ["*"]
               routes:
               - match:
+                  path: "/api/v1/auth/login"
+                route:
+                  cluster: identity_service_cluster
+              - match:
                   prefix: "/api/v1/"
                 route:
                   cluster: business_logic_cluster
@@ -86,6 +90,20 @@ static_resources:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
+  - name: identity_service_cluster
+    connect_timeout: 5s
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: identity_service_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: identity-service
+                port_value: 8082
+
   - name: business_logic_cluster
     connect_timeout: 5s
     type: STRICT_DNS

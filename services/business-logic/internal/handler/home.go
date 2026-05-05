@@ -50,3 +50,24 @@ func MaterialsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Errore nell'esecuzione del template materials: %v", err)
 	}
 }
+
+// ReservedHandler gestisce la route della pagina riservata HTML
+func ReservedHandler(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.ParseFiles("templates/reserved.html")
+	if err != nil {
+		log.Printf("Errore nel parsing del template reserved: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, nil)
+	if err != nil {
+		log.Printf("Errore nell'esecuzione del template reserved: %v", err)
+	}
+}
+
+// NotFoundHandler gestisce le richieste a percorsi non esistenti
+func NotFoundHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("404 - Percorso non trovato: %s %s [Remote: %s]", r.Method, r.URL.Path, r.RemoteAddr)
+	http.Error(w, "404 page not found - ZTALeaks Debug", http.StatusNotFound)
+}

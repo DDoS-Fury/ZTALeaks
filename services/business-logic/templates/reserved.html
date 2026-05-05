@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Area Riservata - ZTALeaks</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #0a0e17; --bg-card: #111827; --border: #1e293b; 
+            --text: #e2e8f0; --text-muted: #94a3b8; --accent: #f59e0b;
+        }
+        body {
+            font-family: 'Courier New', Courier, monospace; background: var(--bg-dark);
+            color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        }
+        .container {
+            background: var(--bg-card); padding: 40px; border-radius: 8px;
+            border: 1px solid var(--border); width: 100%; max-width: 600px;
+            text-align: center;
+        }
+        h1 { color: var(--accent); margin-bottom: 20px; }
+        p { color: var(--text-muted); margin-bottom: 30px; }
+        .btn-secondary { 
+            background: #1a2332; color: var(--text); border: 1px solid var(--border); 
+            padding: 10px 20px; text-decoration: none; border-radius: 4px;
+        }
+        .btn-secondary:hover { background: var(--border); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Area Riservata</h1>
+        <p>Benvenuto nell'area privata. Il login è stato completato (simulato).</p>
+        <a href="/" class="btn-secondary">Torna alla Home</a>
+    </div>
+</body>
+</html>

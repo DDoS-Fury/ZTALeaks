@@ -25,6 +25,7 @@ services:
           - envoy
           - ztaleaks_envoy
       back-net: {}
+      auth-net: {}
     restart: unless-stopped
 
   envoy:
@@ -40,7 +41,6 @@ services:
     volumes:
       - envoy-logs:/var/log/ztaleaks/envoy
     restart: unless-stopped
-    # networks rimossi essendo gestiti dal container firewall
 
   snort:
     build:
@@ -76,17 +76,37 @@ services:
       - snort-internal-logs:/var/log/ztaleaks/snort-internal
     restart: unless-stopped
 
+  identity-service:
+    build:
+      context: ../../services/identity-service
+      dockerfile: Dockerfile
+    container_name: ztaleaks_identity_service
+    depends_on:
+      security-db:
+        condition: service_healthy
+    env_file:
+      - ../../.env
+    volumes:
+      - identity-logs:/var/log/ztaleaks/identity
+    restart: unless-stopped
+    networks:
+      - auth-net
+
   security-orchestrator:
     build:
       context: ../../services/security-orchestrator
       dockerfile: Dockerfile
     container_name: ztaleaks_security_orchestrator
     depends_on:
-      - opa
-      - security-db
+      opa:
+        condition: service_started # OPA deve essere in ascolto prima di avviare l'orchestrator
+      security-db:
+        condition: service_healthy
     env_file:
       - ../../.env
     restart: unless-stopped
+    environment:
+      - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
     networks:
       - front-net
       - auth-net
@@ -138,11 +158,16 @@ services:
       - back-net
 
   security-db:
-    image: mongo:6.0
+    build:
+      context: ../../infra/databases/security
+      dockerfile: Dockerfile
     container_name: ztaleaks_security_db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=ztadmin
+      - MONGO_INITDB_ROOT_PASSWORD=ztpassword
     volumes:
-       - ../../infra/databases/security/db_init:/docker-entrypoint-initdb.d
        - security-db-data:/data/db
+       - security-db-logs:/var/log/ztaleaks/security-db
     restart: unless-stopped
     networks:
       - auth-net
@@ -199,7 +224,9 @@ services:
       - snort-logs:/var/log/ztaleaks/snort:ro
       - snort-internal-logs:/var/log/ztaleaks/snort-internal:ro
       - business-logs:/var/log/ztaleaks/business-logic:ro
+      - identity-logs:/var/log/ztaleaks/identity:ro
       - business-db-logs:/var/log/ztaleaks/mongodb:ro
+      - security-db-logs:/var/log/ztaleaks/security-db:ro
     restart: unless-stopped
     networks:
       - back-net
@@ -213,10 +240,12 @@ volumes:
   business-db-data:
   business-db-logs:
   security-db-data:
+  security-db-logs:
   firewall-logs:
   envoy-logs:
   snort-logs:
   snort-internal-logs:
   business-logs:
+  identity-logs:
   splunk-etc:
   splunk-var:

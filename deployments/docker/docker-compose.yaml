@@ -162,9 +162,8 @@ services:
       context: ../../infra/databases/security
       dockerfile: Dockerfile
     container_name: ztaleaks_security_db
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=ztadmin
-      - MONGO_INITDB_ROOT_PASSWORD=ztpassword
+    env_file:
+      - ../../.env
     volumes:
        - security-db-data:/data/db
        - security-db-logs:/var/log/ztaleaks/security-db
@@ -177,11 +176,11 @@ services:
       context: ../../tools/seeder
       dockerfile: Dockerfile
     container_name: ztaleaks_seeder
+    env_file:
+      - ../../.env
     depends_on:
       business-db:
         condition: service_healthy
-    environment:
-      - MONGO_URI=mongodb://seed_service:seedServicePass2025!@business-db:27017/nuclear_plant_db?authSource=nuclear_plant_db
     restart: "no"
     networks:
       - back-net
@@ -189,11 +188,11 @@ services:
   splunk:
     image: splunk/splunk:latest
     container_name: ztaleaks_splunk
+    env_file:
+      - ../../.env
     environment:
       - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
       - SPLUNK_START_ARGS=--accept-license --answer-yes
-      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD:-AdminPass2026!}
-      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN:-12345678-1234-1234-1234-123456789012}
     ports:
       - "8000:8000"
       - "8088:8088"
@@ -209,10 +208,11 @@ services:
     image: splunk/universalforwarder:latest
     container_name: ztaleaks_splunk_uf
     user: root
+    env_file:
+      - ../../.env
     environment:
       - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
       - SPLUNK_START_ARGS=--accept-license --answer-yes --run-as-root
-      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD:-AdminPass2026!}
       - SPLUNK_USER=root
       - SPLUNK_STANDALONE_URL=splunk
     depends_on:

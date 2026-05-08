@@ -45,11 +45,15 @@ Convenzioni:
 - [x] Test E2E via orchestrator: 11/11 PASS (admin con/senza cert su personnel, nuclear-materials POST tier=2, operator role denied su nuclear/maintenance, zones/documents tier=0, public bypass)
 - [x] Commit: `feat(opa): role-route matrix, clearance, 3-tier admission + tests`
 
-## Step 4 — Envoy: forward client cert + bypass nuove rotte
-- [ ] `infra/envoy/envoy.yaml`: aggiungere `forward_client_cert_details: APPEND_FORWARD` + `set_current_client_cert_details: {subject, cert, dns}`
-- [ ] Aggiungere route bypass per `/api/v1/auth/register`, `/api/v1/auth/verify-otp`, `/auth/register/begin|finish`, `/auth/login/begin|finish`, `/.well-known/jwks.json` → `identity_service_cluster`
-- [ ] Test: `curl -k --cert ./certs/client.crt --key ./certs/client.key https://localhost:8443/...` → orchestrator riceve `x-forwarded-client-cert`; senza --cert il request passa ma senza header
-- [ ] Commit: `feat(envoy): forward client cert details + identity bypass routes`
+## Step 4 — Envoy: forward client cert + bypass nuove rotte  ✅
+- [x] `infra/envoy/envoy.yaml`: `forward_client_cert_details: SANITIZE_SET` (no spoofing) + `set_current_client_cert_details: {subject, cert, dns, uri}`
+- [x] Allowed_headers ext_authz estesi: x-forwarded-client-cert, x-zone-id, x-authz-request-method
+- [x] Route prefix `/api/v1/auth/` (cattura register, verify-otp, register/begin|finish, login/begin|finish) e `/.well-known/jwks.json` → identity_service_cluster
+- [x] Access log estesi con `client_cert: %REQ(x-forwarded-client-cert)%`
+- [x] Fix orchestrator: strip `path_prefix /api/v1/evaluate` da r.URL.Path per riconoscere il path originale
+- [x] Test E2E via HTTPS:8443 (con e senza --cert client.crt): JWKS ✓, login flow ✓, no-cert→tier0→DENY personnel ✓, cert→tier2→ALLOW personnel/nuclear ✓, no-cert→DENY nuclear ✓, no-JWT→DENY ✓
+- [x] OPA decision log conferma `cert_subject="CN=client-test,O=ZTA-Leaks,C=IT"` correttamente forwarded
+- [x] Commit: `feat(envoy): forward client cert details + identity bypass routes`
 
 ## Step 5 — business-logic: verifica
 - [ ] Confermare assenza role middleware (master già non ne ha); eventualmente aggiungere `ExtractClaims` per logging strutturato

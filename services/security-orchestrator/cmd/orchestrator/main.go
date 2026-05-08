@@ -151,16 +151,25 @@ func main() {
 // buildEvaluateHandler costruisce l'handler ext_authz: legge gli header
 // forwardati da Envoy, verifica JWT, parse cert, lookup TPM, chiama OPA.
 func buildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, opaClient *opa.Client) http.HandlerFunc {
+	const evalPrefix = "/api/v1/evaluate"
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Path/method originali — Envoy li preserva via header dedicati o
-		// nell'URL stesso (a seconda della config di ext_authz)
-		origPath := r.Header.Get("X-Original-Uri")
-		if origPath == "" {
-			origPath = r.Header.Get("X-Authz-Request-Path")
+		// Path originale: con path_prefix "/api/v1/evaluate" Envoy preopne
+		// quel prefisso al path di partenza prima di chiamarci. Strippiamolo.
+		origPath := r.URL.Path
+		if strings.HasPrefix(origPath, evalPrefix) {
+			origPath = strings.TrimPrefix(origPath, evalPrefix)
+			if origPath == "" {
+				origPath = "/"
+			}
 		}
-		if origPath == "" {
-			origPath = r.URL.Path
+		// Header X-Original-Uri ha priorità se Envoy lo inietta esplicitamente
+		// (utile per chiamate di test diretto via curl).
+		if h := r.Header.Get("X-Original-Uri"); h != "" {
+			origPath = h
+		} else if h := r.Header.Get("X-Authz-Request-Path"); h != "" {
+			origPath = h
 		}
+
 		method := r.Header.Get("X-Authz-Request-Method")
 		if method == "" {
 			method = r.Method

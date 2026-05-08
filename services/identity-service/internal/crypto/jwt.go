@@ -1,74 +1,142 @@
+// =============================================================================
+// JWT Package — RS256 token issuance + JWKS exposure
+// Project: ZTALeaks - Identity Service (mix-master-zta-core split)
+// =============================================================================
+// Identity firma con la chiave privata. La chiave pubblica è pubblicata sul
+// JWKS endpoint /.well-known/jwks.json: la security-orchestrator la scarica e
+// verifica il token *senza* shared secret. Validità access token: 15 min.
+// =============================================================================
+
 package crypto
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	jwtlib "github.com/golang-jwt/jwt/v5"
 )
 
-var (
-	// In un ambiente di produzione questa chiave deve provenire da Vault o Variabili d'ambiente cifrate
-	// Per ora è hardcoded come placeholder (Secure Enclave o Secret Manger dovrebbero fornirla)
-	jwtSecretKey = []byte("ZTA-Secrets-Should-Be-Isolated")
-	// Il tempo di validità è ridotto a 15 minuti come auspicato nelle configurazioni Zero Trust rigide.
-	TokenValidDuration = 15 * time.Minute
+const (
+	// AccessTokenTTL — JWT di accesso. 15 minuti per minimizzare la finestra
+	// di esposizione in caso di leak (Zero Trust).
+	AccessTokenTTL = 15 * time.Minute
+
+	// Issuer del token — usato anche da security-orchestrator per rifiutare
+	// token firmati da emettitori diversi.
+	Issuer = "identity-service.ztaleaks.local"
 )
 
-// IdentityClaims rappresenta i claim (dati) inseriti e firmati nel token JWT.
-type IdentityClaims struct {
-	UserID             string `json:"sub"`
-	Role               string `json:"role"`
-	TwoFAVerified      bool   `json:"2fa_verified"`
-	SecureEnclaveValid bool   `json:"secure_enclave_valid"`
-	JA3Fingerprint     string `json:"ja3,omitempty"`
-	jwt.RegisteredClaims
+// ZTAClaims è il payload firmato del JWT. La struttura è condivisa
+// (per parsing) anche dalla security-orchestrator.
+type ZTAClaims struct {
+	UserID         string `json:"sub"`
+	Role           string `json:"role"`
+	ClearanceLevel string `json:"clearance_level"`
+	MFAVerified    bool   `json:"mfa_verified"`
+	DeviceID       string `json:"device_id,omitempty"`
+	JA3            string `json:"ja3,omitempty"`
+	jwtlib.RegisteredClaims
 }
 
-// GenerateJWT crea un nuovo token firmato HMAC-SHA256 con scadenza breve per le sessioni
-func GenerateJWT(userID, role string, twoFAVerified bool, secureEnclave bool, ja3 string) (string, error) {
+// JWTManager incapsula la coppia di chiavi RSA usata per firmare i token.
+// La chiave è ephemeral (rigenerata a ogni avvio dell'identity-service).
+// Conseguenza: i token emessi prima del restart vengono invalidati. Per il
+// lab è accettabile; in produzione la chiave andrebbe persistita o caricata
+// da Vault/KMS.
+type JWTManager struct {
+	privateKey *rsa.PrivateKey
+	publicKey  *rsa.PublicKey
+	keyID      string
+}
+
+// NewJWTManager genera una nuova coppia RSA-2048 e calcola il key ID
+// come SHA-256 del DER della chiave pubblica (primi 16 byte hex).
+func NewJWTManager() (*JWTManager, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("rsa generate: %w", err)
+	}
+	pub := &priv.PublicKey
+
+	// Key ID derivato dalla chiave pubblica (deterministico, no random)
+	hash := sha256.Sum256(append(pub.N.Bytes(), 1, 0, 1))
+	kid := hex.EncodeToString(hash[:8])
+
+	return &JWTManager{
+		privateKey: priv,
+		publicKey:  pub,
+		keyID:      kid,
+	}, nil
+}
+
+// Issue firma un access token RS256 con i claim ZTA + RegisteredClaims standard.
+func (m *JWTManager) Issue(userID, role, clearance, deviceID, ja3 string, mfaVerified bool) (string, error) {
 	now := time.Now()
-	claims := IdentityClaims{
-		UserID:             userID,
-		Role:               role,
-		TwoFAVerified:      twoFAVerified,
-		SecureEnclaveValid: secureEnclave,
-		JA3Fingerprint:     ja3,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(TokenValidDuration)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    "identity-service.ztaleaks.local",
+	claims := ZTAClaims{
+		UserID:         userID,
+		Role:           role,
+		ClearanceLevel: clearance,
+		MFAVerified:    mfaVerified,
+		DeviceID:       deviceID,
+		JA3:            ja3,
+		RegisteredClaims: jwtlib.RegisteredClaims{
+			ID:        generateJTI(),
+			Issuer:    Issuer,
+			Subject:   userID,
+			IssuedAt:  jwtlib.NewNumericDate(now),
+			NotBefore: jwtlib.NewNumericDate(now),
+			ExpiresAt: jwtlib.NewNumericDate(now.Add(AccessTokenTTL)),
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, err := token.SignedString(jwtSecretKey)
-	if err != nil {
-		return "", err
-	}
+	token := jwtlib.NewWithClaims(jwtlib.SigningMethodRS256, claims)
+	token.Header["kid"] = m.keyID
 
-	return signedToken, nil
+	signed, err := token.SignedString(m.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("jwt sign: %w", err)
+	}
+	return signed, nil
 }
 
-// ValidateJWT controlla l'integrità, la firma e la scadenza (oltre agli altri RegisteredClaims)
-func ValidateJWT(tokenString string) (*IdentityClaims, error) {
-	parsedToken, err := jwt.ParseWithClaims(tokenString, &IdentityClaims{}, func(token *jwt.Token) (interface{}, error) {
-		// Validazione del metodo di firma (deve essere HMAC) per evitare attacchi downgrade ('none' o 'RSA')
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("metodo di firma inatteso")
-		}
-		return jwtSecretKey, nil
-	}, jwt.WithValidMethods([]string{"HS256"}))
+// PublicKey restituisce la chiave pubblica RSA (per JWKS).
+func (m *JWTManager) PublicKey() *rsa.PublicKey {
+	return m.publicKey
+}
 
+// KeyID restituisce il kid usato negli header dei token e nel JWKS.
+func (m *JWTManager) KeyID() string {
+	return m.keyID
+}
+
+// Verify è incluso per simmetria (non serve a identity, serve solo per i test).
+// In produzione la verifica avviene nella security-orchestrator dopo aver
+// fetchato la chiave pubblica via JWKS.
+func (m *JWTManager) Verify(tokenStr string) (*ZTAClaims, error) {
+	token, err := jwtlib.ParseWithClaims(tokenStr, &ZTAClaims{}, func(t *jwtlib.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwtlib.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method %v", t.Header["alg"])
+		}
+		return m.publicKey, nil
+	}, jwtlib.WithValidMethods([]string{"RS256"}), jwtlib.WithIssuer(Issuer))
 	if err != nil {
 		return nil, err
 	}
-
-	// Estrazione dei claims se validi
-	if claims, ok := parsedToken.Claims.(*IdentityClaims); ok && parsedToken.Valid {
-		return claims, nil
+	claims, ok := token.Claims.(*ZTAClaims)
+	if !ok || !token.Valid {
+		return nil, errors.New("invalid token claims")
 	}
+	return claims, nil
+}
 
-	return nil, errors.New("token invalido o scaduto")
+func generateJTI() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }

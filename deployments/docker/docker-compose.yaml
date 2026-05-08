@@ -84,10 +84,25 @@ services:
     depends_on:
       security-db:
         condition: service_healthy
+      mailhog:
+        condition: service_started
     env_file:
       - ../../.env
+    # NOTE: porta esposta temporaneamente per test diretti durante lo sviluppo;
+    # in produzione le richieste dovrebbero passare solo via Envoy.
+    ports:
+      - "8082:8082"
     volumes:
       - identity-logs:/var/log/ztaleaks/identity
+    restart: unless-stopped
+    networks:
+      - auth-net
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ztaleaks_mailhog
+    ports:
+      - "8025:8025"   # Web UI (http://localhost:8025) per ispezione manuale OTP
     restart: unless-stopped
     networks:
       - auth-net

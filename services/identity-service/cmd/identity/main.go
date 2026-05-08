@@ -14,115 +14,159 @@ import (
 	"ztaleaks/identity-service/internal/db"
 	"ztaleaks/identity-service/internal/handler"
 	"ztaleaks/identity-service/internal/logger"
+	"ztaleaks/identity-service/internal/mailer"
 	"ztaleaks/identity-service/internal/models"
+	wa "ztaleaks/identity-service/internal/webauthn"
 )
 
-func seedDummyAdmin(repo *db.UserRepository) {
-	slog.Info("Esecuzione Seed dell'Amministratore (ambiente locale)...")
-
-	// Creo una password hashata sicura con Argon2id
-	adminPass, err := crypto.GenerateFromPassword("admin123")
+// seedUsers crea (se non esistono) gli utenti di test multi-ruolo.
+// Argon2id viene calcolato qui in Go: la pre-genezione lato JS sarebbe
+// fragile (Argon2 non è disponibile nello shell mongo).
+func seedUsers(repo *db.UserRepository) {
+	type seed struct {
+		username, email, role, clearance string
+	}
+	seeds := []seed{
+		{"admin", "admin@ztaleaks.local", "plant_manager", "TOP_SECRET"},
+		{"operator1", "operator1@ztaleaks.local", "operator", "CONFIDENTIAL"},
+		{"maint_tech1", "maint_tech1@ztaleaks.local", "maintenance_technician", "INTERNAL"},
+		{"rad_officer1", "rad_officer1@ztaleaks.local", "radiation_protection_officer", "SECRET"},
+		{"sec_officer1", "sec_officer1@ztaleaks.local", "security_officer", "SECRET"},
+		{"inspector1", "inspector1@ztaleaks.local", "inspector", "SECRET"},
+	}
+	hash, err := crypto.GenerateFromPassword("admin123")
 	if err != nil {
-		slog.Error("Errore durante la creazione dell'hash Admin", "error", err.Error())
+		slog.Error("seed: hash password", "error", err)
 		return
 	}
-
-	adminUser := &models.User{
-		Username:           "admin",
-		PasswordHash:       adminPass,
-		Role:               "admin",
-		TwoFAEnabled:       false, // Per semplicità in locale, ma il DB supporta il 2FA
-		SecureEnclaveValid: true,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	err = repo.Create(ctx, adminUser)
-	if err != nil {
-		slog.Warn("Admin inserito in precedenza (collezione isolata) o errore", "error", err.Error())
-	} else {
-		slog.Info("Utente Admin creato nel Security DB.", "username", "admin")
+	for _, s := range seeds {
+		u := &models.User{
+			Username:       s.username,
+			Email:          s.email,
+			PasswordHash:   hash,
+			Role:           s.role,
+			ClearanceLevel: s.clearance,
+			TwoFAEnabled:   true,
+			Status:         "active",
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := repo.Create(ctx, u)
+		cancel()
+		if err != nil {
+			slog.Debug("seed user skipped (probably already exists)", "username", s.username, "reason", err.Error())
+			continue
+		}
+		slog.Info("seed user creato", "username", s.username, "role", s.role, "clearance", s.clearance)
 	}
 }
 
 func main() {
-	// 1. Inizializzare il Logger JSON per l'Event Collector
 	logDir := os.Getenv("LOG_DIR")
 	if logDir == "" {
 		logDir = "/var/log/ztaleaks/identity"
 	}
-
-	_, err := logger.InitLogger(logDir, "identity_events.json")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Errore fatale: impossibile inizializzare il file di log json per l'identità nel volume (%v)\n", err)
+	if _, err := logger.InitLogger(logDir, "identity_events.json"); err != nil {
+		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
 		os.Exit(1)
 	}
+	slog.Info("Identity service starting")
 
-	slog.Info("Servizio Identity avviato, configurazione Sicurezza Zero Trust in corso...")
-
-	// 2. Connessione al MongoDB "Security DB" (in container separato e isolato dalla business logic)
+	// --- Connessione Security DB ---
 	dbUri := os.Getenv("SECURITY_DB_URI")
 	if dbUri == "" {
 		dbUri = "mongodb://ztadmin:ztpassword@security-db:27017/securitydb?authSource=admin"
 	}
-
-	mongoClient, err := db.Connect(dbUri, "securitydb")
+	dbName := os.Getenv("SECURITY_DB_NAME")
+	if dbName == "" {
+		dbName = "securitydb"
+	}
+	mongoClient, err := db.Connect(dbUri, dbName)
 	if err != nil {
-		slog.Error("Impossibile connettersi al database di sicurezza", "error", err.Error())
+		slog.Error("DB connect", "error", err)
 		os.Exit(1)
 	}
 	defer mongoClient.Disconnect()
 
-	// 3. Inizializza Repository e API handler (nella collezione identity_users)
+	// --- Repositories ---
 	userRepo := db.NewUserRepository(mongoClient)
+	otpRepo := db.NewOTPRepository(mongoClient)
+	deviceRepo := db.NewDeviceRepository(mongoClient)
+	challengeRepo := db.NewChallengeRepository(mongoClient)
 
-	// Seed (solo per testing e setup immediato: se la collezione è vuota inietta l'utente admin)
-	seedDummyAdmin(userRepo)
-
-	identityApi := &handler.IdentityAPI{
-		Repo: userRepo,
+	// --- JWT manager (RS256, chiave ephemeral) ---
+	jwtMgr, err := crypto.NewJWTManager()
+	if err != nil {
+		slog.Error("JWT manager init", "error", err)
+		os.Exit(1)
 	}
+	slog.Info("JWT manager pronto", "kid", jwtMgr.KeyID(), "alg", "RS256")
 
-	// 4. Configurazione Router
+	// --- Mailer (MailHog) ---
+	mail := mailer.New()
+
+	// --- Seed utenti test ---
+	seedUsers(userRepo)
+
+	// --- Handlers ---
+	api := &handler.IdentityAPI{
+		Users:   userRepo,
+		OTP:     otpRepo,
+		Devices: deviceRepo,
+		JWT:     jwtMgr,
+		Mail:    mail,
+	}
+	waHandler := wa.NewHandler(userRepo, deviceRepo, challengeRepo, jwtMgr)
+
+	// --- Routing ---
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/auth/login", identityApi.Login)
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","service":"identity"}`))
+	})
 
-	port := os.Getenv("PORT")
+	// JWKS — chiave pubblica per la security-orchestrator
+	mux.HandleFunc("GET /.well-known/jwks.json", crypto.JWKSHandler(jwtMgr))
+
+	// Auth (register, login a 2 step)
+	mux.HandleFunc("POST /api/v1/auth/register", api.Register)
+	mux.HandleFunc("POST /api/v1/auth/login", api.Login)
+	mux.HandleFunc("POST /api/v1/auth/verify-otp", api.VerifyOTP)
+
+	// WebAuthn / FIDO2 / TPM enrollment
+	mux.HandleFunc("POST /api/v1/auth/register/begin", waHandler.BeginRegistration)
+	mux.HandleFunc("POST /api/v1/auth/register/finish", waHandler.FinishRegistration)
+	mux.HandleFunc("POST /api/v1/auth/login/begin", waHandler.BeginLogin)
+	mux.HandleFunc("POST /api/v1/auth/login/finish", waHandler.FinishLogin)
+
+	port := os.Getenv("IDENTITY_SERVICE_PORT")
 	if port == "" {
-		port = "8082" // Identity Service sulla porta 8082 della auth-net
+		port = "8082"
 	}
-
 	server := &http.Server{
 		Addr:         ":" + port,
 		Handler:      mux,
-		ReadTimeout:  5 * time.Second,  // Sicurezza base: mitiga attacchi lente come Slowloris
-		WriteTimeout: 10 * time.Second, // Sicurezza base
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// 5. Avvio e Graceful Shutdown
 	go func() {
-		slog.Info("Server di identificazione ZTA in ascolto", "porta", port)
+		slog.Info("Identity service in ascolto", "port", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("Errore d'ascolto del server", "error", err.Error())
+			slog.Error("server", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	// Intercettare i segnali O.S. (es: Docker SIGTERM)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+	slog.Info("shutdown identity-service")
 
-	slog.Info("Chiusura Identity Service...")
-
-	// Shutdown dolce senza troncare le connessioni attive (tempo limite: 10 secondi)
-	ctxShut, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	if err := server.Shutdown(ctxShut); err != nil {
-		slog.Error("Forzatura arresto server", "error", err.Error())
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("shutdown", "error", err)
 	}
-	slog.Info("Identity Service terminato correttamente.")
 }

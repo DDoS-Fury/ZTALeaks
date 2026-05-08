@@ -14,16 +14,17 @@ Convenzioni:
 - [x] Test: drop volume `security-db-data` (era pieno di dati zta-core con schema vecchio), rebuild security-db, `mongosh` verifica 6 collezioni e tutti gli indici/TTL come previsti
 - [x] Commit: `feat(security-db): schema for OTP, JWT blocklist, WebAuthn, audit`
 
-## Step 1 — identity-service RS256 + register + OTP + WebAuthn
-- [ ] `internal/crypto/jwt.go`: HS256 → RS256 (gen ephemeral RSA 2048 a startup), claims `{sub, role, clearance_level, mfa_verified, device_id, ja3, exp, iat, iss}`
-- [ ] `internal/crypto/jwks.go`: handler GET /.well-known/jwks.json
-- [ ] `internal/handler/api.go`: aggiungere `POST /api/v1/auth/register`, `POST /api/v1/auth/verify-otp`; modificare login per emettere session_token + OTP
-- [ ] `internal/mailer/mailer.go`: SMTP client → MailHog (1025)
-- [ ] `internal/webauthn/webauthn.go`: portare da zta-core, adattare a `identity_users`/`device_fingerprints`/`webauthn_challenges`
-- [ ] Estendere `seedDummyAdmin` a 6 utenti multi-ruolo con clearance
-- [ ] `docker-compose.yaml`: aggiungere servizio `mailhog` su `auth-net` (UI 8025, SMTP 1025)
-- [ ] Test: rebuild identity + mailhog, curl register/login → MailHog UI mostra OTP → verify-otp → JWT decodificabile con claims attesi; GET /.well-known/jwks.json ritorna chiave RSA
-- [ ] Commit: `feat(identity): RS256 JWT, JWKS, OTP via MailHog, WebAuthn ceremony, register`
+## Step 1 — identity-service RS256 + register + OTP + WebAuthn  ✅
+- [x] `internal/crypto/jwt.go`: HS256 → RS256 ephemeral RSA-2048; ZTAClaims con sub/role/clearance/mfa_verified/device_id/ja3/iss/jti
+- [x] `internal/crypto/jwks.go`: handler GET /.well-known/jwks.json (kty=RSA, alg=RS256, kid)
+- [x] Repository: user_repo (esteso con FindByID, MarkTPMEnrolled), otp_repo, device_repo, challenges_repo
+- [x] `internal/handler/api.go`: register + login (→ OTP) + verify-otp (→ JWT con device_id)
+- [x] `internal/mailer/mailer.go`: SMTP HTML → MailHog
+- [x] `internal/webauthn/webauthn.go`: register/begin|finish + login/begin|finish con clone detection (sign_count regression)
+- [x] `cmd/identity/main.go`: seed 6 utenti multi-ruolo (Argon2id "admin123") + wiring completo
+- [x] `docker-compose.yaml`: aggiunto mailhog (UI 8025); identity-service esposto temp su 8082 per test
+- [x] 12 test verdi: JWKS, login, OTP via MailHog, verify-otp, JWT decode (claim corretti), WebAuthn register, JWT successivo contiene device_id, login WebAuthn/begin, OTP errato (counter), pwd errata, register nuovo utente
+- [x] Commit: `feat(identity): RS256 JWT, JWKS, OTP via MailHog, WebAuthn ceremony, multi-role seed`
 
 ## Step 2 — security-orchestrator: PDP coordinator
 - [ ] `go.mod`: dipendenze (`golang-jwt/jwt/v5`, `mongo-driver`)

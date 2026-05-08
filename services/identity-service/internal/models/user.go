@@ -4,23 +4,26 @@ import (
 	"time"
 )
 
-// User rappresenta un utente nel SecurityDB
+// User rappresenta un utente nel SecurityDB (collezione identity_users).
 type User struct {
 	ID           string `json:"id" bson:"_id,omitempty"`
 	Username     string `json:"username" bson:"username"`
-	PasswordHash string `json:"-" bson:"password_hash"` // Implementeremo Argon2id o simili
-	Role         string `json:"role" bson:"role"`
+	Email        string `json:"email" bson:"email"`
+	PasswordHash string `json:"-" bson:"password_hash"` // Argon2id MCF
 
-	// Predisposizione 2FA
+	Role           string `json:"role" bson:"role"`
+	ClearanceLevel string `json:"clearance_level" bson:"clearance_level"` // PUBLIC|INTERNAL|CONFIDENTIAL|SECRET|TOP_SECRET
+
+	// 2FA via OTP email
 	TwoFAEnabled bool   `json:"two_fa_enabled" bson:"two_fa_enabled"`
 	TwoFASecret  string `json:"-" bson:"two_fa_secret,omitempty"`
 
-	// Predisposizione TPM e Secure Enclave
+	// TPM / Secure Enclave (popolato dopo enrollment WebAuthn)
 	HasTPM             bool   `json:"has_tpm" bson:"has_tpm"`
 	TPMPublicKey       string `json:"-" bson:"tpm_public_key,omitempty"`
 	SecureEnclaveValid bool   `json:"secure_enclave_valid" bson:"secure_enclave_valid"`
 
-	// Session e Audit
+	Status        string    `json:"status" bson:"status"`
 	CreatedAt     time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at" bson:"updated_at"`
 	LastLoginInfo LoginInfo `json:"last_login_info" bson:"last_login_info"`

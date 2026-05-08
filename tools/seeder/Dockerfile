@@ -20,7 +20,7 @@ RUN go mod download
 
 # Copy source code and compile
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o seed ./cmd/seeder/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o seed ./cmd/seeder/main.go
 
 # -- Runtime stage -------------------------------------------------------------
 FROM alpine:3.19

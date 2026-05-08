@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 
 # Compilazione statica per ottenere un eseguibile standalone ultra leggero
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o identity-server ./cmd/identity
+RUN CGO_ENABLED=0 GOOS=linux go build -o identity-server ./cmd/identity
 
 # Fase 2: Immagine Esecutiva Distroless Minimalista (Pratica Zero Trust per la minimizzazione attacchi via container escape)
 FROM alpine:latest

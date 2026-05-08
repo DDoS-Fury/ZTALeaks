@@ -1,235 +1,129 @@
+// =============================================================================
+// Security Orchestrator — PDP coordinator (PEP-side ext_authz target)
+// Project: ZTALeaks - mix-master-zta-core split architecture
+// =============================================================================
+// Responsabilità (per direttive del compagno):
+//   - verificare il token JWT (scarica la pubkey via JWKS da identity-service)
+//   - verificare TPM via security-db (lookup read-only su device_fingerprints)
+//   - controllare il certificato client (header forwarded da Envoy)
+//   - costruire input arricchito e chiamare OPA per la decisione finale
+// =============================================================================
+
 package main
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
+
+	"ztaleaks/security-orchestrator/internal/cert"
+	"ztaleaks/security-orchestrator/internal/db"
+	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
+	"ztaleaks/security-orchestrator/internal/opa"
+	"ztaleaks/security-orchestrator/internal/tpm"
 )
 
-// OPARequest rappresenta il payload JSON che inviamo ad OPA
-type OPARequest struct {
-	Input map[string]interface{} `json:"input"`
+// publicPaths sono percorsi che by-passano la verifica JWT (login, register,
+// JWKS, healthcheck). Dovrebbero comunque transitare per Envoy ma il layer
+// orchestrator li lascia passare con risk-ridotto.
+var publicPaths = map[string]bool{
+	"/api/v1/auth/login":          true,
+	"/api/v1/auth/register":       true,
+	"/api/v1/auth/verify-otp":     true,
+	"/api/v1/auth/register/begin": true,
+	"/api/v1/auth/register/finish": true,
+	"/api/v1/auth/login/begin":    true,
+	"/api/v1/auth/login/finish":   true,
+	"/.well-known/jwks.json":      true,
+	"/health":                     true,
+	"/":                           true,
 }
-
-// OPAResponse rappresenta la risposta JSON di OPA
-// Supponiamo che la policy restituisca un booleano in `result` (es. default allow = false)
-type OPAResponse struct {
-	Result bool `json:"result"`
-}
-
-// getAIRiskScore simula una chiamata al modello AI
-func getAIRiskScore(ctx context.Context, userID string) (float64, error) {
-	// Simuliamo un minimo di latenza di rete (es. 50ms)
-	time.Sleep(50 * time.Millisecond)
-
-	// Per ora restituiamo sempre 0.2 fisso
-	return 0.2, nil
-}
-
-// askOPA esegue la chiamata HTTP verso OPA
-func askOPA(ctx context.Context, opaURL string, payload OPARequest) (bool, error) {
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return false, fmt.Errorf("errore encoding JSON per OPA: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, opaURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return false, fmt.Errorf("errore creazione richiesta per OPA: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Usiamo un client HTTP custom con timeout per non bloccare l'orchestratore
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("errore chiamata HTTP ad OPA: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("OPA ha risposto con status code: %d", resp.StatusCode)
-	}
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	var opaResp OPAResponse
-	if err := json.Unmarshal(bodyBytes, &opaResp); err != nil {
-		return false, fmt.Errorf("errore decoding risposta OPA: %w", err)
-	}
-
-	return opaResp.Result, nil
-}
-
-// --- MAIN ---
 
 func main() {
 	logDir := "/var/log/ztaleaks/orchestrator"
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Impossibile creare directory dei log: %v\n", err)
-	}
+	_ = os.MkdirAll(logDir, 0755)
 
-	logFilePath := filepath.Join(logDir, "app.jsonl")
-	logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// JSON logger su file + stdout per Splunk forwarding
+	var logWriter io.Writer = os.Stdout
+	if f, err := os.OpenFile(filepath.Join(logDir, "app.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		logWriter = io.MultiWriter(os.Stdout, f)
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logWriter, nil)))
+
+	port := getenv("SECURITY_ORCHESTRATOR_PORT", "8081")
+
+	// File log dedicato per le decision-logs di OPA (preservato dal master)
+	opaLogPath := filepath.Join(logDir, "opa_decision.jsonl")
+	opaLogFile, _ := os.OpenFile(opaLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+	// --- Wiring dei moduli ---
+	ctx := context.Background()
+	mongoClient, err := db.Connect(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Impossibile aprire file dei log: %v\n", err)
+		slog.Error("connessione security-db fallita", "error", err)
+		os.Exit(1)
 	}
+	defer mongoClient.Disconnect()
 
-	var logWriter io.Writer
-	if err == nil {
-		logWriter = io.MultiWriter(os.Stdout, logFile)
-	} else {
-		logWriter = os.Stdout
-	}
+	jwksURL := getenv("IDENTITY_JWKS_URL", "http://identity-service:8082/.well-known/jwks.json")
+	verifier := jwtpkg.NewVerifier(jwksURL)
+	tpmLookup := tpm.New(mongoClient.DB())
+	opaClient := opa.New()
 
-	logger := slog.New(slog.NewJSONHandler(logWriter, nil))
-	slog.SetDefault(logger)
-
-	// Inizializza file log per OPA Decision Logs
-	opaLogFilePath := filepath.Join(logDir, "opa_decision.jsonl")
-	opaLogFile, err := os.OpenFile(opaLogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Impossibile aprire file dei log per OPA: %v\n", err)
-	}
-
-	port := os.Getenv("SECURITY_ORCHESTRATOR_PORT")
-	if port == "" {
-		port = "8081"
-	}
-
-	// URL di default di OPA (puoi sovrascriverla con una variabile d'ambiente)
-	opaURL := os.Getenv("OPA_URL")
-	if opaURL == "" {
-		// Endpoint tipico per valutare una regola 'allow' nel package 'envoy.authz'
-		opaURL = "http://opa:8181/v1/data/envoy/authz/allow"
-	}
-
+	// --- HTTP routes ---
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","service":"security-orchestrator"}`))
 	})
 
-	// Handler per i log di decisione OPA
-	mux.HandleFunc("/api/v1/opa/logs", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
+	// Decision logs ricevuti da OPA (--set=services.orchestrator...) — preservato
+	mux.HandleFunc("POST /api/v1/opa/logs", func(w http.ResponseWriter, r *http.Request) {
 		var reader io.Reader = r.Body
 		if r.Header.Get("Content-Encoding") == "gzip" {
 			gz, err := gzip.NewReader(r.Body)
 			if err != nil {
-				slog.Error("Errore decodifica gzip log OPA", "error", err)
-				http.Error(w, "Bad request", http.StatusBadRequest)
+				http.Error(w, "bad gzip", http.StatusBadRequest)
 				return
 			}
 			defer gz.Close()
 			reader = gz
 		}
-
-		var logs []interface{}
-		if err := json.NewDecoder(reader).Decode(&logs); err != nil {
-			slog.Error("Errore decodifica JSON log OPA", "error", err)
-			http.Error(w, "Bad request", http.StatusBadRequest)
+		var entries []json.RawMessage
+		if err := json.NewDecoder(reader).Decode(&entries); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
-
-		for _, logEntry := range logs {
-			b, err := json.Marshal(logEntry)
-			if err != nil {
-				continue
-			}
-			b = append(b, '\n')
+		for _, e := range entries {
 			if opaLogFile != nil {
-				opaLogFile.Write(b)
+				_, _ = opaLogFile.Write(append([]byte(e), '\n'))
 			}
 		}
-
 		w.WriteHeader(http.StatusOK)
 	})
 
-	evalHandler := func(w http.ResponseWriter, r *http.Request) {
-		// 1. (Simulato) Estrai identificativo utente, IP, ecc. dalla richiesta
-		userID := "user-123"
-
-		// 2. Interroga il modello AI
-		riskScore, err := getAIRiskScore(r.Context(), userID)
-		if err != nil {
-			slog.Error("Errore calcolo rischio AI", "error", err)
-			http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
-			return
-		}
-		slog.Info("Rischio calcolato", "user", userID, "risk_score", riskScore)
-
-		// Tenta di estrarre il path originale dagli header inseriti da Envoy (ext_authz http_service)
-		originalPath := r.Header.Get("X-Authz-Request-Path")
-		if originalPath == "" {
-			originalPath = r.Header.Get("X-Original-Uri")
-		}
-		if originalPath == "" {
-			originalPath = r.URL.Path // Fallback
-		}
-		slog.Info("Valutazione rotta", "path", originalPath, "method", r.Method)
-
-		// Prepara l'input combinato per OPA
-		opaInput := OPARequest{
-			Input: map[string]interface{}{
-				"risk_score": riskScore,
-				"attributes": map[string]interface{}{
-					"request": map[string]interface{}{
-						"http": map[string]interface{}{
-							"method": r.Method, // Envoy invia il metodo originale in X-Authz-Request-Method di solito
-							"path":   originalPath,
-						},
-					},
-				},
-			},
-		}
-
-		// 4. Interroga OPA
-		isAllowed, err := askOPA(r.Context(), opaURL, opaInput)
-		if err != nil {
-			slog.Error("Errore comunicazione con OPA", "error", err)
-			// Fail-safe: se OPA è irraggiungibile, neghiamo l'accesso
-			http.Error(w, `{"allowed": false, "reason": "policy engine unavailable"}`, http.StatusServiceUnavailable)
-			return
-		}
-
-		slog.Info("Decisione OPA", "allowed", isAllowed)
-
-		// 5. Restituisci il verdetto al chiamante (es. Envoy)
-		w.Header().Set("Content-Type", "application/json")
-		if isAllowed {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"allowed": true}`))
-		} else {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(`{"allowed": false, "reason": "policy denied"}`))
-		}
-	}
-	
-	mux.HandleFunc("/api/v1/evaluate", evalHandler)
-	mux.HandleFunc("/api/v1/evaluate/", evalHandler)
-
-	// In Envoy's HTTP ext_authz, the original path and method are preserved by default.
-	// Therefore, we register evalHandler as the catch-all to evaluate all incoming requests.
-	mux.HandleFunc("/", evalHandler)
+	// ext_authz endpoint chiamato da Envoy
+	evaluate := buildEvaluateHandler(verifier, tpmLookup, opaClient)
+	mux.HandleFunc("/api/v1/evaluate", evaluate)
+	mux.HandleFunc("/api/v1/evaluate/", evaluate)
+	// Envoy con http_service ext_authz inoltra il path originale come parte
+	// dell'URL — usiamo "/" come catch-all ultimo. (non sostituisce evaluate)
+	mux.HandleFunc("/", evaluate)
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%s", port),
+		Addr:         ":" + port,
 		Handler:      mux,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -237,9 +131,9 @@ func main() {
 	}
 
 	go func() {
-		slog.Info("Avvio del server Security Orchestrator", "port", port, "opa_url", opaURL)
+		slog.Info("security-orchestrator in ascolto", "port", port, "jwks", jwksURL)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("Errore critico del server", "error", err)
+			slog.Error("server error", "error", err)
 			os.Exit(1)
 		}
 	}()
@@ -247,13 +141,145 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	slog.Info("Avvio graceful shutdown...")
+	slog.Info("shutdown")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
+}
 
-	if err := srv.Shutdown(ctx); err != nil {
-		slog.Error("Errore durante lo shutdown", "error", err)
+// buildEvaluateHandler costruisce l'handler ext_authz: legge gli header
+// forwardati da Envoy, verifica JWT, parse cert, lookup TPM, chiama OPA.
+func buildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, opaClient *opa.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Path/method originali — Envoy li preserva via header dedicati o
+		// nell'URL stesso (a seconda della config di ext_authz)
+		origPath := r.Header.Get("X-Original-Uri")
+		if origPath == "" {
+			origPath = r.Header.Get("X-Authz-Request-Path")
+		}
+		if origPath == "" {
+			origPath = r.URL.Path
+		}
+		method := r.Header.Get("X-Authz-Request-Method")
+		if method == "" {
+			method = r.Method
+		}
+		zoneID := r.Header.Get("X-Zone-Id")
+
+		// 1. Public path: bypass JWT/OPA, ritorna OK immediato.
+		if publicPaths[origPath] {
+			slog.Debug("public path bypass", "path", origPath)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// 2. Estrai e verifica JWT
+		token := bearerToken(r.Header.Get("Authorization"))
+		if token == "" {
+			// niente JWT → tier "niente" (anonimo). Mandiamo comunque il
+			// caso a OPA perché certe rotte pubbliche potrebbero ammettere
+			// senza autenticazione.
+			slog.Info("ext_authz: nessun token", "path", origPath)
+			ok := evalOPA(r.Context(), opaClient, opa.Input{
+				Request:     opa.Request{Method: method, Path: origPath},
+				Claims:      nil,
+				CertPresent: false,
+				TPMVerified: false,
+				ZoneID:      zoneID,
+			})
+			respondAllow(w, ok, "")
+			return
+		}
+
+		claims, err := verifier.Verify(token)
+		if err != nil {
+			slog.Warn("JWT verify fallita", "error", err)
+			http.Error(w, `{"allowed":false,"reason":"invalid token"}`, http.StatusUnauthorized)
+			return
+		}
+
+		// 3. Certificate
+		cc := cert.Parse(r.Header.Get("X-Forwarded-Client-Cert"))
+
+		// 4. TPM lookup
+		tpmOK := tpmLookup.Verify(r.Context(), claims.UserID, claims.DeviceID)
+
+		// 5. OPA call con input arricchito
+		input := opa.Input{
+			Request:     opa.Request{Method: method, Path: origPath},
+			Claims:      claimsToMap(claims),
+			CertPresent: cc.Present,
+			CertSubject: cc.Subject,
+			TPMVerified: tpmOK,
+			ZoneID:      zoneID,
+		}
+		allow := evalOPA(r.Context(), opaClient, input)
+		slog.Info("decisione",
+			"path", origPath, "method", method, "user", claims.UserID,
+			"role", claims.Role, "clearance", claims.ClearanceLevel,
+			"cert_present", cc.Present, "tpm_verified", tpmOK,
+			"zone", zoneID, "allow", allow,
+		)
+		respondAllow(w, allow, claims.UserID)
 	}
-	slog.Info("Server spento correttamente")
+}
+
+// evalOPA wraps the OPA client call con fail-safe: se OPA non risponde →
+// nega (Zero Trust default).
+func evalOPA(ctx context.Context, c *opa.Client, in opa.Input) bool {
+	allow, err := c.Evaluate(ctx, in)
+	if err != nil {
+		slog.Error("OPA error → deny by default", "error", err)
+		return false
+	}
+	return allow
+}
+
+// respondAllow chiude la risposta verso Envoy. 200 → allow; 403 → deny.
+// Inietta x-current-user (allowed_upstream_headers in envoy.yaml).
+func respondAllow(w http.ResponseWriter, allow bool, userID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if allow {
+		if userID != "" {
+			w.Header().Set("x-current-user", userID)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"allowed":true}`))
+		return
+	}
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte(`{"allowed":false,"reason":"policy denied"}`))
+}
+
+func bearerToken(h string) string {
+	parts := strings.SplitN(h, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return parts[1]
+}
+
+// claimsToMap serializza ZTAClaims in mappa generica (più comoda per Rego).
+func claimsToMap(c *jwtpkg.ZTAClaims) map[string]any {
+	m := map[string]any{
+		"sub":             c.UserID,
+		"role":            c.Role,
+		"clearance_level": c.ClearanceLevel,
+		"mfa_verified":    c.MFAVerified,
+	}
+	if c.DeviceID != "" {
+		m["device_id"] = c.DeviceID
+	}
+	if c.JA3 != "" {
+		m["ja3"] = c.JA3
+	}
+	return m
+}
+
+func getenv(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }

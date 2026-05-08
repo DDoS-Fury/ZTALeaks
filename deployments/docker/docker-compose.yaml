@@ -117,11 +117,16 @@ services:
         condition: service_started # OPA deve essere in ascolto prima di avviare l'orchestrator
       security-db:
         condition: service_healthy
+      identity-service:
+        condition: service_started  # JWKS endpoint deve essere up
     env_file:
       - ../../.env
     restart: unless-stopped
     environment:
       - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
+    # Esposto temp per test diretti durante lo sviluppo (rimuovere dopo step 4)
+    ports:
+      - "8081:8081"
     volumes:
       - orchestrator-logs:/var/log/ztaleaks/orchestrator
     networks:

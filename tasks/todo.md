@@ -26,16 +26,16 @@ Convenzioni:
 - [x] 12 test verdi: JWKS, login, OTP via MailHog, verify-otp, JWT decode (claim corretti), WebAuthn register, JWT successivo contiene device_id, login WebAuthn/begin, OTP errato (counter), pwd errata, register nuovo utente
 - [x] Commit: `feat(identity): RS256 JWT, JWKS, OTP via MailHog, WebAuthn ceremony, multi-role seed`
 
-## Step 2 — security-orchestrator: PDP coordinator
-- [ ] `go.mod`: dipendenze (`golang-jwt/jwt/v5`, `mongo-driver`)
-- [ ] `internal/jwt/verifier.go`: fetch JWKS da `IDENTITY_JWKS_URL` (cache), verify RS256
-- [ ] `internal/cert/cert.go`: parse `x-forwarded-client-cert` header (subject, hash) inviato da Envoy
-- [ ] `internal/db/mongo.go`: client securitydb
-- [ ] `internal/tpm/tpm.go`: lookup `device_fingerprints` per user_id; restituisce `tpm_verified` boolean
-- [ ] `internal/opa/client.go`: POST a OPA con `{claims, cert_present, tpm_verified, zone, request:{path,method}}`
-- [ ] `cmd/orchestrator/main.go`: rimuovere stub `getAIRiskScore`, wirare i moduli, esporre `/api/v1/evaluate`
-- [ ] Test: curl con/senza JWT, con/senza cert, con/senza TPM → orchestrator log corretto
-- [ ] Commit: `feat(orchestrator): JWT verify (JWKS), cert parse, TPM lookup, OPA call`
+## Step 2 — security-orchestrator: PDP coordinator  ✅
+- [x] `go.mod`: jwt/v5 + mongo-driver + indirette; Dockerfile aggiornato (go mod tidy in build)
+- [x] `internal/jwt/verifier.go`: JWKS fetch (cache 5 min), RS256 verify, kid-based key lookup
+- [x] `internal/cert/cert.go`: parse header forwarded da Envoy (Subject, Hash, Present)
+- [x] `internal/db/mongo.go`: client read-only su securitydb
+- [x] `internal/tpm/lookup.go`: `device_fingerprints` lookup per coppia (credential_id, user_id)
+- [x] `internal/opa/client.go`: POST OPA con input `{request, claims, cert_present, cert_subject, tpm_verified, zone_id}`
+- [x] `cmd/orchestrator/main.go`: rimosso stub AI risk, wirato tutto; preservato endpoint `/api/v1/opa/logs` per decision logs (master)
+- [x] Test: 6 scenari (public bypass, no JWT, JWT valido, JWT invalido, con cert) tutti verdi; OPA riceve input arricchito completo (verificato da OPA decision logs)
+- [x] Commit: `feat(orchestrator): JWT verify (JWKS), cert parse, TPM lookup, OPA call`
 
 ## Step 3 — OPA policy + data + tests
 - [ ] Riscrivere `infra/opa/policy.rego`: matrice ruolo↔rotta (7 risorse), clearance hierarchy, 3 tier (`none`/`cert`/`cert+tpm`) con min_tier per rotta

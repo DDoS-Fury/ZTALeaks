@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -72,8 +74,33 @@ func askOPA(ctx context.Context, opaURL string, payload OPARequest) (bool, error
 // --- MAIN ---
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logDir := "/var/log/ztaleaks/orchestrator"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Impossibile creare directory dei log: %v\n", err)
+	}
+
+	logFilePath := filepath.Join(logDir, "app.jsonl")
+	logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Impossibile aprire file dei log: %v\n", err)
+	}
+
+	var logWriter io.Writer
+	if err == nil {
+		logWriter = io.MultiWriter(os.Stdout, logFile)
+	} else {
+		logWriter = os.Stdout
+	}
+
+	logger := slog.New(slog.NewJSONHandler(logWriter, nil))
 	slog.SetDefault(logger)
+
+	// Inizializza file log per OPA Decision Logs
+	opaLogFilePath := filepath.Join(logDir, "opa_decision.jsonl")
+	opaLogFile, err := os.OpenFile(opaLogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Impossibile aprire file dei log per OPA: %v\n", err)
+	}
 
 	port := os.Getenv("SECURITY_ORCHESTRATOR_PORT")
 	if port == "" {
@@ -92,6 +119,46 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status": "ok"}`))
+	})
+
+	// Handler per i log di decisione OPA
+	mux.HandleFunc("/api/v1/opa/logs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var reader io.Reader = r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gz, err := gzip.NewReader(r.Body)
+			if err != nil {
+				slog.Error("Errore decodifica gzip log OPA", "error", err)
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+			defer gz.Close()
+			reader = gz
+		}
+
+		var logs []interface{}
+		if err := json.NewDecoder(reader).Decode(&logs); err != nil {
+			slog.Error("Errore decodifica JSON log OPA", "error", err)
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		for _, logEntry := range logs {
+			b, err := json.Marshal(logEntry)
+			if err != nil {
+				continue
+			}
+			b = append(b, '\n')
+			if opaLogFile != nil {
+				opaLogFile.Write(b)
+			}
+		}
+
+		w.WriteHeader(http.StatusOK)
 	})
 
 	evalHandler := func(w http.ResponseWriter, r *http.Request) {

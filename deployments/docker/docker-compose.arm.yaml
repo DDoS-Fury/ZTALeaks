@@ -192,54 +192,6 @@ services:
     networks:
       - back-net
 
-  splunk:
-    image: splunk/splunk:latest
-    container_name: ztaleaks_splunk
-    env_file:
-      - ../../.env
-    environment:
-      - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
-      - SPLUNK_START_ARGS=--accept-license --answer-yes
-    ports:
-      - "8000:8000"
-      - "8088:8088"
-      - "9997:9997"
-    volumes:
-      - splunk-etc:/opt/splunk/etc
-      - splunk-var:/opt/splunk/var
-    restart: unless-stopped
-    networks:
-      - back-net
-
-  splunk-uf:
-    image: splunk/universalforwarder:latest
-    container_name: ztaleaks_splunk_uf
-    user: root
-    env_file:
-      - ../../.env
-    environment:
-      - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
-      - SPLUNK_START_ARGS=--accept-license --answer-yes --run-as-root
-      - SPLUNK_USER=root
-      - SPLUNK_STANDALONE_URL=splunk
-    depends_on:
-      - splunk
-    volumes:
-      - ../../infra/splunk-uf:/opt/splunkforwarder/etc/apps/ztaleaks_forwarder/local
-      - firewall-logs:/var/log/ztaleaks/nftables:ro
-      - envoy-logs:/var/log/ztaleaks/envoy:ro
-      - snort-logs:/var/log/ztaleaks/snort:ro
-      - snort-internal-logs:/var/log/ztaleaks/snort-internal:ro
-      - business-logs:/var/log/ztaleaks/business-logic:ro
-      - identity-logs:/var/log/ztaleaks/identity:ro
-      - orchestrator-logs:/var/log/ztaleaks/orchestrator:ro
-      - opa-logs:/var/log/ztaleaks/opa:ro
-      - business-db-logs:/var/log/ztaleaks/mongodb:ro
-      - security-db-logs:/var/log/ztaleaks/security-db:ro
-    restart: unless-stopped
-    networks:
-      - back-net
-
 networks:
   front-net:
   auth-net:
@@ -258,5 +210,3 @@ volumes:
   identity-logs:
   orchestrator-logs:
   opa-logs:
-  splunk-etc:
-  splunk-var:

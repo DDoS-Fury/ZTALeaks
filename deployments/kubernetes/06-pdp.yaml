@@ -55,7 +55,12 @@ spec:
       containers:
       - name: opa
         image: openpolicyagent/opa:latest-envoy
-        command: ["run", "--server", "/policy.rego"]
+        command:
+        - "run"
+        - "--server"
+        - "--set=services.orchestrator.url=http://security-orchestrator:9090/api/v1/opa"
+        - "--set=decision_logs.service=orchestrator"
+        - "/policy.rego"
         ports:
         - containerPort: 8181
         volumeMounts:

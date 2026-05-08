@@ -139,6 +139,7 @@ services:
     container_name: ztaleaks_opa
     volumes:
       - ../../infra/opa/policy.rego:/policy.rego
+      - ../../infra/opa/data.json:/data.json
       - opa-logs:/var/log/ztaleaks/opa
     command:
       - "run"
@@ -150,6 +151,7 @@ services:
       - "--set=services.orchestrator.url=http://security-orchestrator:8081/api/v1/opa"
       - "--set=decision_logs.service=orchestrator"
       - "/policy.rego"
+      - "/data.json"
     restart: unless-stopped
     networks:
       - auth-net

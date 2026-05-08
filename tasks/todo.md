@@ -37,12 +37,13 @@ Convenzioni:
 - [x] Test: 6 scenari (public bypass, no JWT, JWT valido, JWT invalido, con cert) tutti verdi; OPA riceve input arricchito completo (verificato da OPA decision logs)
 - [x] Commit: `feat(orchestrator): JWT verify (JWKS), cert parse, TPM lookup, OPA call`
 
-## Step 3 — OPA policy + data + tests
-- [ ] Riscrivere `infra/opa/policy.rego`: matrice ruolo↔rotta (7 risorse), clearance hierarchy, 3 tier (`none`/`cert`/`cert+tpm`) con min_tier per rotta
-- [ ] Creare `infra/opa/data.json`: zone min_trust_score (da zta-core); eventuale tier-per-route map
-- [ ] Creare `infra/opa/policy_test.rego`: 10-12 test (tier × clearance × role × route)
-- [ ] Test: `docker run --rm -v $(pwd):/workspace openpolicyagent/opa test /workspace/infra/opa/ -v`
-- [ ] Commit: `feat(opa): role-route matrix, clearance, 3-tier admission + tests`
+## Step 3 — OPA policy + data + tests  ✅
+- [x] `infra/opa/policy.rego`: public paths whitelist + matrice ruolo↔rotta sulle 7 risorse + clearance hierarchy + 3 tier (none/cert/cert+tpm) con min_tier per (path, method) + path matching esatto/prefisso
+- [x] `infra/opa/data.json`: zone metadata (min_tier per zona, require_mfa) — tenuto come hook futuro
+- [x] `infra/opa/policy_test.rego`: 16 test (public bypass, tier 0/1/2, clearance, role denied, path con sub-id, no claims) — `opa test` 16/16 PASS
+- [x] Compose: OPA monta anche `data.json`
+- [x] Test E2E via orchestrator: 11/11 PASS (admin con/senza cert su personnel, nuclear-materials POST tier=2, operator role denied su nuclear/maintenance, zones/documents tier=0, public bypass)
+- [x] Commit: `feat(opa): role-route matrix, clearance, 3-tier admission + tests`
 
 ## Step 4 — Envoy: forward client cert + bypass nuove rotte
 - [ ] `infra/envoy/envoy.yaml`: aggiungere `forward_client_cert_details: APPEND_FORWARD` + `set_current_client_cert_details: {subject, cert, dns}`

@@ -72,7 +72,10 @@ Convenzioni:
 - [x] Test: `bash tests/e2e/run_all.sh` → 5/5 pillar PASS, 26/26 scenari
 - [x] Commit: `test(e2e): pillar scripts for auth/PEP/RBAC/ABAC/tier`
 
-## Step 7 — CI
-- [ ] `.github/workflows/ci.yaml`: aggiungere job `opa-tests` (gate per `build-images`) e `e2e-tests` (full stack)
-- [ ] Test: locale `act` o push su feature branch
-- [ ] Commit: `ci: OPA policy tests + E2E full-suite gate`
+## Step 7 — CI  ✅
+- [x] `.github/workflows/ci.yaml` riscritto: trigger anche su `mix-master-zta-core`; 3 job in serie:
+  - `opa-tests` (gate, ~5s)
+  - `build-images` (incluso identity-service e security-db, mancanti su master) — needs opa-tests
+  - `e2e-tests` (genera .env stub, `docker compose up -d --build`, polling readiness Envoy+MailHog, `bash tests/e2e/run_all.sh`, upload REPORT.md, teardown `down -v`) — needs build-images
+- [x] Test locale: `docker run openpolicyagent/opa test /workspace/infra/opa/ -v` → 16/16 PASS
+- [x] Commit: `ci: OPA policy tests gate + E2E full-suite job`

@@ -1,32 +1,61 @@
-name: CI - Build Verification
+name: CI - Build & E2E Verification
 
 on:
   push:
-    branches: [master]
+    branches: [master, mix-master-zta-core]
   pull_request:
     branches: [master]
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1. OPA policy tests (fast, runs first as a gate)
+  # ---------------------------------------------------------------------------
+  opa-tests:
+    name: OPA Policy Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run OPA policy tests
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace \
+            openpolicyagent/opa:latest \
+            test /workspace/infra/opa/ -v
+
+  # ---------------------------------------------------------------------------
+  # 2. Build all Dockerfiles individually (no docker compose to avoid .env coupling)
+  # ---------------------------------------------------------------------------
   build-images:
     name: Build Docker Images
     runs-on: ubuntu-latest
-
+    needs: [opa-tests]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # --- Infrastructure ---
-
       - name: Build firewall (nftables)
         run: docker build -f infra/nftables/Dockerfile -t ztaleaks/firewall .
 
       - name: Build envoy proxy
         run: docker build -f infra/envoy/Dockerfile -t ztaleaks/envoy .
 
+      - name: Build snort IDS
+        run: docker build -f infra/snort/Dockerfile -t ztaleaks/snort .
+
+      - name: Build snort-internal IDS
+        run: docker build -f infra/snort-internal/Dockerfile -t ztaleaks/snort-internal .
+
       - name: Build business-db
         run: docker build -t ztaleaks/business-db ./infra/databases/business
 
+      - name: Build security-db
+        run: docker build -t ztaleaks/security-db ./infra/databases/security
+
       # --- Go services (multi-stage) ---
+      - name: Build identity-service
+        run: docker build -t ztaleaks/identity-service ./services/identity-service
 
       - name: Build security-orchestrator
         run: docker build -t ztaleaks/security-orchestrator ./services/security-orchestrator
@@ -38,45 +67,81 @@ jobs:
         run: docker build -t ztaleaks/seeder ./tools/seeder
 
       # --- Test images ---
-
       - name: Build test-client
         run: docker build -f tests/clients/Dockerfile -t ztaleaks/test-client .
 
-  # Uncomment when OPA policies have test cases in tests/opa/:
-  #
-  # opa-tests:
-  #   name: OPA Policy Tests
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #     - name: Run OPA tests
-  #       run: |
-  #         docker run --rm -v ${{ github.workspace }}:/workspace \
-  #           openpolicyagent/opa:latest \
-  #           test /workspace/infra/opa/ /workspace/tests/opa/ -v
+  # ---------------------------------------------------------------------------
+  # 3. End-to-end full-stack suite (5 pillar)
+  # ---------------------------------------------------------------------------
+  e2e-tests:
+    name: E2E - Full Suite (5 pillars)
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  # Uncomment when Go test files exist:
-  #
-  # go-checks:
-  #   name: Go Lint & Test
-  #   runs-on: ubuntu-latest
-  #   strategy:
-  #     matrix:
-  #       module:
-  #         - services/business-logic
-  #         - services/security-orchestrator
-  #         - tools/seeder
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #     - name: Set up Go
-  #       uses: actions/setup-go@v5
-  #       with:
-  #         go-version-file: ${{ matrix.module }}/go.mod
-  #     - name: Go vet
-  #       working-directory: ${{ matrix.module }}
-  #       run: go vet ./...
-  #     - name: Go test
-  #       working-directory: ${{ matrix.module }}
-  #       run: go test ./... -v
+      - name: Generate stub .env for compose
+        # Real .env is gitignored; CI only needs values that satisfy
+        # docker-compose's `env_file` directive. No secrets — the stack runs
+        # locally inside the runner.
+        run: |
+          cat > .env <<'EOF'
+          BUSINESS_LOGIC_PORT=8080
+          ENVOY_PORT=8443
+          SPLUNK_PASSWORD=ChangeMe-CI
+          SPLUNK_HEC_TOKEN=00000000-0000-0000-0000-000000000000
+          SECURITY_DB_USERNAME=ztadmin
+          SECURITY_DB_PASSWORD=ztpassword
+          SEED_MONGO_URI=mongodb://seed_service:seedServicePass2025!@business-db:27017/nuclear_plant_db?authSource=nuclear_plant_db
+          MONGO_INITDB_ROOT_USERNAME=ztadmin
+          MONGO_INITDB_ROOT_PASSWORD=ztpassword
+          MONGO_URI=mongodb://seed_service:seedServicePass2025!@business-db:27017/nuclear_plant_db?authSource=nuclear_plant_db
+          SECURITY_ORCHESTRATOR_PORT=8081
+          SECURITY_DB_URI=mongodb://ztadmin:ztpassword@security-db:27017/securitydb?authSource=admin
+          SECURITY_DB_NAME=securitydb
+          IDENTITY_SERVICE_PORT=8082
+          IDENTITY_JWKS_URL=http://identity-service:8082/.well-known/jwks.json
+          SMTP_HOST=mailhog
+          SMTP_PORT=1025
+          SMTP_FROM=noreply@ztaleaks.local
+          WEBAUTHN_RP_ID=ztaleaks.local
+          WEBAUTHN_RP_ORIGIN=https://ztaleaks.local:8443
+          EOF
+
+      - name: Bring up the stack
+        working-directory: deployments/docker
+        run: docker compose up -d --build
+
+      - name: Wait for services to be healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -ksf https://127.0.0.1:8443/.well-known/jwks.json > /dev/null \
+               && curl -sf http://127.0.0.1:8025/api/v2/messages > /dev/null; then
+              echo "stack ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "stack did not become ready in 120s"
+          exit 1
+
+      - name: Run E2E suite (auth, pep, rbac, abac, tier)
+        run: bash tests/e2e/run_all.sh
+
+      - name: Upload generated REPORT.md
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: tests/e2e/REPORT.md
+          if-no-files-found: warn
+
+      - name: Dump container logs on failure
+        if: failure()
+        working-directory: deployments/docker
+        run: docker compose logs --tail=300
+
+      - name: Tear down stack
+        if: always()
+        working-directory: deployments/docker
+        run: docker compose down -v

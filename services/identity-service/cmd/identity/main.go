@@ -26,13 +26,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		os.Exit(1)
 	}
+	defer cfg.DB.Disconnect()
 
 	if _, err := logger.InitLogger(cfg.LogDir, "identity_events.json"); err != nil {
 		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
 		os.Exit(1)
 	}
 	slog.Info("Identity service starting")
-	defer cfg.DB.Disconnect()
 
 	repos := db.InitRepositories(cfg.DB)
 
@@ -44,38 +44,22 @@ func main() {
 	slog.Info("JWT manager pronto", "kid", jwtMgr.KeyID(), "alg", "RS256")
 
 	mail := mailer.New()
-
 	seed.Users(repos.Users)
 
-	api := &handler.IdentityAPI{
-		Users:   repos.Users,
-		OTP:     repos.OTP,
-		Devices: repos.Devices,
-		JWT:     jwtMgr,
-		Mail:    mail,
+	router := &handler.Router{
+		API: &handler.IdentityAPI{
+			Users:   repos.Users,
+			OTP:     repos.OTP,
+			Devices: repos.Devices,
+			JWT:     jwtMgr,
+			Mail:    mail,
+		},
+		WebAuthn: wa.NewHandler(repos.Users, repos.Devices, repos.Challenges),
+		JWT:      jwtMgr,
 	}
-	waHandler := wa.NewHandler(repos.Users, repos.Devices, repos.Challenges, jwtMgr)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","service":"identity"}`))
-	})
-
-	// JWKS — chiave pubblica per la security-orchestrator
-	mux.HandleFunc("GET /.well-known/jwks.json", crypto.JWKSHandler(jwtMgr))
-
-	// Auth (register, login a 2 step)
-	mux.HandleFunc("POST /api/v1/auth/register", api.Register)
-	mux.HandleFunc("POST /api/v1/auth/login", api.Login)
-	mux.HandleFunc("POST /api/v1/auth/verify-otp", api.VerifyOTP)
-
-	// WebAuthn / FIDO2 / TPM enrollment
-	mux.HandleFunc("POST /api/v1/auth/register/begin", waHandler.BeginRegistration)
-	mux.HandleFunc("POST /api/v1/auth/register/finish", waHandler.FinishRegistration)
-	mux.HandleFunc("POST /api/v1/auth/login/begin", waHandler.BeginLogin)
-	mux.HandleFunc("POST /api/v1/auth/login/finish", waHandler.FinishLogin)
+	router.RegisterRoutes(mux)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,

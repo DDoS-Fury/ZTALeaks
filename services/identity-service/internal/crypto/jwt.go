@@ -15,7 +15,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"time"
 
@@ -113,26 +112,6 @@ func (m *JWTManager) PublicKey() *rsa.PublicKey {
 // KeyID restituisce il kid usato negli header dei token e nel JWKS.
 func (m *JWTManager) KeyID() string {
 	return m.keyID
-}
-
-// Verify è incluso per simmetria (non serve a identity, serve solo per i test).
-// In produzione la verifica avviene nella security-orchestrator dopo aver
-// fetchato la chiave pubblica via JWKS.
-func (m *JWTManager) Verify(tokenStr string) (*ZTAClaims, error) {
-	token, err := jwtlib.ParseWithClaims(tokenStr, &ZTAClaims{}, func(t *jwtlib.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwtlib.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method %v", t.Header["alg"])
-		}
-		return m.publicKey, nil
-	}, jwtlib.WithValidMethods([]string{"RS256"}), jwtlib.WithIssuer(Issuer))
-	if err != nil {
-		return nil, err
-	}
-	claims, ok := token.Claims.(*ZTAClaims)
-	if !ok || !token.Valid {
-		return nil, errors.New("invalid token claims")
-	}
-	return claims, nil
 }
 
 func generateJTI() string {

@@ -33,22 +33,6 @@ import (
 	"ztaleaks/security-orchestrator/internal/tpm"
 )
 
-// publicPaths sono percorsi che by-passano la verifica JWT (login, register,
-// JWKS, healthcheck). Dovrebbero comunque transitare per Envoy ma il layer
-// orchestrator li lascia passare con risk-ridotto.
-var publicPaths = map[string]bool{
-	"/api/v1/auth/login":          true,
-	"/api/v1/auth/register":       true,
-	"/api/v1/auth/verify-otp":     true,
-	"/api/v1/auth/register/begin": true,
-	"/api/v1/auth/register/finish": true,
-	"/api/v1/auth/login/begin":    true,
-	"/api/v1/auth/login/finish":   true,
-	"/.well-known/jwks.json":      true,
-	"/health":                     true,
-	"/":                           true,
-}
-
 func main() {
 	logDir := "/var/log/ztaleaks/orchestrator"
 	_ = os.MkdirAll(logDir, 0755)
@@ -176,14 +160,9 @@ func buildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, opaC
 		}
 		zoneID := r.Header.Get("X-Zone-Id")
 
-		// 1. Public path: bypass JWT/OPA, ritorna OK immediato.
-		if publicPaths[origPath] {
-			slog.Debug("public path bypass", "path", origPath)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		// 2. Estrai e verifica JWT
+		// La decisione su quali rotte siano pubbliche e' delegata a OPA
+		// (vedi public_paths nel policy.rego). Qui ci limitiamo a estrarre
+		// JWT/cert/TPM e a inoltrare l'input arricchito al PDP.
 		token := bearerToken(r.Header.Get("Authorization"))
 		if token == "" {
 			// niente JWT → tier "niente" (anonimo). Mandiamo comunque il

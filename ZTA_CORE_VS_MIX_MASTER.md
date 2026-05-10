@@ -16,7 +16,7 @@
   - **3 tier di ammissione**: `cert+TPM` / `solo cert` / `niente` — concetto **nuovo**, non c'era su `zta-core`.
 - Cose **preservate da master** (che `zta-core` aveva eliminato): Splunk + splunk-uf, Argon2id (più moderno di bcrypt), schema `User` con campi TPM, `identity-service` come servizio separato, IDS Snort.
 - Cose **prese da `zta-core`** (con adattamenti): pattern del JWT manager RS256, idea del JWKS endpoint, schema delle 6 collezioni del security-db, struttura della cerimonia WebAuthn (semplificata), suite di test E2E a 5 pillar, job CI `opa-tests` + `e2e-tests`.
-- **Risultato**: 8 commit logici (vs 2 mega-commit di `zta-core`), suite E2E 26/26, OPA tests 16/16.
+- **Risultato**: 8 commit logici di trasposizione + 3 commit di refactor post-review (2026-05-10) (vs 2 mega-commit di `zta-core`), suite E2E 26/26, OPA tests 16/16.
 
 ---
 
@@ -137,7 +137,7 @@ Identity issue. Orchestrator verify. OPA decide. Business-logic serve.
 
 | | `zta-core` | `mix-master-zta-core` |
 |---|---|---|
-| Linee di codice | ~1.500 LOC tra 7 pacchetti | ~700 LOC tra 5 pacchetti |
+| Linee di codice | ~1.500 LOC tra 7 pacchetti | ~680 LOC tra 5 pacchetti (refactor 2026-05-10: -20 LOC per drop publicPaths) |
 | Pacchetti interni | `auth`, `jwt`, `jwks`, `webauthn`, `mailer`, `db`, `grpc` | `jwt` (verifier), `cert`, `tpm`, `db`, `opa` |
 | Flow auth | implementato qui | DELEGATO a identity-service |
 | WebAuthn | implementato qui | DELEGATO a identity-service |
@@ -146,7 +146,7 @@ Identity issue. Orchestrator verify. OPA decide. Business-logic serve.
 | Cert parsing | non presente | nuovo modulo `internal/cert/` |
 | TPM lookup read-only | non separato | nuovo modulo `internal/tpm/` |
 | ext_authz protocol | gRPC (Authorization v3) | HTTP ext_authz |
-| Public path bypass | hardcoded in `isPublicPath` | hardcoded in `publicPaths` map (più estesa) |
+| Public path bypass | hardcoded in `isPublicPath` | **rimosso** (refactor 2026-05-10): la lista vive solo in OPA `policy.rego` |
 | Path normalization | n/a (gRPC passa attributes.request) | strip `path_prefix /api/v1/evaluate` da URL |
 | Decision logs OPA | non gestiti | endpoint `/api/v1/opa/logs` (preservato master per Splunk) |
 
@@ -229,14 +229,14 @@ Lavoro di `zta-core` riusato come ispirazione, riscritto adattandolo allo split 
 |---|---|---|
 | `internal/jwt/jwt.go` (RS256 + ZTAClaims) | `services/identity-service/internal/crypto/jwt.go` | Spostato in identity, claim semplificati (no refresh token, no `risk_flags` nel JWT), `kid` deterministico SHA-256 |
 | `internal/jwt/jwks.go` | `services/identity-service/internal/crypto/jwks.go` | Identico nello spirito; JWK base64url manuale, no big.Int helper |
-| `internal/auth/auth.go` (login + OTP) | `services/identity-service/internal/handler/api.go` | Argon2id invece di bcrypt; OTP-hashed con Argon2id; layer business-orientato non shareato |
+| `internal/auth/auth.go` (login + OTP) | `services/identity-service/internal/handler/{handler,register,login,verify_otp}.go` | Argon2id invece di bcrypt; OTP-hashed con Argon2id; refactor 2026-05-10: split monolite in 4 file (uno per richiesta) + `routes.go` per il mount; OTP verify atomico via `FindOneAndUpdate` |
 | `internal/mailer/mailer.go` | `services/identity-service/internal/mailer/mailer.go` | Identico nei contenuti; HTML template più snello |
-| `internal/webauthn/webauthn.go` (~580 LOC) | `services/identity-service/internal/webauthn/webauthn.go` (~280 LOC) | Semplificato: niente CBOR-decoding completo dell'attestation; clone detection via sign_count regression mantenuta |
+| `internal/webauthn/webauthn.go` (~580 LOC) | `services/identity-service/internal/webauthn/{handler,register,login}.go` (~330 LOC totali) | Semplificato (no CBOR-decoding attestation); clone detection via sign_count mantenuta; refactor 2026-05-10: split monolite + `BeginRegistration` legge `X-Current-User` (niente piu' verify JWT in identity) |
 | `infra/databases/security/db_init/security-init.js` | `infra/databases/security/db_init/security-init.js` | Stesse 6 collezioni e indici/TTL; nome DB `securitydb`, coll. `identity_users`; **niente seed di utenti in JS** (Argon2id si calcola in Go) |
 | `infra/opa/policy_test.rego` (8 test) | `infra/opa/policy_test.rego` (16 test) | Riscritto sui nuovi rule (tier admission, route matrix esplicita) |
 | Pattern dei pillar E2E (`auth.sh`, `pep.sh`, `rbac.sh`, `abac.sh`, `trust_score.sh`, `lib.sh`, `run_all.sh`) | `tests/e2e/{auth,pep,rbac,abac,tier}.sh` + `lib.sh` + `run_all.sh` | bash 3 compatibile (no `declare -A`); `tier.sh` sostituisce `trust_score.sh`; helper `enroll_webauthn` nuovo |
 | Job CI `opa-tests` + `e2e-tests` | `.github/workflows/ci.yaml` | Stessa struttura; aggiunti build di `identity-service` e `security-db` (mancavano su master) |
-| `internal/grpc/authz.go` (Check ext_authz) | `services/security-orchestrator/cmd/orchestrator/main.go` (handler `/api/v1/evaluate`) | Convertito da gRPC a HTTP; aggiunto strip path_prefix; pubblic path bypass con map invece che funzione |
+| `internal/grpc/authz.go` (Check ext_authz) | `services/security-orchestrator/cmd/orchestrator/main.go` (handler `/api/v1/evaluate`) | Convertito da gRPC a HTTP; aggiunto strip path_prefix. Refactor 2026-05-10: rimossa la map `publicPaths` locale, OPA e' l'unico decisore anche per le rotte pubbliche |
 | `lookupActiveDeviceID` per recuperare device dal DB | `internal/db/device_repo.go::FindMostRecentByUser` | Stesso comportamento, nomi adattati a `identity_users._id` |
 
 ---
@@ -296,6 +296,9 @@ Lavoro di `zta-core` riusato come ispirazione, riscritto adattandolo allo split 
 | `mailhog_clear` + `mailhog_latest_otp_for $email` | Estrazione OTP per destinatario specifico (zta-core prendeva sempre l'ultimo). |
 | **Documento `docs/MIX_MASTER_ZTA_CORE.md`** | Walkthrough completo della trasposizione. |
 | Questo documento (`ZTA_CORE_VS_MIX_MASTER.md`) | Diff guidato per chi viene da zta-core. |
+| **OTP verify atomico** (refactor 2026-05-10) | `OTPRepository.ConsumeAttempt` collassa check-limite + increment in una sola `FindOneAndUpdate` Mongo con filtro `{token, attempts<MAX}` + `$inc`. zta-core aveva il check + `$inc` in due round-trip separati (race window). |
+| **`X-Current-User` come fonte d'identita' downstream** (refactor 2026-05-10) | WebAuthn `BeginRegistration` legge l'header iniettato dall'orchestrator dopo verifica JWT. Identity non verifica piu' il JWT localmente — `JWTManager.Verify` rimosso. |
+| **Pulizia `cmd/identity/main.go` in stile business-logic** (refactor 2026-05-10) | Estratti `config/config.go`, `internal/db/repositories.go`, `internal/seed/users.go`, `internal/handler/routes.go`. Main ridotto a wiring. |
 
 ---
 
@@ -307,9 +310,9 @@ Lavoro di `zta-core` riusato come ispirazione, riscritto adattandolo allo split 
 |---|---|
 | `services/security-orchestrator/internal/jwt/jwt.go` | `services/identity-service/internal/crypto/jwt.go` (SPOSTATO) |
 | `services/security-orchestrator/internal/jwt/jwks.go` | `services/identity-service/internal/crypto/jwks.go` (SPOSTATO) |
-| `services/security-orchestrator/internal/auth/auth.go` | `services/identity-service/internal/handler/api.go` (SPOSTATO + esteso) |
+| `services/security-orchestrator/internal/auth/auth.go` | `services/identity-service/internal/handler/{handler,register,login,verify_otp,routes}.go` (SPOSTATO + esteso + splittato per richiesta) |
 | `services/security-orchestrator/internal/mailer/mailer.go` | `services/identity-service/internal/mailer/mailer.go` (SPOSTATO) |
-| `services/security-orchestrator/internal/webauthn/webauthn.go` | `services/identity-service/internal/webauthn/webauthn.go` (SPOSTATO + semplificato) |
+| `services/security-orchestrator/internal/webauthn/webauthn.go` | `services/identity-service/internal/webauthn/{handler,register,login}.go` (SPOSTATO + semplificato + splittato login/register) |
 | `services/security-orchestrator/internal/db/mongo.go` | `services/security-orchestrator/internal/db/mongo.go` (RIMASTO ma read-only) + `services/identity-service/internal/db/client.go` (originale master) |
 | `services/security-orchestrator/internal/grpc/authz.go` | `services/security-orchestrator/cmd/orchestrator/main.go::buildEvaluateHandler` (riconvertito a HTTP, modulo eliminato) |
 | `infra/opa/policy.rego` | `infra/opa/policy.rego` (RIDISEGNATO: route matrix esplicita + tier) |
@@ -343,8 +346,13 @@ Lavoro di `zta-core` riusato come ispirazione, riscritto adattandolo allo split 
 
 - `docs/MIX_MASTER_ZTA_CORE.md` (walkthrough completo)
 - `ZTA_CORE_VS_MIX_MASTER.md` (questo file)
+- `fix_2026-05-10.md` (walkthrough dei 3 commit di refactor post-review)
 - `services/security-orchestrator/internal/{cert,tpm,opa}/` (nuovi pacchetti)
-- `services/identity-service/internal/db/{user_repo,otp_repo,device_repo,challenges_repo}.go` (split di repository.go)
+- `services/identity-service/config/` (refactor 2026-05-10)
+- `services/identity-service/internal/db/{user_repo,otp_repo,device_repo,challenges_repo,repositories}.go` (split di repository.go + bundle 2026-05-10)
+- `services/identity-service/internal/seed/` (refactor 2026-05-10: estratto seedUsers da main)
+- `services/identity-service/internal/handler/{handler,register,login,verify_otp,routes}.go` (refactor 2026-05-10: split di api.go)
+- `services/identity-service/internal/webauthn/{handler,register,login}.go` (refactor 2026-05-10: split di webauthn.go)
 - `services/identity-service/internal/models/sessions.go` (OTPSession, DeviceCredential, WebAuthnChallenge, JWTBlocklistEntry)
 - `infra/splunk-uf/` (preservata da master)
 
@@ -373,8 +381,12 @@ cd57fab feat(identity): RS256 JWT, JWKS, OTP via MailHog, WebAuthn ceremony, mul
 3719c5e test(e2e): pillar scripts for auth/PEP/RBAC/ABAC/tier
 90e5d26 ci: OPA policy tests gate + E2E full-suite job
 b268abd docs: comprehensive MIX_MASTER_ZTA_CORE walkthrough
+─── follow-up post-review (2026-05-10) ───
+f59b33b refactor(identity): split main into config, repositories bundle, seed package
+08cb129 refactor(identity,opa): atomic OTP, split handlers/webauthn, drop JWT verify
+be1b5e8 refactor(orchestrator): drop publicPaths bypass — OPA decides every path
 ```
-8 commit, ognuno una unità testabile. Rollback granulare.
+8 commit di trasposizione + 3 commit di refactor post-review, ognuno una unità testabile. Rollback granulare.
 
 ### Test cadence
 
@@ -414,6 +426,25 @@ b268abd docs: comprehensive MIX_MASTER_ZTA_CORE walkthrough
 Inoltre è stato risolto un bug specifico di mix-master che non esisteva su zta-core (perché ext_authz era gRPC):
 
 4. **Path mangling con `path_prefix /api/v1/evaluate`**: Envoy ext_authz HTTP service prepone il prefix; l'orchestrator deve stripparlo per recuperare la rotta originale e fare il public-path bypass. Fix nello step 4.
+
+E nel refactor post-review del 2026-05-10:
+
+5. **OTP race condition** (presente sia su mix-master pre-review sia su
+   zta-core, mai sollevato esplicitamente nei BRANCH_DIFF): in
+   `verify-otp` il check del limite tentativi (`session.Attempts >= 3`) e
+   l'increment (`OTP.IncrementAttempts`) erano due round-trip Mongo
+   separati. Due richieste concorrenti sullo stesso `session_token`
+   potevano leggere `attempts=2` entrambe e passare il check, poi
+   incrementare entrambe a 3 e 4. Fix: `OTPRepository.ConsumeAttempt`
+   con `FindOneAndUpdate` filtrato `{token, attempts<MAX}` + `$inc` →
+   il filtro Mongo applica il limite atomicamente.
+
+6. **Verifica JWT duplicata su identity** (refactor): identity esponeva
+   `JWTManager.Verify` usato in WebAuthn `BeginRegistration` per
+   identificare l'utente in enrollment. Duplicava la responsabilita'
+   dell'orchestrator (che ha gia' la pubkey via JWKS) e violava lo
+   split. Fix: `Verify` rimosso; `BeginRegistration` legge ora
+   `X-Current-User` iniettato dall'orchestrator dopo verifica.
 
 ---
 

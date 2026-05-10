@@ -2,7 +2,7 @@
 
 > **Branch**: `mix-master-zta-core` (cut da `master` 2026-05-09)
 > **Scopo**: portare l'implementazione Zero Trust della branch `zta-core` su `master`, ma seguendo le direttive architetturali ricevute (split identity-service / security-orchestrator, OPA come unico decisore ruolo↔rotta, ammissione a 3 tier) e preservando ciò che master aveva già di buono (Splunk, IDS, Argon2id).
-> **Stato**: 7 step su 7 completati, 7 commit locali pronti al push.
+> **Stato**: 7 step su 7 completati + 3 commit di follow-up post-review (refactor 2026-05-10) tutti pushati.
 
 ---
 
@@ -274,13 +274,19 @@ Cache header `max-age=300` per 5 min lato client.
 Master aveva un solo `repository.go` con `UserRepository`. Ora ci sono 4 repository, uno per collezione, ognuno nel suo file:
 
 - `db/user_repo.go` — `FindByUsername`, `FindByID`, `Create`, `UpdateLastLogin`, `MarkTPMEnrolled`
-- `db/otp_repo.go` — `Create`, `FindBySessionToken`, `IncrementAttempts`, `Delete`
+- `db/otp_repo.go` — `Create`, `ConsumeAttempt` (atomic FindOneAndUpdate), `Delete`
 - `db/device_repo.go` — `Create`, `FindMostRecentByUser`, `FindByCredentialID`, `UpdateSignCount`, `ListByUser`
 - `db/challenges_repo.go` — `Create`, `FindBySessionID`, `Delete`
+- `db/repositories.go` — `Repositories` bundle + `InitRepositories(*MongoDB)` (refactor 2026-05-10, allinea pattern business-logic)
 
 `FindMostRecentByUser` è il punto cardine: al verify-otp, identity guarda se l'utente ha un device WebAuthn enrollato e ne mette il `credential_id` nel claim `device_id` del JWT. Sarà l'orchestrator a verificare poi che quel device esista ancora in DB.
 
-### 6.4 Auth flow (handler/api.go)
+### 6.4 Auth flow (handler/{register,login,verify_otp}.go)
+
+> Nota refactor 2026-05-10: il monolite `handler/api.go` e' stato splittato
+> in `handler.go` (struct `IdentityAPI` + helpers condivisi), `register.go`,
+> `login.go`, `verify_otp.go`. Le rotte sono ora montate da `Router` in
+> `handler/routes.go` (pattern allineato a `business-logic`).
 
 Tre endpoint:
 
@@ -311,23 +317,40 @@ Request: {"session_token","otp"}
 Response 200: {"access_token":"<JWT RS256>","expires_in":900,"token_type":"Bearer"}
 ```
 
-1. Lookup `otp_sessions` (TTL Mongo si occupa della scadenza).
-2. Check `attempts < 3`. Incrementa.
-3. `crypto.ComparePasswordAndHash(otp, session.OTPHash)`.
-4. Se match: cancella session, lookup user, lookup `device_fingerprints` per ottenere `device_id` se enrollato, emette JWT con tutti i claim.
-5. Update last_login_info in goroutine background.
+1. **`ConsumeAttempt`** (refactor 2026-05-10): unica `FindOneAndUpdate` con
+   filtro `{session_token, attempts: {$lt: 3}}` + update `$inc:{attempts:1}`.
+   Restituisce il documento aggiornato. Sentinel: `ErrSessionNotFound`
+   (sessione assente o scaduta dal TTL) e `ErrAttemptsExceeded` (limite
+   raggiunto). Cosi' check del limite e increment sono **una sola
+   operazione atomica sul DB** — niente race window come nella precedente
+   versione che faceva `FindBySessionToken` + `IncrementAttempts` separate.
+2. `crypto.ComparePasswordAndHash(otp, session.OTPHash)`.
+3. Se match: cancella session, lookup user, lookup `device_fingerprints` per ottenere `device_id` se enrollato, emette JWT con tutti i claim.
+4. Update last_login_info in goroutine background.
 
 ### 6.5 WebAuthn ceremony (lab-grade)
 
-`internal/webauthn/webauthn.go` implementa cerimonia di registrazione e di authentication. Versione semplificata per lab — non fa CBOR-decoding completo dell'attestation object. Ciò che fa:
+> Nota refactor 2026-05-10: il monolite `internal/webauthn/webauthn.go` e'
+> stato splittato in `handler.go` (struct `Handler` + helpers condivisi),
+> `register.go` (cerimonia di enrollment TPM) e `login.go` (cerimonia di
+> autenticazione con device gia' registrato). Il `Handler` non ha piu'
+> `JWTManager` come dipendenza — la verifica del JWT vive solo
+> nell'orchestrator.
+
+I due file espongono cerimonia di registrazione e di authentication. Versione semplificata per lab — non fa CBOR-decoding completo dell'attestation object. Ciò che fanno:
 
 #### `POST /api/v1/auth/register/begin`
 ```json
-Request: {"access_token":"<JWT>","device_name":"laptop-tpm"}
+Request: {"device_name":"laptop-tpm"}
+Header:  Authorization: Bearer <JWT>
 Response: PublicKeyCredentialCreationOptions (challenge 32B random, rp, user, pubKeyCredParams ES256+RS256, session_id)
 ```
 
-L'identità dell'utente è derivata dal JWT (user deve essere già autenticato per enrollare). Salva una `WebAuthnChallenge` in DB per validare il `finish`.
+L'identità dell'utente e' letta dall'header `X-Current-User` iniettato dalla
+security-orchestrator dopo la verifica del JWT (refactor 2026-05-10:
+prima il JWT veniva passato in body e verificato in identity con un
+`JWTManager.Verify` locale, ora rimosso). Salva una `WebAuthnChallenge`
+in DB per validare il `finish`.
 
 #### `POST /api/v1/auth/register/finish`
 ```json
@@ -354,9 +377,14 @@ Cerimonia di authentication classica con clone detection: il finish legge `sign_
 
 I 6 caratteri tra `>` e `<` sono il pattern che lo script E2E usa per estrarre l'OTP via regex.
 
-### 6.7 Multi-role seed (cmd/identity/main.go)
+### 6.7 Multi-role seed (internal/seed/users.go)
 
-Sostituito `seedDummyAdmin` con un loop che inserisce 6 utenti, uno per ogni role del dominio nucleare:
+> Nota refactor 2026-05-10: la funzione `seedUsers` viveva in `cmd/identity/main.go`.
+> Spostata in `internal/seed/users.go` come funzione `seed.Users(*db.UserRepository)`.
+> Il main ora si limita a chiamarla. Hash Argon2id resta in Go (impossibile
+> calcolarlo nello shell mongo).
+
+Loop che inserisce 6 utenti, uno per ogni role del dominio nucleare:
 
 | username | role | clearance |
 |----------|------|-----------|
@@ -384,7 +412,31 @@ mailhog:
 
 `identity-service` dipende ora da mailhog: `condition: service_started`. La porta 8082 è esposta sull'host **temporaneamente** per i test diretti — in produzione le richieste passano solo via Envoy.
 
-### 6.9 Test end-to-end (12 scenari)
+### 6.9 Refactor 2026-05-10 — pulizia main + atomic OTP + drop JWT verify
+
+Tre commit di follow-up applicati dopo la review del compagno (i 7 punti del
+messaggio originale di review). Riepilogo strutturale, dettagli sparsi nelle
+sotto-sezioni precedenti:
+
+| Punto review | Modifica |
+|---|---|
+| seed in file dedicato (Go) | `internal/seed/users.go` (vedi §6.7) |
+| pulizia `main.go` come business-logic | nuovo `config/config.go` (env vars + connect Security DB) e `internal/db/repositories.go` (bundle `Repositories` + `InitRepositories`); `main.go` ridotto a ~85 righe — solo wiring |
+| split handler in 3 file | `handler/api.go` → `handler.go`/`register.go`/`login.go`/`verify_otp.go` (vedi §6.4) |
+| split webauthn login/register | `webauthn/webauthn.go` → `handler.go`/`register.go`/`login.go` (vedi §6.5) |
+| routing fuori dal main | `handler/routes.go` con `Router{API, WebAuthn, JWT}.RegisterRoutes(mux)` |
+| OTP verify atomico | `OTPRepository.ConsumeAttempt` con `FindOneAndUpdate` (vedi §6.4) |
+| rimuovere JWT verify da identity | `JWTManager.Verify` cancellato da `internal/crypto/jwt.go`; `BeginRegistration` ora legge `X-Current-User` (vedi §6.5) |
+
+Effetti collaterali in altri componenti:
+- **OPA policy** — `/api/v1/auth/register/begin` rimosso da `public_paths`
+  e aggiunto in `route_rules` con `min_tier=0`/`min_clearance=PUBLIC`/tutti
+  i 6 ruoli ammessi (perche' richiede ora `X-Current-User`, header che
+  l'orchestrator inietta solo dopo verifica JWT). Vedi §8.1.
+- **security-orchestrator** — eliminato il bypass `publicPaths` locale
+  (vedi §7.7), ora la decisione vive solo in OPA.
+
+### 6.10 Test end-to-end (12 scenari)
 
 ```bash
 # JWKS shape
@@ -511,15 +563,17 @@ mux.HandleFunc("/api/v1/evaluate/", evaluate)
 mux.HandleFunc("/", evaluate)  // catch-all per gestire path_prefix di Envoy
 ```
 
-Pipeline interno:
+Pipeline interno (refactor 2026-05-10: rimosso il bypass `publicPaths`
+locale — la decisione su quali rotte siano pubbliche e' interamente delegata
+a OPA, vedi §8.1):
+
 1. **Path original**: Envoy ext_authz HTTP service con `path_prefix: /api/v1/evaluate` invoca l'orchestrator con URL tipo `/api/v1/evaluate/api/v1/auth/login`. L'orchestrator strippa il prefisso → `origPath = /api/v1/auth/login`.
-2. **Public path bypass**: whitelist hardcoded (auth, JWKS, /health, /). Ritorna 200 immediato senza chiamare OPA.
-3. **Estrai Bearer token** da `Authorization`. Se assente, mandiamo comunque il caso a OPA con `claims=null` (alcune rotte tier-0 sono valide anche senza claims, ma OPA poi rifiuterà perché il rule richiede `input.claims.sub`).
-4. **Verify JWT** via JWKS verifier. Errore → 401 (Envoy non logga ancora la decisione OPA — è un fail prima).
-5. **Parse cert** dall'header XFCC.
-6. **TPM lookup**: cerca il `claims.device_id` in `device_fingerprints` con user_id matching.
-7. **Build OPA input** completo. Chiama OPA.
-8. **Rispondi**: 200 con header `x-current-user: <user_id>` (Envoy lo iniettea upstream) se allow, 403 con body JSON se deny.
+2. **Estrai Bearer token** da `Authorization`. Se assente, mandiamo comunque il caso a OPA con `claims=null` (le rotte pubbliche sono autoriz­zate da OPA via `public_paths`; per rotte protette OPA rifiuta perche' il rule richiede `input.claims.sub`).
+3. **Verify JWT** via JWKS verifier. Errore → 401 (Envoy non logga ancora la decisione OPA — è un fail prima).
+4. **Parse cert** dall'header XFCC.
+5. **TPM lookup**: cerca il `claims.device_id` in `device_fingerprints` con user_id matching.
+6. **Build OPA input** completo. Chiama OPA.
+7. **Rispondi**: 200 con header `x-current-user: <user_id>` (Envoy lo iniettea upstream) se allow, 403 con body JSON se deny.
 
 ### 7.8 Endpoint preservati dal master
 
@@ -554,7 +608,7 @@ Pacchetto `envoy.authz` (matched dal binding `data.envoy.authz.allow` nell'orche
 public_paths := {
     "/", "/health", "/login", "/register", "/materials",
     "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/verify-otp",
-    "/api/v1/auth/register/begin", "/api/v1/auth/register/finish",
+    "/api/v1/auth/register/finish",
     "/api/v1/auth/login/begin",    "/api/v1/auth/login/finish",
     "/.well-known/jwks.json",
 }
@@ -563,7 +617,15 @@ allow if { input.request.path in public_paths }
 allow if { startswith(input.request.path, "/static/") }
 ```
 
-Ridondanza voluta: l'orchestrator già fa il bypass, ma OPA riconosce gli stessi path così `opa test` può validare la policy isolatamente.
+> Refactor 2026-05-10: `/api/v1/auth/register/begin` non e' piu' pubblica.
+> Richiede `X-Current-User` iniettato dall'orchestrator dopo verifica JWT,
+> quindi e' stata spostata in `route_rules` (vedi tabella sotto) con
+> `min_tier=0`/`min_clearance=PUBLIC` e tutti i 6 ruoli ammessi: enrollment
+> TPM aperto a qualunque utente con sessione valida.
+
+Refactor 2026-05-10: e' stato anche rimosso il bypass `publicPaths` locale
+nell'orchestrator — la decisione su quali rotte siano pubbliche vive ora
+solo qui in OPA. Niente piu' divergenza possibile tra le due liste.
 
 #### Tier admission
 ```rego
@@ -588,6 +650,7 @@ La matrice è un dizionario hardcoded in policy.rego. Per ognuna delle 7 risorse
 
 | Rotta | Metodo | Roles | min_tier | min_clearance |
 |-------|--------|-------|----------|----------------|
+| /api/v1/auth/register/begin | POST | tutti i 6 ruoli | 0 | PUBLIC |
 | /personnel | GET | security_officer, plant_manager, inspector | 1 | INTERNAL |
 | /personnel | POST/PUT/DELETE | plant_manager | 2 | SECRET |
 | /zones | GET | tutti i 6 ruoli | 0 | PUBLIC |
@@ -892,14 +955,24 @@ Il workflow ora si attiva su:
 docs/MIX_MASTER_ZTA_CORE.md                           ← questo documento
 infra/opa/data.json
 infra/opa/policy_test.rego
+services/identity-service/config/config.go             ← refactor 2026-05-10
 services/identity-service/internal/crypto/jwks.go
 services/identity-service/internal/db/challenges_repo.go
 services/identity-service/internal/db/device_repo.go
 services/identity-service/internal/db/otp_repo.go
+services/identity-service/internal/db/repositories.go  ← refactor 2026-05-10
 services/identity-service/internal/db/user_repo.go    (rinominato da repository.go)
+services/identity-service/internal/handler/handler.go      ← refactor 2026-05-10 (split api.go)
+services/identity-service/internal/handler/login.go        ← refactor 2026-05-10 (split api.go)
+services/identity-service/internal/handler/register.go     ← refactor 2026-05-10 (split api.go)
+services/identity-service/internal/handler/routes.go       ← refactor 2026-05-10
+services/identity-service/internal/handler/verify_otp.go   ← refactor 2026-05-10 (split api.go)
 services/identity-service/internal/mailer/mailer.go
 services/identity-service/internal/models/sessions.go
-services/identity-service/internal/webauthn/webauthn.go
+services/identity-service/internal/seed/users.go           ← refactor 2026-05-10 (estratto da main)
+services/identity-service/internal/webauthn/handler.go     ← refactor 2026-05-10 (split webauthn.go)
+services/identity-service/internal/webauthn/login.go       ← refactor 2026-05-10 (split webauthn.go)
+services/identity-service/internal/webauthn/register.go    ← refactor 2026-05-10 (split webauthn.go)
 services/security-orchestrator/internal/cert/cert.go
 services/security-orchestrator/internal/db/mongo.go
 services/security-orchestrator/internal/jwt/verifier.go
@@ -924,20 +997,22 @@ tests/e2e/tier.sh
 deployments/docker/docker-compose.yaml             ← +mailhog, dipendenze, port temp
 infra/databases/security/db_init/security-init.js  ← 6 collezioni + indici + TTL
 infra/envoy/envoy.yaml                             ← XFCC, route bypass, allowed_headers
-infra/opa/policy.rego                              ← matrice + tier + clearance + tests
-services/identity-service/cmd/identity/main.go     ← seed multi-role + nuove rotte + JWT manager + mailer
-services/identity-service/internal/crypto/jwt.go   ← HS256 → RS256 + ZTAClaims
-services/identity-service/internal/handler/api.go  ← register + login(OTP) + verify-otp
+infra/opa/policy.rego                              ← matrice + tier + clearance + tests; refactor 2026-05-10: register/begin in route_rules
+services/identity-service/cmd/identity/main.go     ← refactor 2026-05-10: ridotto a wiring (config/repos/seed/router)
+services/identity-service/internal/crypto/jwt.go   ← HS256 → RS256 + ZTAClaims; refactor 2026-05-10: rimosso JWTManager.Verify
+services/identity-service/internal/db/otp_repo.go  ← refactor 2026-05-10: ConsumeAttempt atomic, rimossi Find+Increment separati
 services/identity-service/internal/models/user.go  ← +Email +ClearanceLevel
 services/security-orchestrator/Dockerfile          ← go mod tidy in build
-services/security-orchestrator/cmd/orchestrator/main.go  ← riscritto da placeholder
+services/security-orchestrator/cmd/orchestrator/main.go  ← riscritto da placeholder; refactor 2026-05-10: rimossa map publicPaths
 services/security-orchestrator/go.mod              ← +jwt/v5 +mongo-driver
 ```
 
 ### Rimossi
 
 ```
-services/identity-service/internal/db/repository.go  ← spezzato in user_repo.go + altri
+services/identity-service/internal/db/repository.go      ← spezzato in user_repo.go + altri
+services/identity-service/internal/handler/api.go        ← refactor 2026-05-10: splittato in handler.go/register.go/login.go/verify_otp.go
+services/identity-service/internal/webauthn/webauthn.go  ← refactor 2026-05-10: splittato in handler.go/register.go/login.go
 ```
 
 ### Preservati intatti dal master
@@ -1084,9 +1159,16 @@ I 7 commit della trasposizione (in ordine cronologico):
 
 Step 5 non ha commit (verifica senza modifiche di codice).
 
-Il push di questa branch a remoto è da fare manualmente. Comando:
-```bash
-git push -u origin mix-master-zta-core
-```
+### Follow-up post-review (2026-05-10) — 7 punti del compagno
 
-Da lì in poi è disponibile per PR review verso `master`.
+Tre commit aggiunti dopo il review della branch, indirizzando i punti
+elencati nel messaggio di feedback. Walkthrough dettagliato in
+`fix_2026-05-10.md` alla root del repo.
+
+| # | Hash | Messaggio | Punti review coperti |
+|---|------|-----------|----------------------|
+| 8  | `f59b33b` | refactor(identity): split main into config, repositories bundle, seed package | 1 (seed dedicato), 2 (config + repository) |
+| 9  | `08cb129` | refactor(identity,opa): atomic OTP, split handlers/webauthn, drop JWT verify | 2 (routing), 3 (no JWT verify), 4 (OTP atomico), 5 (split handler), 6 (split webauthn) |
+| 10 | `be1b5e8` | refactor(orchestrator): drop publicPaths bypass — OPA decides every path | 7 (rimuovere publicPaths) |
+
+Branch ora pushata. PR review verso `master` puo' procedere.

@@ -1,6 +1,6 @@
 # ZTALeaks — E2E Validation Report (auto-generated)
 
-**Generated**: 2026-05-12T18:33:29Z
+**Generated**: 2026-05-12T19:10:03Z
 **Stack endpoint**: `https://127.0.0.1:8443`
 **Source**: `tests/e2e/run_all.sh` su 6 pillar.
 
@@ -31,10 +31,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: PASS
 
 ```
-[20:33:06] Waiting for stack readiness
+[21:09:32] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[20:33:06] Auth pillar — admin login flow + claims
+[21:09:34] Auth pillar — admin login flow + claims
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -44,7 +44,7 @@ Questo file viene rigenerato a ogni esecuzione.
   JWT.clearance == TOP_SECRET                                  TOP_SECRET TOP_SECRET PASS
   JWT.mfa_verified == True                                     True       True       PASS
   JWT.iss == identity service                                  identity-service.ztaleaks.local identity-service.ztaleaks.local PASS
-[20:33:09] Negative scenario: OTP errato
+[21:09:39] Negative scenario: OTP errato
   verify-otp con OTP errato → 401                            401        401        PASS
   login con password errata → 401                            401        401        PASS
 
@@ -57,10 +57,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: PASS
 
 ```
-[20:33:09] Waiting for stack readiness
+[21:09:40] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[20:33:09] PEP pillar — public bypass + protect by default
+[21:09:40] PEP pillar — public bypass + protect by default
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -79,10 +79,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: PASS
 
 ```
-[20:33:10] Waiting for stack readiness
+[21:09:41] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[20:33:10] RBAC pillar — role × resource matrix (OPA)
+[21:09:41] RBAC pillar — role × resource matrix (OPA)
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -102,10 +102,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: PASS
 
 ```
-[20:33:13] Waiting for stack readiness
+[21:09:46] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[20:33:13] ABAC pillar — clearance vs resource
+[21:09:46] ABAC pillar — clearance vs resource
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -126,10 +126,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: PASS
 
 ```
-[20:33:24] Waiting for stack readiness
+[21:09:57] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[20:33:24] Tier admission pillar — cert × tpm (utente fresh per isolare TPM)
+[21:09:57] Tier admission pillar — cert × tpm (utente fresh per isolare TPM)
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -148,28 +148,28 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: PASS
 
 ```
-[20:33:28] Waiting for stack readiness
+[21:10:01] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[20:33:28] Firewall pillar — nftables rate-limiting + egress filtering
+[21:10:01] Firewall pillar — nftables rate-limiting + egress filtering
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
-[20:33:28] TEST 1: Normal traffic to Envoy (chain input accept)
+[21:10:01] TEST 1: Normal traffic to Envoy (chain input accept)
   Normal traffic to Envoy                                      allowed    allowed    PASS
-[20:33:28] TEST 2: blocked_ips set is loaded with expected elements
+[21:10:01] TEST 2: blocked_ips set is loaded with expected elements
   blocked_ips contains 10.99.99.99                             present    present    PASS
   blocked_ips contains 172.18.0.10                             present    present    PASS
-[20:33:28] TEST 3: output chain has policy drop and allow-list configured
+[21:10:02] TEST 3: output chain has policy drop and allow-list configured
   output policy is drop                                        drop       drop       PASS
   output allow-list contains upstream ports                    present    present    PASS
   output logs unauthorized egress                              present    present    PASS
-[20:33:29] TEST 4: nftables JSON parser writes to /var/log/ztaleaks/nftables/firewall.jsonl
+[21:10:02] TEST 4: nftables JSON parser writes to /var/log/ztaleaks/nftables/firewall.jsonl
   nftables JSON log file exists                                present    present    PASS
   log lines contain action field                               valid      valid      PASS
-[20:33:29] TEST 5: SYN flood rate-limit rule is present in chain input
+[21:10:03] TEST 5: SYN flood rate-limit rule is present in chain input
   SYN flood rule present                                       present    present    PASS
-[20:33:29] TEST 6: Established connections pass (ct state established,related)
+[21:10:03] TEST 6: Established connections pass (ct state established,related)
   Established connection rule                                  pass       pass       PASS
 
   Total: 10  PASS: 10  FAIL: 0

@@ -218,3 +218,40 @@ test_deny_no_claims_protected_path if {
         "tpm_verified": true,
     }
 }
+
+# --- Anomalie e attributi non conformi -----------------------------------
+
+# Ruolo non valido / non autorizzato (operator su nuclear-materials)
+test_deny_unauthorized_role_nuclear_materials if {
+    not authz.allow with input as {
+        "request": {"method": "GET", "path": "/api/v1/nuclear-materials"},
+        "claims": operator_confidential,
+        "cert_present": true,
+        "tpm_verified": true,
+    }
+}
+
+# Clearance insufficiente (CONFIDENTIAL vs SECRET richiesto)
+test_deny_insufficient_clearance_nuclear if {
+    not authz.allow with input as {
+        "request": {"method": "GET", "path": "/api/v1/nuclear-materials"},
+        "claims": {
+            "sub": "EMP-999",
+            "role": "plant_manager",
+            "clearance_level": "CONFIDENTIAL",
+            "mfa_verified": true,
+        },
+        "cert_present": true,
+        "tpm_verified": true,
+    }
+}
+
+# Tier insufficiente (no cert/tpm su rotta che richiede tier 2)
+test_deny_low_tier_on_tier2_route if {
+    not authz.allow with input as {
+        "request": {"method": "POST", "path": "/api/v1/nuclear-materials"},
+        "claims": plant_manager_top_secret,
+        "cert_present": false,
+        "tpm_verified": false,
+    }
+}

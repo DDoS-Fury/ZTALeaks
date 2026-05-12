@@ -107,6 +107,17 @@ func main() {
 	log.Printf("\nStarting Port Scan Simulation. X-Request-ID: %s\n", portScanReqID)
 	simulatePortScan("ztaleaks_envoy")
 
+	// 7. Rapid Request Sequence (high frequency to trigger rate-limiting)
+	log.Printf("\nStarting Rapid Request Sequence (rate-limiting test)...\n")
+	simulateRapidRequests("ztaleaks_envoy", 8443, 50, 20*time.Millisecond)
+
+	// 8. Malformed TLS Handshake (incomplete/corrupted)
+	log.Printf("\nStarting Malformed TLS Handshake Test...\n")
+	simulateMalformedTLSHandshakes("ztaleaks_envoy", 8443, 5)
+
+	// 9. Egress Filtering Validation
+	log.Printf("\nValidating Egress Filtering Rules (nftables output policy)...\n")
+	validateEgressFiltering()
 }
 
 func simulatePortScan(host string) {
@@ -137,6 +148,82 @@ func simulateSYNFlood(host string, port int, amount int) {
 	}
 	time.Sleep(2 * time.Second) // Attendiamo per assicurarci che completino e l'alert scatti
 	log.Println("[SYN Flood] Finished sending SYN packets.")
+}
+
+func simulateRapidRequests(host string, port int, count int, interval time.Duration) {
+	target := fmt.Sprintf("%s:%d", host, port)
+	log.Printf("[RapidRequests] Sending %d rapid TCP connections with %v interval\n", count, interval)
+
+	for i := 0; i < count; i++ {
+		go func(idx int) {
+			conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				log.Printf("  [%d] SYN sent successfully\n", idx)
+			}
+		}(i)
+		time.Sleep(interval)
+	}
+	time.Sleep(2 * time.Second)
+	log.Println("[RapidRequests] Finished rapid request sequence.")
+}
+
+func simulateMalformedTLSHandshakes(host string, port int, count int) {
+	target := fmt.Sprintf("%s:%d", host, port)
+	log.Printf("[MalformedTLS] Sending %d malformed/incomplete TLS handshakes\n", count)
+
+	for i := 0; i < count; i++ {
+		go func(idx int) {
+			conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
+			if err == nil {
+				conn.Write([]byte{0x16, 0x03, 0x01, 0x00, 0x04})
+				conn.Write([]byte("JUNK"))
+				time.Sleep(50 * time.Millisecond)
+				conn.Close()
+				log.Printf("  [%d] Malformed handshake sent\n", idx)
+			}
+		}(i)
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(1 * time.Second)
+	log.Println("[MalformedTLS] Finished malformed TLS handshake sequence.")
+}
+
+func validateEgressFiltering() {
+	testPorts := []struct {
+		port       int
+		shouldOpen bool
+	}{
+		{9999, false},  // Porta non autorizzata
+		{8080, true},   // Porta autorizzata
+		{8081, true},   // Porta autorizzata
+		{443, true},    // Porta autorizzata
+		{53, true},     // DNS autorizzato
+	}
+
+	for _, test := range testPorts {
+		target := fmt.Sprintf("127.0.0.1:%d", test.port)
+		conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
+		var result string
+		if err == nil {
+			conn.Close()
+			result = "connected"
+		} else {
+			result = "blocked"
+		}
+
+		expected := "open"
+		if !test.shouldOpen {
+			expected = "closed"
+		}
+
+		status := "✓"
+		if (result == "connected") != test.shouldOpen {
+			status = "✗"
+		}
+		log.Printf("  %s Port %d: %s (expected: %s)\n", status, test.port, result, expected)
+	}
+	log.Println("[EgressTest] Egress filtering validation complete.")
 }
 
 func runRequest(name, urlStr, reqID string, tlsConfig *tls.Config) {

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # tests/e2e/run_all.sh — orchestratore della suite E2E.
-# Esegue i 5 pillar e rigenera tests/e2e/REPORT.md.
+# Esegue i 6 pillar e rigenera tests/e2e/REPORT.md.
 # Compatibile con bash 3 (macOS default), niente associative array.
 set -u
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PILLARS=(auth pep rbac abac tier)
+PILLARS=(auth pep rbac abac tier nftables)
 
 # Parallel arrays: STATUS[i] e OUTFILE[i] indicizzati come PILLARS[i]
 STATUS=()

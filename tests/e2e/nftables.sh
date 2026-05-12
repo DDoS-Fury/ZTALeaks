@@ -1,68 +1,99 @@
 #!/usr/bin/env bash
 # Pillar — Firewall (nftables):
-#   - Rate-limiting SYN Flood (max 20 SYN/sec)
-#   - Egress filtering (policy DROP su porte non autorizzate)
-#   - Spoofed IP drops
+#   - Traffico legittimo verso Envoy accettato
+#   - Set blocked_ips caricato correttamente
+#   - Chain output con policy DROP e allow-list configurata
+#   - Parser JSON che scrive su disco
+#   - Connessioni stabilite passano la chain input
 set -u
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
+
+FIREWALL_CTR="${FIREWALL_CTR:-ztaleaks_firewall}"
 
 wait_for_stack
 log "Firewall pillar — nftables rate-limiting + egress filtering"
 print_header
 
-# Test 1: Verificare che il traffico normale verso Envoy sia accettato
-log "TEST 1: Normal traffic to Envoy (should be accepted)"
+# Test 1: Traffico legittimo verso Envoy deve essere accettato (chain input)
+log "TEST 1: Normal traffic to Envoy (chain input accept)"
 code=$(curl -sk -o /dev/null -w "%{http_code}" "$ENVOY_URL/.well-known/jwks.json")
 if [[ "$code" == "200" ]] || [[ "$code" == "404" ]]; then
-    log "✓ Normal traffic allowed: HTTP $code"
     assert_eq "Normal traffic to Envoy" "allowed" "allowed"
 else
-    log "✗ Normal traffic blocked: HTTP $code"
-    assert_eq "Normal traffic to Envoy" "allowed" "blocked"
+    assert_eq "Normal traffic to Envoy" "allowed" "blocked(HTTP=$code)"
 fi
 
-# Test 2: Verificare che spoofed IPs (dalla lista blocked_ips) siano rifiutate
-# Nota: questo test è difficile da replicare in curl locale, ma lo logghiamo
-log "TEST 2: Blocked IPs should be rejected (nftables rules verify)"
-log "  - blocked_ips set in nftables.conf contiene: 10.99.99.99, 172.18.0.10"
-log "  - Queste verranno rigettate se tentano connessione a porta Envoy"
-assert_eq "Blocked IPs configuration" "present" "present"
+# Test 2: Il set blocked_ips deve essere caricato con gli elementi attesi
+log "TEST 2: blocked_ips set is loaded with expected elements"
+if docker exec "$FIREWALL_CTR" nft list set inet filter blocked_ips 2>/dev/null \
+     | grep -qE '10\.99\.99\.99'; then
+    assert_eq "blocked_ips contains 10.99.99.99" "present" "present"
+else
+    assert_eq "blocked_ips contains 10.99.99.99" "present" "missing"
+fi
+if docker exec "$FIREWALL_CTR" nft list set inet filter blocked_ips 2>/dev/null \
+     | grep -qE '172\.18\.0\.10'; then
+    assert_eq "blocked_ips contains 172.18.0.10" "present" "present"
+else
+    assert_eq "blocked_ips contains 172.18.0.10" "present" "missing"
+fi
 
-# Test 3: Egress filtering — verificare che il container non possa inviare su porte arbitrarie
-log "TEST 3: Egress filtering (policy DROP)"
-log "  - nftables chain output policy: DROP"
-log "  - Porte consentite: 53 (DNS), 80, 443, 8080, 8081, 8082, 8088, 8181"
-log "  - Traffico in uscita verso porte non autorizzate deve essere bloccato"
-assert_eq "Egress filtering active" "enabled" "enabled"
+# Test 3: Chain output deve avere policy DROP e la allow-list applicata
+log "TEST 3: output chain has policy drop and allow-list configured"
+output_chain=$(docker exec "$FIREWALL_CTR" nft list chain inet filter output 2>/dev/null || echo "")
+if echo "$output_chain" | grep -qE 'policy[[:space:]]+drop'; then
+    assert_eq "output policy is drop" "drop" "drop"
+else
+    assert_eq "output policy is drop" "drop" "accept_or_missing"
+fi
+if echo "$output_chain" | grep -qE 'tcp[[:space:]]+dport.*8080.*8081.*8082'; then
+    assert_eq "output allow-list contains upstream ports" "present" "present"
+else
+    assert_eq "output allow-list contains upstream ports" "present" "missing_or_mismatch"
+fi
+if echo "$output_chain" | grep -qE 'fw-egress-drop'; then
+    assert_eq "output logs unauthorized egress" "present" "present"
+else
+    assert_eq "output logs unauthorized egress" "present" "missing"
+fi
 
-# Test 4: Verificare log di nftables nel formato atteso (parser.go)
-log "TEST 4: nftables logs format (JSON structure from parser)"
-if [[ -f "/var/log/ztaleaks/nftables.jsonl" ]]; then
-    log "  ✓ nftables log file exists"
-    # Controllare un sample di log
-    sample=$(tail -1 /var/log/ztaleaks/nftables.jsonl 2>/dev/null || echo "")
-    if echo "$sample" | grep -q "action\|prefix"; then
-        log "  ✓ Log contains action/prefix fields (JSON formatted)"
-        assert_eq "nftables JSON log format" "valid" "valid"
+# Test 4: Il parser nftables deve aver creato il file JSONL nel volume
+log "TEST 4: nftables JSON parser writes to /var/log/ztaleaks/nftables/firewall.jsonl"
+if docker exec "$FIREWALL_CTR" test -f /var/log/ztaleaks/nftables/firewall.jsonl; then
+    assert_eq "nftables JSON log file exists" "present" "present"
+    # Se ci sono già righe, verifica che siano JSON con campo action
+    last_line=$(docker exec "$FIREWALL_CTR" sh -c 'tail -1 /var/log/ztaleaks/nftables/firewall.jsonl 2>/dev/null' || echo "")
+    if [[ -n "$last_line" ]]; then
+        if echo "$last_line" | grep -qE '"action"[[:space:]]*:[[:space:]]*"(accept|drop)"'; then
+            assert_eq "log lines contain action field" "valid" "valid"
+        else
+            assert_eq "log lines contain action field" "valid" "malformed"
+        fi
     else
-        log "  ! Log file exists but format unclear (first run?)"
-        assert_eq "nftables JSON log format" "valid" "unknown"
+        # File vuoto è ammissibile a stack appena avviato (no eventi loggati ancora)
+        warn "log file is empty — no firewall events yet (acceptable on fresh start)"
     fi
 else
-    log "  ! nftables log file not found (may not be mounted/available in test env)"
-    assert_eq "nftables JSON log format" "valid" "not_found"
+    assert_eq "nftables JSON log file exists" "present" "missing"
 fi
 
-# Test 5: Verificare che connessioni stabilite siano accettate
-log "TEST 5: Established connections should pass (ct state established,related)"
+# Test 5: Rate-limit anti SYN flood deve essere caricato nella chain input
+log "TEST 5: SYN flood rate-limit rule is present in chain input"
+input_chain=$(docker exec "$FIREWALL_CTR" nft list chain inet filter input 2>/dev/null || echo "")
+if echo "$input_chain" | grep -qE 'fw-syn-flood-drop'; then
+    assert_eq "SYN flood rule present" "present" "present"
+else
+    assert_eq "SYN flood rule present" "present" "missing"
+fi
+
+# Test 6: Connessioni stabilite (replay del test 1) — verifica indiretta della ct established rule
+log "TEST 6: Established connections pass (ct state established,related)"
 code=$(curl -sk -o /dev/null -w "%{http_code}" "$ENVOY_URL/.well-known/jwks.json")
 if [[ "$code" == "200" ]] || [[ "$code" == "404" ]]; then
-    log "  ✓ Established connection through firewall succeeded"
     assert_eq "Established connection rule" "pass" "pass"
 else
-    log "  ✗ Established connection failed unexpectedly"
-    assert_eq "Established connection rule" "pass" "fail"
+    assert_eq "Established connection rule" "pass" "fail(HTTP=$code)"
 fi
 
 print_summary

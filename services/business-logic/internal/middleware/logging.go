@@ -39,8 +39,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		}
 
 		user := r.Header.Get("X-Current-User")
-		riskScore := r.Header.Get("X-Risk-Score")
-		zoneID := r.Header.Get("X-Zone-Id")
 		ja3 := r.Header.Get("X-Ja3-Fingerprint")
 
 		// Wrappa il ResponseWriter per catturare lo status code finale
@@ -65,8 +63,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		slog.Info("Request handled",
 			slog.String("x_request_id", reqID),
 			slog.String("user", user),
-			slog.String("risk_score", riskScore),
-			slog.String("zone_id", zoneID),
 			slog.String("ja3_fingerprint", ja3),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),

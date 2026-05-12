@@ -37,7 +37,7 @@ REPORT="$SCRIPT_DIR/REPORT.md"
     echo
     echo "**Generated**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "**Stack endpoint**: \`${ENVOY_URL:-https://127.0.0.1:8443}\`"
-    echo "**Source**: \`tests/e2e/run_all.sh\` su 5 pillar."
+    echo "**Source**: \`tests/e2e/run_all.sh\` su 6 pillar."
     echo
     echo "Questo file viene rigenerato a ogni esecuzione."
     echo
@@ -55,6 +55,7 @@ REPORT="$SCRIPT_DIR/REPORT.md"
             rbac) name="Role-Based Access Control (OPA)" ;;
             abac) name="Attribute-Based Access (clearance hierarchy)" ;;
             tier) name="3-Tier Admission (cert × TPM)" ;;
+            nftables) name="Firewall (nftables rate-limiting + egress)" ;;
             *)    name="$p" ;;
         esac
         emoji="✅"; [[ "${STATUS[$i]}" == "FAIL" ]] && emoji="❌"
@@ -62,7 +63,7 @@ REPORT="$SCRIPT_DIR/REPORT.md"
     done
     echo
     if (( overall == 0 )); then
-        echo "**Outcome**: tutti i 5 pillar PASS."
+        echo "**Outcome**: tutti i 6 pillar PASS."
     else
         echo "**Outcome**: almeno un pillar è FAIL."
     fi
@@ -78,6 +79,7 @@ REPORT="$SCRIPT_DIR/REPORT.md"
             rbac) name="RBAC" ;;
             abac) name="ABAC" ;;
             tier) name="Tier admission" ;;
+            nftables) name="Firewall (nftables)" ;;
             *)    name="$p" ;;
         esac
         echo

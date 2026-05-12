@@ -82,32 +82,6 @@ def simulate_malformed_requests(host, port, count=10):
             pass
     logging.info(f"[MalformedRequests] Finished malformed request sequence.")
 
-def validate_egress_filtering():
-    logging.info("[EgressTest] Validating egress filtering rules (nftables output policy)")
-    test_ports = [
-        (9999, False),  
-        (8080, True),   
-        (8081, True),   
-        (443, True),    
-        (53, True),     
-    ]
-    
-    for port, should_succeed in test_ports:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.1)
-        try:
-            # Tentativo di connessione in uscita verso un IP interno (per simulare egress)
-            s.connect(("127.0.0.1", port))
-            s.close()
-            result = "connected"
-        except (socket.timeout, ConnectionRefusedError, OSError):
-            result = "blocked"
-        finally:
-            s.close()
-        
-        status = "✓" if (result == "connected") == should_succeed else "✗"
-        logging.info(f"  {status} Port {port}: {result} (expected: {'open' if should_succeed else 'closed'})")
-
 def main():
     logging.info("Waiting 10 seconds for Envoy to start...")
     time.sleep(10)
@@ -158,9 +132,6 @@ def main():
 
     # 7. Simulate Malformed TLS Handshakes
     simulate_malformed_requests("ztaleaks_envoy", 8443, count=5)
-
-    # 8. Validate Egress Filtering Rules
-    validate_egress_filtering()
 
 if __name__ == "__main__":
     main()

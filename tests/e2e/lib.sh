@@ -166,18 +166,22 @@ http_envoy() {
 # enroll_webauthn <jwt> <user_id> → registra una credenziale fake; segue
 # /register/begin → /register/finish (lab pattern).
 enroll_webauthn() {
+    # register/begin e register/finish richiedono min_tier 1 (mTLS) lato OPA,
+    # quindi entrambe le chiamate devono presentare il certificato client.
     local jwt="$1"
     local begin
-    begin=$(curl -sk -X POST "$ENVOY_URL/api/v1/auth/register/begin" \
+    begin=$(curl -sk --cert "$CLIENT_CERT" --key "$CLIENT_KEY" -X POST "$ENVOY_URL/api/v1/auth/register/begin" \
+        -H "Authorization: Bearer $jwt" \
         -H "Content-Type: application/json" \
-        -d "{\"access_token\":\"$jwt\",\"device_name\":\"lab-tpm\"}")
+        -d "{\"device_name\":\"lab-tpm\"}")
     local sid
     sid=$(printf '%s' "$begin" | python3 -c "import sys,json;print(json.load(sys.stdin).get('session_id',''))")
     if [[ -z "$sid" ]]; then return 1; fi
     local cred pkey
     cred=$(python3 -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(16)).decode().rstrip('='))")
     pkey=$(python3 -c "import os, base64; print(base64.b64encode(os.urandom(64)).decode())")
-    curl -sk -X POST "$ENVOY_URL/api/v1/auth/register/finish" \
+    curl -sk --cert "$CLIENT_CERT" --key "$CLIENT_KEY" -X POST "$ENVOY_URL/api/v1/auth/register/finish" \
+        -H "Authorization: Bearer $jwt" \
         -H "Content-Type: application/json" \
         -d "{\"session_id\":\"$sid\",\"credential_id\":\"$cred\",\"public_key\":\"$pkey\",\"attestation_type\":\"platform\"}" \
         > /dev/null

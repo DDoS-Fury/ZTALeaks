@@ -114,10 +114,6 @@ func main() {
 	// 8. Malformed TLS Handshake (incomplete/corrupted)
 	log.Printf("\nStarting Malformed TLS Handshake Test...\n")
 	simulateMalformedTLSHandshakes("ztaleaks_envoy", 8443, 5)
-
-	// 9. Egress Filtering Validation
-	log.Printf("\nValidating Egress Filtering Rules (nftables output policy)...\n")
-	validateEgressFiltering()
 }
 
 func simulatePortScan(host string) {
@@ -187,43 +183,6 @@ func simulateMalformedTLSHandshakes(host string, port int, count int) {
 	}
 	time.Sleep(1 * time.Second)
 	log.Println("[MalformedTLS] Finished malformed TLS handshake sequence.")
-}
-
-func validateEgressFiltering() {
-	testPorts := []struct {
-		port       int
-		shouldOpen bool
-	}{
-		{9999, false},  // Porta non autorizzata
-		{8080, true},   // Porta autorizzata
-		{8081, true},   // Porta autorizzata
-		{443, true},    // Porta autorizzata
-		{53, true},     // DNS autorizzato
-	}
-
-	for _, test := range testPorts {
-		target := fmt.Sprintf("127.0.0.1:%d", test.port)
-		conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
-		var result string
-		if err == nil {
-			conn.Close()
-			result = "connected"
-		} else {
-			result = "blocked"
-		}
-
-		expected := "open"
-		if !test.shouldOpen {
-			expected = "closed"
-		}
-
-		status := "✓"
-		if (result == "connected") != test.shouldOpen {
-			status = "✗"
-		}
-		log.Printf("  %s Port %d: %s (expected: %s)\n", status, test.port, result, expected)
-	}
-	log.Println("[EgressTest] Egress filtering validation complete.")
 }
 
 func runRequest(name, urlStr, reqID string, tlsConfig *tls.Config) {

@@ -16,7 +16,7 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -o orchestrator ./cmd/orchestrator
 
 # Fase finale
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /app
 RUN apk add --no-cache ca-certificates

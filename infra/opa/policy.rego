@@ -42,10 +42,10 @@ public_paths := {
     # /api/v1/auth/register/begin richiede ora autenticazione: identity-service
     # legge X-Current-User iniettato dalla security-orchestrator dopo verifica
     # del JWT. Match esplicito sotto in route_rules.
-    "/api/v1/auth/register/finish",
     "/api/v1/auth/login/begin",
     "/api/v1/auth/login/finish",
     "/.well-known/jwks.json",
+    "/reserved",
 }
 
 allow if {
@@ -94,10 +94,12 @@ clearance_order := {
 # -----------------------------------------------------------------------------
 route_rules := {
     # TPM enrollment: l'utente deve essere gia' autenticato (post password+OTP)
-    # per registrare un device. Tier 0 / clearance PUBLIC perche' l'enrollment
-    # e' aperto a tutti i ruoli che hanno una sessione valida.
+    # per registrare un device. Tier 1 (mTLS) richiesto perche' l'enrollment è blindato.
     "/api/v1/auth/register/begin": {
-        "POST": {"roles": {"plant_manager", "operator", "maintenance_technician", "radiation_protection_officer", "security_officer", "inspector"}, "min_tier": 0, "min_clearance": "PUBLIC"},
+        "POST": {"roles": {"plant_manager", "operator", "maintenance_technician", "radiation_protection_officer", "security_officer", "inspector"}, "min_tier": 1, "min_clearance": "PUBLIC"},
+    },
+    "/api/v1/auth/register/finish": {
+        "POST": {"roles": {"plant_manager", "operator", "maintenance_technician", "radiation_protection_officer", "security_officer", "inspector"}, "min_tier": 1, "min_clearance": "PUBLIC"},
     },
     "/api/v1/personnel": {
         "GET":    {"roles": {"security_officer", "plant_manager", "inspector"}, "min_tier": 1, "min_clearance": "INTERNAL"},

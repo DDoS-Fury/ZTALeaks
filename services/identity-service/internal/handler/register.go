@@ -29,9 +29,12 @@ func (api *IdentityAPI) Register(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "richiesta non valida", http.StatusBadRequest)
 		return
 	}
-	if req.Username == "" || req.Password == "" || req.Email == "" || req.Role == "" {
-		respondError(w, "campi mancanti (username, email, password, role)", http.StatusBadRequest)
+	if req.Username == "" || req.Password == "" || req.Email == "" {
+		respondError(w, "campi mancanti (username, email, password)", http.StatusBadRequest)
 		return
+	}
+	if req.Role == "" {
+		req.Role = "operator" // Ruolo di default se non specificato
 	}
 	if req.ClearanceLevel == "" {
 		req.ClearanceLevel = "INTERNAL"

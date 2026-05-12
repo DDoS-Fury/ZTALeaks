@@ -1,0 +1,228 @@
+package handler
+
+import (
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"strings"
+
+	"ztaleaks/security-orchestrator/internal/cert"
+	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
+	"ztaleaks/security-orchestrator/internal/opa"
+	"ztaleaks/security-orchestrator/internal/tpm"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+// OPALogsHandler processa i log decisionali di OPA e li appende al file indicato.
+func OPALogsHandler(opaLogFile *os.File) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var reader io.Reader = r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gz, err := gzip.NewReader(r.Body)
+			if err != nil {
+				http.Error(w, "bad gzip", http.StatusBadRequest)
+				return
+			}
+			defer gz.Close()
+			reader = gz
+		}
+		var entries []json.RawMessage
+		if err := json.NewDecoder(reader).Decode(&entries); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		for _, e := range entries {
+			if opaLogFile != nil {
+				_, _ = opaLogFile.Write(append([]byte(e), '\n'))
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// BuildEvaluateHandler costruisce l'handler ext_authz
+func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, usersColl *mongo.Collection, opaClient *opa.Client) http.HandlerFunc {
+	const evalPrefix = "/api/v1/evaluate"
+	return func(w http.ResponseWriter, r *http.Request) {
+		origPath := r.URL.Path
+		if strings.HasPrefix(origPath, evalPrefix) {
+			origPath = strings.TrimPrefix(origPath, evalPrefix)
+			if origPath == "" {
+				origPath = "/"
+			}
+		}
+		if h := r.Header.Get("X-Original-Uri"); h != "" {
+			origPath = h
+		} else if h := r.Header.Get("X-Authz-Request-Path"); h != "" {
+			origPath = h
+		}
+
+		method := r.Header.Get("X-Authz-Request-Method")
+		if method == "" {
+			method = r.Method
+		}
+		zoneID := r.Header.Get("X-Zone-Id")
+
+		token := bearerToken(r.Header.Get("Authorization"))
+		if token == "" {
+			slog.Info("ext_authz: nessun token", "path", origPath)
+			ok := evalOPA(r.Context(), opaClient, opa.Input{
+				Request:     opa.Request{Method: method, Path: origPath},
+				Claims:      nil,
+				CertPresent: false,
+				TPMVerified: false,
+				ZoneID:      zoneID,
+			})
+			respondAllow(w, ok, "")
+			return
+		}
+
+		claims, err := verifier.Verify(token)
+		if err != nil {
+			slog.Warn("JWT verify fallita", "error", err)
+			http.Error(w, `{"allowed":false,"reason":"invalid token"}`, http.StatusUnauthorized)
+			return
+		}
+
+		cc := cert.Parse(r.Header.Get("X-Forwarded-Client-Cert"))
+		tpmOK, tpmData := tpmLookup.Verify(r.Context(), claims.UserID, claims.DeviceID)
+
+		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl)
+
+		input := opa.Input{
+			Request:     opa.Request{Method: method, Path: origPath},
+			Claims:      ClaimsToMap(claims),
+			CertPresent: cc.Present,
+			CertSubject: cc.Subject,
+			TPMVerified: tpmOK,
+			ZoneID:      zoneID,
+		}
+		allow := evalOPA(r.Context(), opaClient, input)
+		slog.Info("decisione",
+			"path", origPath, "method", method, "user", claims.UserID,
+			"role", claims.Role, "clearance", claims.ClearanceLevel,
+			"cert_present", cc.Present, "tpm_verified", tpmOK,
+			"zone", zoneID, "allow", allow,
+		)
+		respondAllow(w, allow, claims.UserID)
+	}
+}
+
+// evaluateStrictDeviceFingerprinting analizza il payload HW (certificato/tpm/db) e logga le discrepanze in Shadow Mode
+func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert, claims *jwtpkg.ZTAClaims, tpmOK bool, tpmData map[string]any, usersColl *mongo.Collection) {
+	strictCheckScore := 0
+	var certCommonName string
+
+	if cc.Present {
+		parts := strings.Split(cc.Subject, ",")
+		for _, part := range parts {
+			if strings.HasPrefix(strings.TrimSpace(part), "CN=") {
+				certCommonName = strings.TrimPrefix(strings.TrimSpace(part), "CN=")
+				break
+			}
+		}
+	}
+
+	if cc.Present && certCommonName != "" {
+		if certCommonName == claims.UserID {
+			strictCheckScore++
+		}
+	}
+
+	var user map[string]any
+	errQuery := usersColl.FindOne(ctx, bson.M{"_id": claims.UserID}).Decode(&user)
+	var userHasTPM bool
+	var username string
+	if errQuery == nil && user != nil {
+		if b, ok := user["has_tpm"].(bool); ok {
+			userHasTPM = b
+		}
+		if un, ok := user["username"].(string); ok {
+			username = un
+		}
+	}
+
+	if certCommonName != "" && certCommonName == username {
+		strictCheckScore++
+	}
+
+	if tpmOK && tpmData != nil {
+		strictCheckScore++
+		if userHasTPM {
+			strictCheckScore++
+		}
+	}
+
+	var tpmDevName, tpmAAGUID any
+	if tpmData != nil {
+		tpmDevName = tpmData["device_name"]
+		tpmAAGUID = tpmData["aaguid"]
+	}
+
+	slog.Info("strict_device_fingerprinting_evaluation",
+		"user_id", claims.UserID,
+		"username_db", username,
+		"cert_present", cc.Present,
+		"cert_common_name", certCommonName,
+		"tpm_verified", tpmOK,
+		"user_db_has_tpm", userHasTPM,
+		"tpm_device_name", tpmDevName,
+		"tpm_aaguid", tpmAAGUID,
+		"strict_score", strictCheckScore,
+		"action", "LOG_ONLY",
+	)
+}
+
+func evalOPA(ctx context.Context, c *opa.Client, in opa.Input) bool {
+	allow, err := c.Evaluate(ctx, in)
+	if err != nil {
+		slog.Error("OPA error → deny by default", "error", err)
+		return false
+	}
+	return allow
+}
+
+func respondAllow(w http.ResponseWriter, allow bool, userID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if allow {
+		if userID != "" {
+			w.Header().Set("x-current-user", userID)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"allowed":true}`))
+		return
+	}
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte(`{"allowed":false,"reason":"policy denied"}`))
+}
+
+func bearerToken(h string) string {
+	parts := strings.SplitN(h, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return parts[1]
+}
+
+// ClaimsToMap serializza ZTAClaims in mappa generica.
+func ClaimsToMap(c *jwtpkg.ZTAClaims) map[string]any {
+	m := map[string]any{
+		"sub":             c.UserID,
+		"role":            c.Role,
+		"clearance_level": c.ClearanceLevel,
+		"mfa_verified":    c.MFAVerified,
+	}
+	if c.DeviceID != "" {
+		m["device_id"] = c.DeviceID
+	}
+	if c.JA3 != "" {
+		m["ja3"] = c.JA3
+	}
+	return m
+}

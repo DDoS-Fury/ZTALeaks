@@ -1,9 +1,12 @@
 package webauthn
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
+	"ztaleaks/identity-service/internal/crypto"
 	"ztaleaks/identity-service/internal/models"
 )
 
@@ -73,7 +76,10 @@ func (h *Handler) BeginLogin(w http.ResponseWriter, r *http.Request) {
 		UserVerification: "preferred",
 		SessionID:        sessionID,
 	}
-	respondJSON(w, http.StatusOK, opts)
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"publicKey":  opts,
+		"session_id": sessionID,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -120,8 +126,31 @@ func (h *Handler) FinishLogin(w http.ResponseWriter, r *http.Request) {
 	_ = h.devices.UpdateSignCount(r.Context(), req.CredentialID, req.SignCount)
 	_ = h.challenges.Delete(r.Context(), req.SessionID)
 
+	// Trova l'utente per recuperare email
+	user, _ := h.users.FindByID(r.Context(), dev.UserID)
+
+	// === INIEZIONE LOGICA OTP ===
+	b := make([]byte, 3)
+	rand.Read(b)
+	otp := fmt.Sprintf("%06d", int(b[0])<<16|int(b[1])<<8|int(b[2]))[:6]
+	otpHash, _ := crypto.GenerateFromPassword(otp)
+
+	// Utilizziamo lo stesso sessionID crittografico
+	sessionToken := req.SessionID
+
+	h.OTP.Create(r.Context(), models.OTPSession{
+		SessionToken: sessionToken,
+		UserID:       user.ID,
+		OTPHash:      otpHash,
+		Attempts:     0,
+	})
+
+	h.Mail.SendOTP(user.Email, otp)
+
 	respondJSON(w, http.StatusOK, map[string]any{
-		"status":          "authenticated",
+		"status":          "otp_required",
+		"session_token":   sessionToken,
+		"message":         "Firma Hardware corretta. OTP inviato via email.",
 		"credential_id":   req.CredentialID,
 		"clone_suspected": cloneDetected,
 	})

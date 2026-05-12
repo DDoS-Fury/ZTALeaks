@@ -98,7 +98,10 @@ func (h *Handler) BeginRegistration(w http.ResponseWriter, r *http.Request) {
 		Attestation: "direct",
 		SessionID:   sessionID,
 	}
-	respondJSON(w, http.StatusOK, opts)
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"publicKey":  opts,
+		"session_id": sessionID,
+	})
 }
 
 // ---------------------------------------------------------------------------

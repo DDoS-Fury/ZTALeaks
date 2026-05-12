@@ -14,7 +14,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o business-server ./cmd/server/main.go
 
 # Fase finale (immagine minima)
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /app
 

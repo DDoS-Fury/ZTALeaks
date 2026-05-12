@@ -1,14 +1,15 @@
 // Package webauthn implementa una cerimonia FIDO2 lab-grade per l'enrollment
 // del TPM e il login con device gia' registrato.
 //
-//   register.go — POST /auth/register/{begin,finish}: enrolla un nuovo device
-//   login.go    — POST /auth/login/{begin,finish}: autentica con device noto
-//   handler.go  — Handler struct + helper di response/encoding condivisi
+//	register.go — POST /auth/register/{begin,finish}: enrolla un nuovo device
+//	login.go    — POST /auth/login/{begin,finish}: autentica con device noto
+//	handler.go  — Handler struct + helper di response/encoding condivisi
 //
 // In un'implementazione production-grade la /finish dovrebbe verificare:
 //   - hash di clientDataJSON con la challenge attesa
 //   - signature su (authenticatorData ++ clientDataHash) con la public_key
 //   - attestation object CBOR-decodificato
+//
 // Per il lab consideriamo sufficiente la presenza della challenge in DB e
 // lasciamo la verify cryptografica come hook futuro.
 package webauthn
@@ -21,6 +22,7 @@ import (
 	"os"
 
 	"ztaleaks/identity-service/internal/db"
+	"ztaleaks/identity-service/internal/mailer"
 )
 
 // Handler raggruppa le dipendenze delle cerimonie WebAuthn.
@@ -32,10 +34,12 @@ type Handler struct {
 	users      *db.UserRepository
 	devices    *db.DeviceRepository
 	challenges *db.ChallengeRepository
+	OTP        *db.OTPRepository
+	Mail       *mailer.SMTPMailer
 }
 
-func NewHandler(users *db.UserRepository, devices *db.DeviceRepository, challenges *db.ChallengeRepository) *Handler {
-	return &Handler{users: users, devices: devices, challenges: challenges}
+func NewHandler(users *db.UserRepository, devices *db.DeviceRepository, challenges *db.ChallengeRepository, otp *db.OTPRepository, mail *mailer.SMTPMailer) *Handler {
+	return &Handler{users: users, devices: devices, challenges: challenges, OTP: otp, Mail: mail}
 }
 
 // newSessionID — token opaco da 128 bit per legare /begin → /finish.

@@ -54,7 +54,7 @@ func main() {
 			JWT:     jwtMgr,
 			Mail:    mail,
 		},
-		WebAuthn: wa.NewHandler(repos.Users, repos.Devices, repos.Challenges),
+		WebAuthn: wa.NewHandler(repos.Users, repos.Devices, repos.Challenges, repos.OTP, mail),
 		JWT:      jwtMgr,
 	}
 

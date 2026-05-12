@@ -111,6 +111,14 @@ static_resources:
                   path: "/.well-known/jwks.json"
                 route:
                   cluster: identity_service_cluster
+              - match:
+                  prefix: "/login"
+                route:
+                  cluster: identity_service_cluster
+              - match:
+                  prefix: "/register"
+                route:
+                  cluster: identity_service_cluster
 
               # --- Tutto il resto va alla business-logic (con ext_authz) ---
               - match:

@@ -25,6 +25,10 @@ func (r *Router) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("GET /.well-known/jwks.json", crypto.JWKSHandler(r.JWT))
 
+	// UI Routes
+	mux.HandleFunc("GET /login", ServeLoginPage)
+	mux.HandleFunc("GET /register", ServeRegisterPage)
+
 	mux.HandleFunc("POST /api/v1/auth/register", r.API.Register)
 	mux.HandleFunc("POST /api/v1/auth/login", r.API.Login)
 	mux.HandleFunc("POST /api/v1/auth/verify-otp", r.API.VerifyOTP)

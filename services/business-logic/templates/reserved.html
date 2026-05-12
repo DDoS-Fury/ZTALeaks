@@ -1,38 +1,226 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Area Riservata - ZTALeaks</title>
+    <title>Dashboard ABAC/RBAC - ZTALeaks</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg-dark: #0a0e17; --bg-card: #111827; --border: #1e293b; 
             --text: #e2e8f0; --text-muted: #94a3b8; --accent: #f59e0b;
+            --btn-blue: #3b82f6; --btn-red: #ef4444; --btn-green: #10b981;
         }
         body {
-            font-family: 'Courier New', Courier, monospace; background: var(--bg-dark);
-            color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            font-family: system-ui, -apple-system, sans-serif; background: var(--bg-dark);
+            color: var(--text); padding: 20px;
         }
-        .container {
-            background: var(--bg-card); padding: 40px; border-radius: 8px;
-            border: 1px solid var(--border); width: 100%; max-width: 600px;
-            text-align: center;
-        }
-        h1 { color: var(--accent); margin-bottom: 20px; }
-        p { color: var(--text-muted); margin-bottom: 30px; }
-        .btn-secondary { 
-            background: #1a2332; color: var(--text); border: 1px solid var(--border); 
-            padding: 10px 20px; text-decoration: none; border-radius: 4px;
-        }
-        .btn-secondary:hover { background: var(--border); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+        .container { display: flex; gap: 20px; max-width: 1200px; margin: 0 auto; }
+        .controls { flex: 1; background: var(--bg-card); border: 1px solid var(--border); padding: 20px; border-radius: 8px; }
+        .console { flex: 2; background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-y: auto; height: 75vh; font-family: monospace; color: #10b981; white-space: pre-wrap; }
+        h1, h2, h3 { color: var(--text); }
+        button { padding: 10px 15px; border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; transition: opacity 0.2s; }
+        button:hover { opacity: 0.8; }
+        .btn-blue { background: var(--btn-blue); }
+        .btn-red { background: var(--btn-red); }
+        .btn-green { background: var(--btn-green); }
+        .btn-gray { background: var(--border); color: var(--text); }
+        .btn-logout { background: transparent; border: 1px solid var(--btn-red); color: var(--btn-red); width: auto; }
+        .section { margin-bottom: 25px; }
+        .section h3 { font-size: 1rem; color: var(--text-muted); margin-bottom: 10px; border-bottom: 1px dotted var(--border); padding-bottom: 5px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Area Riservata</h1>
-        <p>Benvenuto nell'area privata. Il login è stato completato (simulato).</p>
-        <a href="/" class="btn-secondary">Torna alla Home</a>
+    <div style="max-width: 1200px; margin: 0 auto;">
+        <div class="header">
+            <div>
+                <h1>ZTA Leaks - Controllo Accessi</h1>
+                <p style="color: var(--text-muted); margin-top: 5px;" id="user-info">Decodifica Token in corso...</p>
+            </div>
+            <div>
+                <button class="btn-green" id="enroll-tpm-btn" style="width: auto; margin-right: 10px;">Registra Security Key</button>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="controls">
+                <div class="section">
+                    <h3>PUBBLICO / TIER 0</h3>
+                    <button class="btn-gray" onclick="doFetch('GET', '/api/v1/zones')">GET /zones</button>
+                </div>
+                
+                <div class="section">
+                    <h3>PERSONNEL (Security Officer / HR)</h3>
+                    <button class="btn-blue" onclick="doFetch('GET', '/api/v1/personnel')">GET /personnel</button>
+                    <button class="btn-red" onclick="doFetch('POST', '/api/v1/personnel', {name: 'Test', role: 'operator'})">POST /personnel (Crea)</button>
+                </div>
+
+                <div class="section">
+                    <h3>REACTOR (Operator / Plant Manager)</h3>
+                    <button class="btn-blue" onclick="doFetch('GET', '/api/v1/reactor-parameters')">GET /reactor-parameters</button>
+                </div>
+
+                <div class="section">
+                    <h3>MAINTENANCE (Tech / Plant Manager)</h3>
+                    <button class="btn-blue" onclick="doFetch('GET', '/api/v1/maintenance-orders')">GET /maintenance-orders</button>
+                    <button class="btn-green" onclick="doFetch('POST', '/api/v1/maintenance-orders', {equipment_id: 'PUMP-1', description: 'Test', priority: 'HIGH'})">POST /maintenance-orders</button>
+                </div>
+
+                <div class="section">
+                    <h3>NUCLEAR MATERIALS (Plant Manager / Tier 2)</h3>
+                    <!-- Questo richiede solitamente TPM/CERT e clearance TOP_SECRET -->
+                    <button class="btn-red" onclick="doFetch('GET', '/api/v1/nuclear-materials')">GET /nuclear-materials (Conf/Secret/TopS)</button>
+                    <button class="btn-red" onclick="doFetch('POST', '/api/v1/nuclear-materials', {material_type: 'URANIUM', quantity_kg: 1.5, status: 'STORED'})">POST /nuclear-materials (TopSecret)</button>
+                </div>
+            </div>
+
+            <div class="console" id="console">Seleziona un'operazione per vedere l'esito delle policy OPA...</div>
+        </div>
     </div>
+
+    <script>
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+
+        // Estrai dati base dal JWT senza validazione vera e propria
+        try {
+            const payloadBase64 = token.split('.')[1];
+            const decodedJson = atob(payloadBase64);
+            const payload = JSON.parse(decodedJson);
+            document.getElementById('user-info').textContent = 
+                `Utente: ${payload.sub} | Ruolo: ${payload.role} | Clearance: ${payload.clearance_level} | Auth: ${payload.mfa_verified ? '2FA' : '1FA'}`;
+        } catch(e) {
+            document.getElementById('user-info').textContent = "Token non valido o illeggibile.";
+        }
+
+        const out = document.getElementById('console');
+
+        async function doFetch(method, url, body = null) {
+            out.textContent = `Richiesta in corso: ${method} ${url}...\n\n`;
+            try {
+                const opts = {
+                    method: method,
+                    headers: { 'Authorization': `Bearer ${token}` }
+                };
+                if (body) {
+                    opts.headers['Content-Type'] = 'application/json';
+                    opts.body = JSON.stringify(body);
+                }
+                
+                const response = await fetch(url, opts);
+                const text = await response.text();
+                
+                let appendStr = `Status: ${response.status} ${response.statusText}\n\n`;
+                if (!response.ok) {
+                    appendStr += `OPA / Envoy / Service ha rifiutato la richiesta.\n\nRisposta:\n${text}`;
+                } else {
+                    try { appendStr += JSON.stringify(JSON.parse(text), null, 2); } 
+                    catch { appendStr += text; }
+                }
+                
+                out.textContent = appendStr;
+            } catch (err) {
+                out.textContent = `Errore di rete: ${err.message}`;
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('access_token');
+            window.location.href = '/login';
+        }
+
+        // ============================================
+        // WEBAUTHN ENROLLMENT (Richiede JWT e mTLS)
+        // ============================================
+        function bufferToBase64url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let str = '';
+            for (let charCode of bytes) str += String.fromCharCode(charCode);
+            return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        function base64urlToBuffer(base64url) {
+            const padding = '='.repeat((4 - base64url.length % 4) % 4);
+            const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+            return outputArray.buffer;
+        }
+
+        document.getElementById('enroll-tpm-btn').addEventListener('click', async () => {
+            const jwt = localStorage.getItem('access_token');
+            out.textContent = "Chiedendo l'avvio della cerimonia WebAuthn...\n\n(Se ricevi 'policy denied' assicurati di avere il certificato mTLS attivo nel browser).";
+            
+            try {
+                // 1. Chiedi al backend di iniziare la registrazione HW inviando il JWT
+                const rBegin = await fetch('/api/v1/auth/register/begin', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + jwt
+                    },
+                    body: JSON.stringify({ device_name: "My Hardware Key" })
+                });
+
+                if (!rBegin.ok) {
+                    out.textContent = "Errore: " + await rBegin.text();
+                    return;
+                }
+
+                const options = await rBegin.json();
+                
+                // Conversione formati Base64URL -> Buffer
+                options.publicKey.challenge = base64urlToBuffer(options.publicKey.challenge);
+                options.publicKey.user.id = base64urlToBuffer(options.publicKey.user.id);
+                
+                out.textContent = "Interagisci con il token hardware di Windows / YubiKey...";
+
+                // 2. Apri il popup hardware nativo del browser
+                const credential = await navigator.credentials.create({ publicKey: options.publicKey });
+
+                const attestationResp = {
+                    id: credential.id,
+                    rawId: bufferToBase64url(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        attestationObject: bufferToBase64url(credential.response.attestationObject),
+                        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+                    }
+                };
+
+                out.textContent = "Hardware letto con successo, invio attestazione al server...";
+
+                // 3. Manda l'attestazione hardware al backend in /register/finish
+                const rFinish = await fetch('/api/v1/auth/register/finish', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + jwt 
+                    },
+                    body: JSON.stringify({ 
+                        session_id: options.SessionID || options.session_id,
+                        credential_id: credential.id,
+                        public_key: "ZHVtbXk=", // Dummy in base64 per simulazione lab
+                        attestation_type: "none",
+                        aaguid: "00000000-0000-0000-0000-000000000000"
+                    })
+                });
+
+                if (rFinish.ok) {
+                     out.textContent = "Security Key Registrata con successo!\n\nOra il tuo account e' Tier 2 (WebAuthn). Riprova il login se necessario.";
+                } else {
+                     out.textContent = "Registrazione Fallita!\n\n" + await rFinish.text();
+                }
+
+            } catch (err) {
+                 out.textContent = "Annullato o errore: " + err.message;
+            }
+        });
+    </script>
 </body>
 </html>

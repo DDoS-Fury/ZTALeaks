@@ -26,22 +26,28 @@ func New(db *mongo.Database) *Lookup {
 	return &Lookup{coll: db.Collection("device_fingerprints")}
 }
 
-// Verify restituisce true se la coppia (credentialID, userID) esiste in DB.
-// userID o credentialID vuoti → false (utente "senza TPM").
-func (l *Lookup) Verify(ctx context.Context, userID, credentialID string) bool {
+type DeviceCredential map[string]any
+
+// Verify restituisce la mappa del device se la coppia (credentialID, userID) esiste in DB.
+// Se non esiste, ritorna false, nil.
+func (l *Lookup) Verify(ctx context.Context, userID, credentialID string) (bool, map[string]any) {
 	if userID == "" || credentialID == "" {
-		return false
+		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	count, err := l.coll.CountDocuments(ctx, bson.M{
+	var result map[string]any
+	err := l.coll.FindOne(ctx, bson.M{
 		"credential_id": credentialID,
 		"user_id":       userID,
-	})
+	}).Decode(&result)
+
 	if err != nil {
-		slog.Warn("tpm lookup error", "user_id", userID, "credential_id", credentialID, "error", err)
-		return false
+		if err != mongo.ErrNoDocuments {
+			slog.Warn("tpm lookup error", "user_id", userID, "credential_id", credentialID, "error", err)
+		}
+		return false, nil
 	}
-	return count > 0
+	return true, result
 }

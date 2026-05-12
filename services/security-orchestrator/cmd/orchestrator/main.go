@@ -39,7 +39,9 @@ func main() {
 	if f, err := os.OpenFile(filepath.Join(logDir, "app.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 		logWriter = io.MultiWriter(os.Stdout, f)
 	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(logWriter, nil)))
+	// Pre-popola l'attributo `service` sul default logger: ogni slog.X in
+	// tutto il package erediter automaticamente la provenienza.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logWriter, nil)).With("service", "security-orchestrator"))
 
 	port := getenv("SECURITY_ORCHESTRATOR_PORT", "8081")
 

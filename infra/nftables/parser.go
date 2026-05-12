@@ -56,6 +56,7 @@ func main() {
 		// <Data> <Ora> <Host> <Str> IN=... OUT=... MAC=... SRC=... DST=...
 
 		record := make(map[string]interface{})
+		record["service"] = "nftables"
 		record["timestamp"] = time.Now().Format(time.RFC3339)
 		record["raw"] = line
 

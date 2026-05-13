@@ -13,9 +13,10 @@ except ImportError:
 def main():
     # Definiamo i path relativi dalla cartella in cui eseguirai lo script
     base_dir = os.path.abspath(os.path.dirname(__file__))
-    cert_path = os.path.join(base_dir, "admin.crt")
-    key_path = os.path.join(base_dir, "admin.key")
-    p12_path = os.path.join(base_dir, "admin.p12")
+    cert_path = os.path.join(base_dir, "operator1.crt")
+    key_path = os.path.join(base_dir, "operator1.key")
+    p12_path = os.path.join(base_dir, "operator1.p12")
+    pfx_path = os.path.join(base_dir, "operator1-apple.pfx")
 
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         print(f"Non ho trovato i certificati in {base_dir}.")
@@ -45,14 +46,24 @@ def main():
     with open(p12_path, "wb") as f:
         f.write(p12_data)
 
+    print("Generando la copia .pfx per la compatibilità con macOS/iOS...")
+    with open(pfx_path, "wb") as f:
+        f.write(p12_data)
+
     print("\n--- SUCCESSO ---")
-    print(f"Certificato per il browser creato: {p12_path}")
+    print(f"Certificato Windows/Android (.p12) creato: {p12_path}")
+    print(f"Certificato Apple macOS/iOS (.pfx) creato: {pfx_path}")
     print("Password di importazione: ztaleaks\n")
     print("Per installarlo su Windows / Chrome / Edge:")
-    print("1. Fai doppio clic sul file client.p12")
+    print("1. Fai doppio clic sul file .p12")
     print("2. Segui la procedura guidata (Mantieni 'Utente Corrente')")
     print("3. Usa la password 'ztaleaks' quando richiesta")
-    print("4. Riavvia il browser e visita https://localhost:8443")
+    print("\nPer installarlo su macOS / Safari / iOS:")
+    print("1. Fai doppio clic sul file .pfx")
+    print("2. Verrà aperto l'Accesso Portachiavi (Mac) o l'installazione profilo (iOS)")
+    print("3. Usa la password 'ztaleaks' quando richiesta")
+    print("4. Assicurati che diventi 'Fidato'")
+    print("\n4. Riavvia il browser e visita https://localhost:8443")
     print("   Nota: Il browser dovrebbe chiederti quale certificato usare!")
 
 if __name__ == "__main__":

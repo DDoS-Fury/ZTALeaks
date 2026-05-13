@@ -87,3 +87,6 @@ certs/*.crt
 certs/*.key
 certs/*.csr
 certs/*.p12
+certs/*.pfx
+certs/*.srl
+certs/*.pem

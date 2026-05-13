@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"ztaleaks/security-orchestrator/internal/cert"
 	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
@@ -93,7 +94,7 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 		cc := cert.Parse(r.Header.Get("X-Forwarded-Client-Cert"))
 		tpmOK, tpmData := tpmLookup.Verify(r.Context(), claims.UserID, claims.DeviceID)
 
-		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl)
+		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl, r)
 
 		input := opa.Input{
 			Request:     opa.Request{Method: method, Path: origPath},
@@ -115,23 +116,26 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 }
 
 // evaluateStrictDeviceFingerprinting analizza il payload HW (certificato/tpm/db) e logga le discrepanze in Shadow Mode
-func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert, claims *jwtpkg.ZTAClaims, tpmOK bool, tpmData map[string]any, usersColl *mongo.Collection) {
-	strictCheckScore := 0
+func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert, claims *jwtpkg.ZTAClaims, tpmOK bool, tpmData map[string]any, usersColl *mongo.Collection, r *http.Request) {
 	var certCommonName string
+	var certOU string
 
 	if cc.Present {
 		parts := strings.Split(cc.Subject, ",")
 		for _, part := range parts {
-			if strings.HasPrefix(strings.TrimSpace(part), "CN=") {
-				certCommonName = strings.TrimPrefix(strings.TrimSpace(part), "CN=")
-				break
+			partT := strings.TrimSpace(part)
+			if strings.HasPrefix(partT, "CN=") {
+				certCommonName = strings.TrimPrefix(partT, "CN=")
+			} else if strings.HasPrefix(partT, "OU=") {
+				certOU = strings.TrimPrefix(partT, "OU=")
 			}
 		}
 	}
 
-	if cc.Present && certCommonName != "" {
-		if certCommonName == claims.UserID {
-			strictCheckScore++
+	var ouMismatch bool
+	if cc.Present && certOU != "" {
+		if !strings.EqualFold(certOU, claims.Role) {
+			ouMismatch = true
 		}
 	}
 
@@ -148,33 +152,61 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 		}
 	}
 
-	if certCommonName != "" && certCommonName == username {
-		strictCheckScore++
-	}
-
-	if tpmOK && tpmData != nil {
-		strictCheckScore++
-		if userHasTPM {
-			strictCheckScore++
-		}
-	}
-
 	var tpmDevName, tpmAAGUID any
 	if tpmData != nil {
 		tpmDevName = tpmData["device_name"]
 		tpmAAGUID = tpmData["aaguid"]
 	}
 
+	// Calcolo Network Location per il modello AI
+	networkLocation := "perimeter"
+	xfwd := r.Header.Get("X-Forwarded-For")
+	if xfwd == "" {
+		xfwd = r.RemoteAddr
+	}
+	ip := strings.TrimSpace(strings.Split(xfwd, ",")[0])
+	if strings.HasPrefix(ip, "10.") || strings.HasPrefix(ip, "192.168.") || strings.HasPrefix(ip, "127.") || strings.HasPrefix(ip, "172.") {
+		networkLocation = "internal"
+	}
+
+	// Estrazione info richiesta (Method, Path, Zone, JA3)
+	origPath := r.Header.Get("X-Original-Uri")
+	if origPath == "" {
+		origPath = r.Header.Get("X-Authz-Request-Path")
+	}
+	if origPath == "" {
+		origPath = r.URL.Path
+	}
+
+	method := r.Header.Get("X-Authz-Request-Method")
+	if method == "" {
+		method = r.Method
+	}
+
+	zoneID := r.Header.Get("X-Zone-Id")
+	ja3 := r.Header.Get("X-Ja3-Fingerprint")
+	if ja3 == "" && claims != nil {
+		ja3 = claims.JA3
+	}
+
 	slog.Info("strict_device_fingerprinting_evaluation",
+		"timestamp", time.Now().UTC().Format(time.RFC3339),
+		"request_method", method,
+		"request_path", origPath,
+		"zone_id", zoneID,
+		"ja3_fingerprint", ja3,
 		"user_id", claims.UserID,
 		"username_db", username,
 		"cert_present", cc.Present,
 		"cert_common_name", certCommonName,
+		"cert_ou", certOU,
+		"ou_mismatch", ouMismatch,
 		"tpm_verified", tpmOK,
 		"user_db_has_tpm", userHasTPM,
 		"tpm_device_name", tpmDevName,
 		"tpm_aaguid", tpmAAGUID,
-		"strict_score", strictCheckScore,
+		"network_location", networkLocation,
+		"ip_address", ip,
 		"action", "LOG_ONLY",
 	)
 }

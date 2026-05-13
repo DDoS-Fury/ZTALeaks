@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"ztaleaks/identity-service/internal/crypto"
 	"ztaleaks/identity-service/internal/models"
@@ -42,6 +43,32 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		_, _ = crypto.ComparePasswordAndHash(req.Password, dummy)
 		respondError(w, "credenziali non valide", http.StatusUnauthorized)
 		return
+	}
+
+	// Estrazione e verifica del certificato Envoy X-Forwarded-Client-Cert
+	certHeader := r.Header.Get("X-Forwarded-Client-Cert")
+	cn, ou, certPresent := extractCertFields(certHeader)
+
+	if !certPresent {
+		// 1. Se il certificato non è presente, l'utente DEVE avere il ruolo guest
+		if !strings.EqualFold(user.Role, "guest") {
+			slog.Warn("login fallito: certificato mancante per non-guest", "username", req.Username)
+			respondError(w, "accesso negato: certificato mTLS richiesto per questo ruolo", http.StatusForbidden)
+			return
+		}
+	} else {
+		// 2. Controllo CN == username (case-insensitive)
+		if !strings.EqualFold(cn, req.Username) {
+			slog.Warn("login fallito: mismatch CN-Username", "cn", cn, "username", req.Username)
+			respondError(w, "accesso negato: certificato non corrisponde all'utente", http.StatusForbidden)
+			return
+		}
+		// 3. Controllo OU (nel certificato) == Role (nel database) (case-insensitive)
+		if !strings.EqualFold(ou, user.Role) {
+			slog.Warn("login fallito: mismatch OU-Role", "ou", ou, "role", user.Role)
+			respondError(w, "accesso negato: ruolo certificato non valido", http.StatusForbidden)
+			return
+		}
 	}
 
 	ok, err := crypto.ComparePasswordAndHash(req.Password, user.PasswordHash)
@@ -85,4 +112,40 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		SessionToken: sessionToken,
 		Message:      "OTP inviato all'email registrata",
 	})
+}
+
+// extractCertFields processa l'header 'x-forwarded-client-cert' generato da Envoy.
+// L'header standard è una stringa separata da punto e virgola:
+// By=...;Hash=...;Subject="CN=admin,OU=admin,O=ZTA";URI=...
+func extractCertFields(header string) (cn string, ou string, present bool) {
+	if header == "" {
+		return "", "", false
+	}
+	present = true
+	parts := strings.Split(header, ";")
+	for _, part := range parts {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(kv[0])) == "subject" {
+			subject := strings.Trim(strings.TrimSpace(kv[1]), `"`)
+			// Analizza i campi del Subject divisi da virgola
+			subParts := strings.Split(subject, ",")
+			for _, sp := range subParts {
+				skv := strings.SplitN(strings.TrimSpace(sp), "=", 2)
+				if len(skv) == 2 {
+					key := strings.ToUpper(strings.TrimSpace(skv[0]))
+					val := strings.TrimSpace(skv[1])
+					switch key {
+					case "CN":
+						cn = val
+					case "OU":
+						ou = val
+					}
+				}
+			}
+		}
+	}
+	return cn, ou, present
 }

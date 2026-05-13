@@ -55,84 +55,49 @@ openssl x509 -req \
   -extfile "$EXT"
 
 # ---------------------------------------------------------
-# 3. CERTIFICATO CLIENT (Se Envoy richiede mTLS)
+# 3. CERTIFICATO CLIENT ADMIN (Se Envoy richiede mTLS)
 # ---------------------------------------------------------
 echo "==> Generazione Certificato Client..."
-openssl genrsa -out "$OUT/client.key" 2048
+openssl genrsa -out "$OUT/admin.key" 2048
 
 openssl req -new \
-  -key "$OUT/client.key" \
-  -out "$OUT/client.csr" \
-  -subj "/C=IT/O=ZTA-Leaks/CN=client-test"
+  -key "$OUT/admin.key" \
+  -out "$OUT/admin.csr" \
+  -subj "/C=IT/O=ZTA-Leaks/CN=admin/OU=plant_manager"
 
 printf "keyUsage=digitalSignature\nextendedKeyUsage=clientAuth\n" > "$EXT"
 
 openssl x509 -req \
-  -in "$OUT/client.csr" \
+  -in "$OUT/admin.csr" \
   -CA "$OUT/ca.crt" \
   -CAkey "$OUT/ca.key" \
   -CAcreateserial \
-  -out "$OUT/client.crt" \
+  -out "$OUT/admin.crt" \
   -days "$DAYS" -sha256 \
   -extfile "$EXT"
 
 echo "==> Fatto! I file generati sono nella cartella $OUT"
 
-: <<'EOF'
-# ─────────────────────────────────────────────────────────
-# 2. CA ESTERNA (simulata localmente)
-# ─────────────────────────────────────────────────────────
-echo "==> Generazione CA esterna (simulata)..."
-openssl genrsa -out "$OUT/ca-external.key" 4096
-
-openssl req -x509 -new -nodes \
-  -key "$OUT/ca-external.key" \
-  -sha256 -days "$DAYS" \
-  -out "$OUT/ca-external.crt" \
-  -subj "/C=IT/O=ExternalOrg/CN=External Root CA"
-
-# Certificato SERVER per external.example.local
-echo "==> Certificato server esterno (external.example.local)..."
-openssl genrsa -out "$OUT/server-external.key" 2048
+# ---------------------------------------------------------
+# 4. CERTIFICATO CLIENT USER (Se Envoy richiede mTLS)
+# ---------------------------------------------------------
+echo "==> Generazione Certificato Client..."
+openssl genrsa -out "$OUT/operator1.key" 2048
 
 openssl req -new \
-  -key "$OUT/server-external.key" \
-  -out "$OUT/server-external.csr" \
-  -subj "/C=IT/O=ExternalOrg/CN=external.example.local"
-
-printf "subjectAltName=DNS:external.example.local\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n" > "$EXT"
-openssl x509 -req \
-  -in "$OUT/server-external.csr" \
-  -CA "$OUT/ca-external.crt" \
-  -CAkey "$OUT/ca-external.key" \
-  -CAcreateserial \
-  -out "$OUT/server-external.crt" \
-  -days "$DAYS" -sha256 \
-  -extfile "$EXT"
-
-# Certificato CLIENT firmato dalla CA esterna
-echo "==> Certificato client esterno..."
-openssl genrsa -out "$OUT/client-external.key" 2048
-
-openssl req -new \
-  -key "$OUT/client-external.key" \
-  -out "$OUT/client-external.csr" \
-  -subj "/C=IT/O=ExternalOrg/CN=external-client"
+  -key "$OUT/operator1.key" \
+  -out "$OUT/operator1.csr" \
+  -subj "/C=IT/O=ZTA-Leaks/CN=operator1/OU=operator"
 
 printf "keyUsage=digitalSignature\nextendedKeyUsage=clientAuth\n" > "$EXT"
+
 openssl x509 -req \
-  -in "$OUT/client-external.csr" \
-  -CA "$OUT/ca-external.crt" \
-  -CAkey "$OUT/ca-external.key" \
+  -in "$OUT/operator1.csr" \
+  -CA "$OUT/ca.crt" \
+  -CAkey "$OUT/ca.key" \
   -CAcreateserial \
-  -out "$OUT/client-external.crt" \
+  -out "$OUT/operator1.crt" \
   -days "$DAYS" -sha256 \
   -extfile "$EXT"
 
-echo ""
-echo "Certificati generati in: $OUT"
-echo ""
-echo "File creati:"
-ls -1 "$OUT"/*.crt "$OUT"/*.key | xargs -I{} basename {}
-
-EOF
+echo "==> Fatto! I file generati sono nella cartella $OUT"

@@ -38,7 +38,7 @@ func main() {
 	outputFile := os.Args[2]
 
 	// SOURCE identifica questo snort negli alert JSON (usato da Splunk per distinguere i sensori)
-	source := "snort"
+	source := "snort-mid"
 
 	// Apre il file sul volume in append; lo crea se non esiste.
 	out, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)

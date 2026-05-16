@@ -30,4 +30,4 @@ RUN mkdir -p /var/log/ztaleaks/snort
 # -A fast: log alerts to /var/log/snort/alert
 # -k none: disable checksum verification (important for Docker/virtual networks where checksum offloading causes Snort to drop packets)
 # -i eth0: listen on shared interface
-CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort/alert_json.txt & snort -k none -c /etc/snort/snort.conf -i eth0 -A fast"
+CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort/alert_json.txt snort & snort -k none -c /etc/snort/snort.conf -i eth0 -A fast"

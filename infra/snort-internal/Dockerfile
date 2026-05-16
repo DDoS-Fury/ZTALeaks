@@ -29,5 +29,5 @@ COPY infra/snort-internal/rules/internal.rules /etc/snort/rules/internal.rules
 # Avvio parser su volume log locale e pipe a json
 CMD sed -i "s/ENV_ENVOY_PORT/${ENVOY_PORT:-8443}/g" /etc/snort/rules/internal.rules && \
     touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort-internal && \
-    /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort-internal/alert_json.txt & \
+    /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort-internal/alert_json.txt snort-internal & \
     snort -k none -c /etc/snort/snort.conf -i eth0 -A fast

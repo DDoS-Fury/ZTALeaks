@@ -26,4 +26,4 @@ COPY --from=builder /app/snort-parser /usr/local/bin/snort-parser
 RUN mkdir -p /var/log/ztaleaks/snort-mid
 
 # Avvio parser su volume log locale e pipe a json
-CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort-mid && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort-mid/alert_json.txt & snort -k none -c /etc/snort/snort.conf -i eth0 -A fast"
+CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort-mid && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort-mid/alert_json.txt snort-mid & snort -k none -c /etc/snort/snort.conf -i eth0 -A fast"

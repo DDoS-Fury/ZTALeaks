@@ -47,6 +47,9 @@ jobs:
       - name: Build snort-internal IDS
         run: docker build -f infra/snort-internal/Dockerfile -t ztaleaks/snort-internal .
 
+      - name: Build snort-mid IDS
+        run: docker build -f infra/snort-mid/Dockerfile -t ztaleaks/snort-mid .
+
       - name: Build business-db
         run: docker build -t ztaleaks/business-db ./infra/databases/business
 

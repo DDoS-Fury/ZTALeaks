@@ -79,3 +79,23 @@ Convenzioni:
   - `e2e-tests` (genera .env stub, `docker compose up -d --build`, polling readiness Envoy+MailHog, `bash tests/e2e/run_all.sh`, upload REPORT.md, teardown `down -v`) — needs build-images
 - [x] Test locale: `docker run openpolicyagent/opa test /workspace/infra/opa/ -v` → 16/16 PASS
 - [x] Commit: `ci: OPA policy tests gate + E2E full-suite job`
+
+## Step 8 — snort-mid (Envoy ↔ Security Orchestrator) — IN PROGRESS
+Obiettivo: terzo Snort identico agli altri due, posizionato sul segmento Envoy→Security Orchestrator, per rilevare SQL Injection e Cross-Site Scripting su traffico HTTP plaintext.
+
+Verifiche fatte:
+- Q3: `envoy.yaml:145` usa `http://security-orchestrator:8081/...` → plaintext, ispezionabile ✓
+- Q4: front-net, replicato via `network_mode: service:firewall` (come gli altri due)
+- Q1: solo JSON processato ✓
+- Q2: nessuna rotation, allineato agli altri due
+- Q5: test live con richieste HTTP reali via Envoy
+
+Limite noto: ext_authz forwarda solo gli header consentiti (incluso `x-original-uri`) ma NON il body → SQL/XSS in URL/query catturati; SQL/XSS in body NO (su questo segmento).
+
+Plan:
+- [x] Creare `infra/snort-mid/` (Dockerfile, parser.go, rules/mid.rules — 9 regole SQLi+XSS scoped port 8081)
+- [x] `deployments/docker/docker-compose.yaml`: servizio + volume + mount splunk-uf
+- [x] `.github/workflows/ci.yaml`: build di `infra/snort-mid/Dockerfile`
+- [x] Test live: payload SQL/XSS inviati via nc da firewall netns → alert correttamente generati su volume (UNION SELECT, tautology URL-encoded, OR 1=1, XSS <script>). Stdout identico agli altri due snort.
+- [ ] **BLOCCANTE indipendente**: envoy in restart loop — uid 101 non legge `/etc/envoy/certs/server.key` (perm 600 root). Pre-esistente, non causato da snort-mid. Test E2E via HTTPS:8443 richiede fix Dockerfile envoy.
+- [ ] Commit manuale dopo OK utente

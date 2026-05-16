@@ -76,6 +76,21 @@ services:
       - snort-internal-logs:/var/log/ztaleaks/snort-internal
     restart: unless-stopped
 
+  snort-mid:
+    build:
+      context: ../../
+      dockerfile: infra/snort-mid/Dockerfile
+    container_name: ztaleaks_snort_mid
+    network_mode: service:firewall
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - firewall
+    volumes:
+      - snort-mid-logs:/var/log/ztaleaks/snort-mid
+    restart: unless-stopped
+
   identity-service:
     build:
       context: ../../services/identity-service
@@ -252,6 +267,7 @@ services:
       - envoy-logs:/var/log/ztaleaks/envoy:ro
       - snort-logs:/var/log/ztaleaks/snort:ro
       - snort-internal-logs:/var/log/ztaleaks/snort-internal:ro
+      - snort-mid-logs:/var/log/ztaleaks/snort-mid:ro
       - business-logs:/var/log/ztaleaks/business-logic:ro
       - identity-logs:/var/log/ztaleaks/identity:ro
       - orchestrator-logs:/var/log/ztaleaks/orchestrator:ro
@@ -276,6 +292,7 @@ volumes:
   envoy-logs:
   snort-logs:
   snort-internal-logs:
+  snort-mid-logs:
   business-logs:
   identity-logs:
   orchestrator-logs:

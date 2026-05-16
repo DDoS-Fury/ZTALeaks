@@ -1,0 +1,15 @@
+# Snort rules for traffic between Envoy and Security Orchestrator (port 8081)
+# Detects SQL Injection and Cross-Site Scripting (XSS) on plaintext HTTP ext_authz traffic
+
+# --- SQL Injection ---
+alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - UNION SELECT"; content:"union"; nocase; content:"select"; nocase; distance:0; within:50; classtype:web-application-attack; sid:3000001; rev:1;)
+alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - OR 1=1"; content:"or"; nocase; content:"1=1"; distance:0; within:10; classtype:web-application-attack; sid:3000002; rev:1;)
+alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - DROP TABLE"; content:"drop"; nocase; content:"table"; nocase; distance:0; within:20; classtype:web-application-attack; sid:3000003; rev:1;)
+alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - tautology URL-encoded"; content:"%27"; content:"OR"; nocase; distance:0; within:20; content:"%3D"; distance:0; within:20; classtype:web-application-attack; sid:3000004; rev:1;)
+
+# --- Cross-Site Scripting ---
+alert tcp any any -> any 8081 (msg:"ZTA: XSS - <script tag"; content:"<script"; nocase; classtype:web-application-attack; sid:3000010; rev:1;)
+alert tcp any any -> any 8081 (msg:"ZTA: XSS - URL-encoded <script"; content:"%3Cscript"; nocase; classtype:web-application-attack; sid:3000011; rev:1;)
+alert tcp any any -> any 8081 (msg:"ZTA: XSS - javascript: URI"; content:"javascript:"; nocase; classtype:web-application-attack; sid:3000012; rev:1;)
+alert tcp any any -> any 8081 (msg:"ZTA: XSS - onerror handler"; content:"onerror="; nocase; classtype:web-application-attack; sid:3000013; rev:1;)
+alert tcp any any -> any 8081 (msg:"ZTA: XSS - onload handler"; content:"onload="; nocase; classtype:web-application-attack; sid:3000014; rev:1;)

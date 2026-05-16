@@ -39,6 +39,35 @@ def tcp_flow(payload: bytes, dport: int = 8081, sport: int = 54321,
     return [syn, syn_ack, ack, data, data_ack, fin_a, fin_b, last]
 
 
+def tcp_flow_split(payload: bytes, split_at: int,
+                   dport: int = 8081, sport: int = 54321,
+                   src: str = CLIENT_IP, dst: str = SERVER_IP):
+    """
+    Come tcp_flow ma il payload client->server è spezzato in due
+    PSH-ACK segmenti consecutivi, simulando frammentazione TCP.
+    Riproduce lo scenario del KNOWN ISSUE del commit 2df7d06
+    (x-forwarded-client-cert che fa fragmentare la ext_authz request).
+    """
+    cli, srv = src, dst
+    seq_c, seq_s = 1000, 5000
+    p1, p2 = payload[:split_at], payload[split_at:]
+
+    syn      = IP(src=cli, dst=srv)/TCP(sport=sport, dport=dport, flags="S",  seq=seq_c)
+    syn_ack  = IP(src=srv, dst=cli)/TCP(sport=dport, dport=sport, flags="SA", seq=seq_s, ack=seq_c+1)
+    ack      = IP(src=cli, dst=srv)/TCP(sport=sport, dport=dport, flags="A",  seq=seq_c+1, ack=seq_s+1)
+
+    data1    = IP(src=cli, dst=srv)/TCP(sport=sport, dport=dport, flags="PA", seq=seq_c+1,           ack=seq_s+1)/Raw(load=p1)
+    ack1     = IP(src=srv, dst=cli)/TCP(sport=dport, dport=sport, flags="A",  seq=seq_s+1,           ack=seq_c+1+len(p1))
+    data2    = IP(src=cli, dst=srv)/TCP(sport=sport, dport=dport, flags="PA", seq=seq_c+1+len(p1),   ack=seq_s+1)/Raw(load=p2)
+    ack2     = IP(src=srv, dst=cli)/TCP(sport=dport, dport=sport, flags="A",  seq=seq_s+1,           ack=seq_c+1+len(payload))
+
+    fin_a    = IP(src=cli, dst=srv)/TCP(sport=sport, dport=dport, flags="FA", seq=seq_c+1+len(payload), ack=seq_s+1)
+    fin_b    = IP(src=srv, dst=cli)/TCP(sport=dport, dport=sport, flags="FA", seq=seq_s+1,           ack=seq_c+2+len(payload))
+    last     = IP(src=cli, dst=srv)/TCP(sport=sport, dport=dport, flags="A",  seq=seq_c+2+len(payload), ack=seq_s+2)
+
+    return [syn, syn_ack, ack, data1, ack1, data2, ack2, fin_a, fin_b, last]
+
+
 # --- TLS handshake primitives ---
 
 def tls_record(content_type: int, version: bytes, body: bytes) -> bytes:

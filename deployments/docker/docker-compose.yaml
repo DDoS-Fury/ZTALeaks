@@ -278,6 +278,13 @@ services:
     networks:
       - back-net
 
+  alerts-tester:
+    build:
+      context: ../../
+      dockerfile: tests/alerts/Dockerfile
+    container_name: ztaleaks_alerts_tester
+    profiles: ["alerttest"]
+
 networks:
   front-net:
   auth-net:

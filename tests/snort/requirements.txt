@@ -1,6 +1,0 @@
-# Dipendenze Python per i test Snort di ZTALeaks
-# Installa con: pip install -r tests/snort/requirements.txt
-
-requests>=2.31.0
-urllib3>=2.0.0
-pytest>=7.4.0

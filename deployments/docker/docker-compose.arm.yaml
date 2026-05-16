@@ -76,25 +76,6 @@ services:
       - snort-internal-logs:/var/log/ztaleaks/snort-internal
     restart: unless-stopped
 
-  snort-mid:
-    build:
-      context: ../../
-      dockerfile: infra/snort-mid/Dockerfile
-    container_name: ztaleaks_snort_mid
-    # Snort-mid condivide la rete del firewall per sniffare il traffico
-    # HTTP tra Envoy (ext_authz) e il Security Orchestrator sulla front-net.
-    # Il traffico Envoy→Orchestrator è HTTP chiaro su porta 8081 (confermato in envoy.yaml).
-    network_mode: service:firewall
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    depends_on:
-      - firewall
-      - security-orchestrator
-    volumes:
-      - snort-mid-logs:/var/log/ztaleaks/snort-mid
-    restart: unless-stopped
-
   identity-service:
     build:
       context: ../../services/identity-service
@@ -225,7 +206,6 @@ volumes:
   envoy-logs:
   snort-logs:
   snort-internal-logs:
-  snort-mid-logs:
   business-logs:
   identity-logs:
   orchestrator-logs:

@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"ztaleaks/security-orchestrator/internal/aiscorer"
 	"ztaleaks/security-orchestrator/internal/db"
 	"ztaleaks/security-orchestrator/internal/handler"
 	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
@@ -63,6 +64,7 @@ func main() {
 	tpmLookup := tpm.New(mongoClient.DB())
 	usersColl := mongoClient.DB().Collection("identity_users")
 	opaClient := opa.New()
+	aiClient := aiscorer.New()
 
 	// --- HTTP routes ---
 	mux := http.NewServeMux()
@@ -77,7 +79,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/opa/logs", handler.OPALogsHandler(opaLogFile))
 
 	// ext_authz endpoint chiamato da Envoy
-	evaluate := handler.BuildEvaluateHandler(verifier, tpmLookup, usersColl, opaClient)
+	evaluate := handler.BuildEvaluateHandler(verifier, tpmLookup, usersColl, opaClient, aiClient)
 	mux.HandleFunc("/api/v1/evaluate", evaluate)
 	mux.HandleFunc("/api/v1/evaluate/", evaluate)
 	// Envoy con http_service ext_authz inoltra il path originale come parte

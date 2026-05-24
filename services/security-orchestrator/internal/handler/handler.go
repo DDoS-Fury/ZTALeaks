@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"ztaleaks/security-orchestrator/internal/aiscorer"
 	"ztaleaks/security-orchestrator/internal/cert"
 	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
 	"ztaleaks/security-orchestrator/internal/opa"
@@ -48,7 +49,7 @@ func OPALogsHandler(opaLogFile *os.File) http.HandlerFunc {
 }
 
 // BuildEvaluateHandler costruisce l'handler ext_authz
-func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, usersColl *mongo.Collection, opaClient *opa.Client) http.HandlerFunc {
+func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, usersColl *mongo.Collection, opaClient *opa.Client, aiClient *aiscorer.Client) http.HandlerFunc {
 	const evalPrefix = "/api/v1/evaluate"
 	return func(w http.ResponseWriter, r *http.Request) {
 		origPath := r.URL.Path
@@ -69,16 +70,22 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 			method = r.Method
 		}
 		zoneID := r.Header.Get("X-Zone-Id")
+		ja3 := r.Header.Get("X-Ja3-Fingerprint")
+		clientIP := clientIPFromRequest(r)
+		now := time.Now().UTC()
 
 		token := bearerToken(r.Header.Get("Authorization"))
 		if token == "" {
 			slog.Info("ext_authz: nessun token", "path", origPath)
+			ctxInput := buildContext(now, 0, clientIP)
 			ok := evalOPA(r.Context(), opaClient, opa.Input{
 				Request:     opa.Request{Method: method, Path: origPath},
 				Claims:      nil,
 				CertPresent: false,
 				TPMVerified: false,
 				ZoneID:      zoneID,
+				Context:     ctxInput,
+				JA3:         ja3Input(ja3),
 			})
 			respondAllow(w, ok, "")
 			return
@@ -96,6 +103,23 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 
 		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl, r)
 
+		if ja3 == "" {
+			ja3 = claims.JA3
+		}
+		sessionAge := sessionAgeSeconds(claims, now)
+		ctxInput := buildContext(now, sessionAge, clientIP)
+
+		ai := aiClient.Evaluate(r.Context(), aiscorer.Features{
+			UserID:    claims.UserID,
+			Method:    method,
+			Path:      origPath,
+			Timestamp: ctxInput.Timestamp,
+			HourOfDay: ctxInput.HourOfDay,
+			DayOfWeek: ctxInput.DayOfWeek,
+			JA3:       ja3,
+			ClientIP:  clientIP,
+		})
+
 		input := opa.Input{
 			Request:     opa.Request{Method: method, Path: origPath},
 			Claims:      ClaimsToMap(claims),
@@ -103,16 +127,58 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 			CertSubject: cc.Subject,
 			TPMVerified: tpmOK,
 			ZoneID:      zoneID,
+			AI:          &opa.AI{Score: ai.Score, Confidence: ai.Confidence},
+			Context:     ctxInput,
+			JA3:         ja3Input(ja3),
 		}
 		allow := evalOPA(r.Context(), opaClient, input)
 		slog.Info("decisione",
 			"path", origPath, "method", method, "user", claims.UserID,
 			"role", claims.Role, "clearance", claims.ClearanceLevel,
 			"cert_present", cc.Present, "tpm_verified", tpmOK,
-			"zone", zoneID, "allow", allow,
+			"zone", zoneID, "ai_score", ai.Score, "ai_confidence", ai.Confidence,
+			"session_age_s", sessionAge, "hour", ctxInput.HourOfDay,
+			"allow", allow,
 		)
 		respondAllow(w, allow, claims.UserID)
 	}
+}
+
+// buildContext popola la sotto-struttura context per OPA. Centralizzata cosi'
+// sia il ramo "no token" sia quello autenticato producono la stessa shape.
+func buildContext(now time.Time, sessionAgeSec int64, clientIP string) *opa.Context {
+	return &opa.Context{
+		Timestamp:         now.Format(time.RFC3339),
+		HourOfDay:         now.Hour(),
+		DayOfWeek:         int(now.Weekday()),
+		SessionAgeSeconds: sessionAgeSec,
+		ClientIP:          clientIP,
+	}
+}
+
+func ja3Input(md5 string) *opa.JA3 {
+	if md5 == "" {
+		return nil
+	}
+	return &opa.JA3{MD5: md5}
+}
+
+func sessionAgeSeconds(claims *jwtpkg.ZTAClaims, now time.Time) int64 {
+	if claims == nil || claims.IssuedAt == nil {
+		return 0
+	}
+	age := now.Sub(claims.IssuedAt.Time).Seconds()
+	if age < 0 {
+		return 0
+	}
+	return int64(age)
+}
+
+func clientIPFromRequest(r *http.Request) string {
+	if xfwd := r.Header.Get("X-Forwarded-For"); xfwd != "" {
+		return strings.TrimSpace(strings.Split(xfwd, ",")[0])
+	}
+	return strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0])
 }
 
 // evaluateStrictDeviceFingerprinting analizza il payload HW (certificato/tpm/db) e logga le discrepanze in Shadow Mode

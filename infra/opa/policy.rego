@@ -21,8 +21,16 @@ import rego.v1
 #     "cert_present": bool,
 #     "cert_subject": str (opt),
 #     "tpm_verified": bool,
-#     "zone_id": str (opt)
+#     "zone_id": str (opt),
+#     "ai":      {"score": 0..0.99, "confidence": "high"|"low"} (opt),
+#     "context": {"hour_of_day": 0..23, "day_of_week": 0..6,
+#                  "session_age_seconds": int, "client_ip": str} (opt)
 #   }
+#
+# Output esposti:
+#   - allow:        bool — decisione finale (PEP la consuma)
+#   - risk_bucket:  "low"|"medium"|"high" — usato dall'orchestrator per audit
+#   - risk_score:   int — fallback deterministico (solo per confidence=low)
 # =============================================================================
 
 default allow := false
@@ -159,8 +167,15 @@ matched_route := key if {
 
 # -----------------------------------------------------------------------------
 # 5. ALLOW principale: richiede claims, tier, role e clearance sufficienti.
+#    Il guard `risk_bucket != "high"` consente l'override di anomaly detection
+#    (sezione 6) anche se l'utente sarebbe normalmente autorizzato.
 # -----------------------------------------------------------------------------
 allow if {
+    authn_authz_ok
+    risk_bucket != "high"
+}
+
+authn_authz_ok if {
     # Claims presenti (utente autenticato)
     input.claims.sub
 
@@ -176,3 +191,83 @@ allow if {
     # Clearance
     clearance_order[input.claims.clearance_level] >= clearance_order[rule.min_clearance]
 }
+
+# -----------------------------------------------------------------------------
+# 6. AI RISK SCORING — consuma score dal microservizio AI o calcola fallback.
+#
+# Confidence "high" (AI ha risposto) → fasce dirette sullo score.
+# Confidence "low" (AI giù/timeout) → score deterministico dal contesto.
+# Input `ai` assente → bucket "low" (retrocompat con i test storici).
+#
+# Fasce:
+#   "low":    score < 0.3              → nessun impatto
+#   "medium": 0.3 ≤ score < 0.7        → allow + audit log (orchestrator)
+#   "high":   score ≥ 0.7              → deny override
+# -----------------------------------------------------------------------------
+default risk_bucket := "low"
+
+risk_bucket := "low" if {
+    input.ai.confidence == "high"
+    input.ai.score < 0.3
+}
+
+risk_bucket := "medium" if {
+    input.ai.confidence == "high"
+    input.ai.score >= 0.3
+    input.ai.score < 0.7
+}
+
+risk_bucket := "high" if {
+    input.ai.confidence == "high"
+    input.ai.score >= 0.7
+}
+
+# Fallback: AI ha fallito → calcola bucket dal contesto disponibile.
+risk_bucket := bucket if {
+    input.ai.confidence == "low"
+    bucket := fallback_bucket
+}
+
+# Fallback score: somma di indicatori deterministici (0..100).
+risk_score := s if {
+    s := off_hours_score + missing_cert_score + stale_session_score
+}
+
+# Off-hours: fuori 06–22 e ruolo non operativo (gli operator fanno turni).
+default off_hours_score := 0
+
+off_hours_score := 25 if {
+    input.context.hour_of_day < 6
+    input.claims.role != "operator"
+}
+
+off_hours_score := 25 if {
+    input.context.hour_of_day >= 22
+    input.claims.role != "operator"
+}
+
+# Cert mancante su rotta che richiede tier ≥ 1.
+default missing_cert_score := 0
+
+missing_cert_score := 20 if {
+    not input.cert_present
+    rule := route_rules[matched_route][input.request.method]
+    rule.min_tier >= 1
+}
+
+# Sessione vecchia: > 8h dal login.
+default stale_session_score := 0
+
+stale_session_score := 15 if {
+    input.context.session_age_seconds > 28800
+}
+
+# Mappatura score → bucket per il fallback.
+fallback_bucket := "high" if risk_score >= 50
+
+fallback_bucket := "medium" if {
+    risk_score >= 25
+    risk_score < 50
+}
+
+fallback_bucket := "low" if risk_score < 25

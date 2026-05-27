@@ -25,5 +25,9 @@ COPY infra/snort-mid/rules/mid.rules /etc/snort/rules/mid.rules
 COPY --from=builder /app/snort-parser /usr/local/bin/snort-parser
 RUN mkdir -p /var/log/ztaleaks/snort-mid
 
-# Avvio parser su volume log locale e pipe a json
-CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort-mid && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort-mid/alert_json.txt snort-mid & snort -k none -c /etc/snort/snort.conf -i eth0 -A fast"
+# IDS inline via NFQUEUE: il kernel devia su queue 3 il traffico TCP
+# diretto a orchestrator:8081 (rule nftables 'tcp dport 8081 queue num 3
+# bypass' nella chain ids_output_extauthz, hook OUTPUT). Snort verdicta
+# ACCEPT (rule 'alert', niente 'drop'). Bypass = fail-open.
+# -k none: necessario su veth Docker (checksum offloading).
+CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort-mid && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort-mid/alert_json.txt snort-mid & snort -k none -c /etc/snort/snort.conf -A fast --daq nfq --daq-var queue=3"

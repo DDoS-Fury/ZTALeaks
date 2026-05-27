@@ -18,6 +18,21 @@ ulogd -d -c /etc/ulogd.conf
 ENVOY_PORT=${ENVOY_PORT:-8443}
 sed -i "s/ENV_ENVOY_PORT/$ENVOY_PORT/g" /etc/nftables.conf
 
+# Risolvi l'interfaccia front-net per le rule IDS NFQUEUE.
+# Docker assegna eth0/eth1/... in ordine alfabetico delle reti, quindi
+# front-net non e' necessariamente eth0. Cerchiamo per subnet (pinnata
+# nel compose, default 172.30.0.0/24). Senza match si esce: senza
+# interfaccia corretta, snort esterno intercetterebbe il segmento sbagliato.
+FRONT_NET_SUBNET=${FRONT_NET_SUBNET:-172.30.0.0/24}
+FRONT_IFACE=$(ip -o -4 addr show to "$FRONT_NET_SUBNET" | awk '{print $2; exit}')
+if [ -z "$FRONT_IFACE" ]; then
+    echo "ERRORE: interfaccia per subnet $FRONT_NET_SUBNET non trovata" >&2
+    ip -o -4 addr show >&2
+    exit 1
+fi
+echo "Interfaccia front-net rilevata: $FRONT_IFACE (subnet $FRONT_NET_SUBNET)"
+sed -i "s/ENV_FRONT_IFACE/$FRONT_IFACE/g" /etc/nftables.conf
+
 # Carica configurazione nftables
 # Nota: usiamo delete+add invece di "flush ruleset" per non cancellare
 # le regole NAT di Docker (127.0.0.11 DNS) che usano il backend nftables.

@@ -27,7 +27,11 @@ COPY infra/snort/rules/portscan.rules /etc/snort/rules/portscan.rules
 COPY --from=builder /app/snort-parser /usr/local/bin/snort-parser
 RUN mkdir -p /var/log/ztaleaks/snort
 
-# -A fast: log alerts to /var/log/snort/alert
-# -k none: disable checksum verification (important for Docker/virtual networks where checksum offloading causes Snort to drop packets)
-# -i eth0: listen on shared interface
-CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort/alert_json.txt snort & snort -k none -c /etc/snort/snort.conf -i eth0 -A fast"
+# IDS inline via NFQUEUE: il kernel devia i pacchetti su queue 1 (rule
+# nftables 'iifname eth0 queue num 1 bypass'). Snort ispeziona e verdicta
+# sempre ACCEPT (rule 'alert', niente 'drop'): fail-open garantito da
+# 'bypass' lato nftables se snort crasha.
+# -k none: checksum offloading su veth Docker e' inaffidabile, evitiamo
+#          drop silenziosi.
+# -A fast: log alerts in /var/log/snort/alert (formato consumato da parser.go).
+CMD bash -c "touch /var/log/snort/alert && mkdir -p /var/log/ztaleaks/snort && /usr/local/bin/snort-parser /var/log/snort/alert /var/log/ztaleaks/snort/alert_json.txt snort & snort -k none -c /etc/snort/snort.conf -A fast --daq nfq --daq-var queue=1"

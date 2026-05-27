@@ -15,6 +15,9 @@ services:
       - ../../.env
     environment:
       - ENVOY_PORT=${ENVOY_PORT:-8443}
+      # Usato dall'entrypoint per risolvere l'interfaccia front-net
+      # (le rule IDS NFQUEUE devono intercettare solo il traffico esterno).
+      - FRONT_NET_SUBNET=172.30.0.0/24
     ports:
       - "${ENVOY_PORT:-8443}:${ENVOY_PORT:-8443}"
     volumes:
@@ -286,9 +289,21 @@ services:
     profiles: ["alerttest"]
 
 networks:
+  # Subnet pinnate: l'entrypoint del firewall risolve l'interfaccia
+  # front-net per subnet (per le rule IDS NFQUEUE). Le altre sono
+  # pinnate per simmetria/leggibilita'.
   front-net:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
   auth-net:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
   back-net:
+    ipam:
+      config:
+        - subnet: 172.32.0.0/24
 
 volumes:
   business-db-data:

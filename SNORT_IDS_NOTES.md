@@ -333,6 +333,63 @@ disponiamo di un ambiente live in cui sia riproducibile.
 
 ---
 
+## `d5013fc` / `11df5ea` / `3865c24` — migrazione a NFQUEUE inline
+
+### Cosa fa
+Tre commit (uno per snort) sostituiscono il transport `libpcap -i ethX`
+con NFQUEUE: il kernel devia i pacchetti a code Netfilter, snort li legge
+via DAQ `nfq(v7)` invece di sniffare un'interfaccia. **Le rule sono
+intatte**: tutte restano `alert` (mai `drop`), snort verdicta sempre
+ACCEPT — è IDS puro inline, non IPS.
+
+Schema delle code:
+
+| Snort           | Queue | Hook nftables       | Priority | Match                              |
+|-----------------|-------|---------------------|----------|------------------------------------|
+| `snort`         | 1     | prerouting          | mangle   | `iifname <front-net>`              |
+| `snort-internal`| 2     | prerouting          | mangle+10| `tcp dport ENVOY_PORT`             |
+| `snort-mid`     | 3     | output              | mangle   | `tcp dport 8081`                   |
+
+**Bypass su tutte le rule queue**: se uno snort crasha o non legge,
+il kernel accetta il pacchetto (fail-open). Conforme alla scelta del
+team: la sicurezza non deve diventare un single point of failure.
+
+### Perché risolve il KNOWN ISSUE
+La diagnosi rivista (sezione precedente) aveva identificato il problema
+in `libpcap dentro un container in network_mode: service:firewall su
+Docker Desktop macOS`. NFQUEUE non usa libpcap: i pacchetti arrivano
+a snort direttamente dal kernel via Netfilter (modulo `nfnetlink_queue`),
+zero dipendenze dal data-link layer del network namespace condiviso.
+Risultato concreto: la rule SQLi `sid 3000001` ora scatta sul flusso
+E2E reale (`curl --cert HTTPS:8443 ?q=UNION+SELECT` → Envoy ext_authz →
+orchestrator), cosa che il commit `2df7d06` aveva dichiarato infattibile.
+
+### Tre scostamenti dalla ricetta originale (collega) che servivano
+1. **`iifname "eth0"`** della ricetta intercetta l'interfaccia sbagliata
+   perché Docker assegna `eth0/eth1/...` in ordine alfabetico delle reti
+   (auth, back, front), non nell'ordine dichiarato nel compose. Risolto:
+   l'entrypoint del firewall risolve l'interfaccia per subnet (variabile
+   `FRONT_NET_SUBNET`, subnet pinnate nel compose).
+2. **Due rule queue nella stessa chain** (`queue num 1` + `queue num 2`)
+   non funzionano: il primo verdetto `queue` è terminale per la chain.
+   Servono chain diverse a priorità separate, così snort esterno verdicta
+   ACCEPT e il pacchetto continua fino alla chain di snort-internal.
+3. **snort-mid in `chain forward`** non vede nulla: il firewall netns è
+   un endpoint, non un router IP. Il traffico ext_authz è generato
+   localmente da Envoy e attraversa il hook OUTPUT, non FORWARD.
+
+### Impatto sui test offline
+Nessuno. La suite `tests/alerts/` lavora su pcap fabbricati con scapy
+passati a `snort -r` (DAQ pcap readback), indipendente dal transport
+runtime. Continua a girare 23/23.
+
+### Cosa è cambiato per Splunk / parser
+Niente. Snort scrive sempre in `/var/log/snort/alert` con lo stesso
+fast-format. I tre `parser.go` non sono toccati. La pipeline volume →
+splunk-uf → Splunk indexer continua a funzionare invariata.
+
+---
+
 ## Riassunto file toccati
 
 | Commit     | File                                                        |
@@ -347,3 +404,10 @@ disponiamo di un ambiente live in cui sia riproducibile.
 | `245f79d`  | `infra/snort-internal/rules/internal.rules`                 |
 | `8ad7379`  | `tests/alerts/` (nuova directory, 9 file)                   |
 |            | `deployments/docker/docker-compose.yaml`                    |
+| `d5013fc`  | `infra/nftables/{nftables.conf,entrypoint.sh}`              |
+|            | `infra/snort/Dockerfile`                                    |
+|            | `deployments/docker/docker-compose.yaml` (pin subnet)       |
+| `11df5ea`  | `infra/nftables/nftables.conf`                              |
+|            | `infra/snort-internal/Dockerfile`                           |
+| `3865c24`  | `infra/nftables/nftables.conf`                              |
+|            | `infra/snort-mid/Dockerfile`                                |

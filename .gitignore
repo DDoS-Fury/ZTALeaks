@@ -82,11 +82,3 @@ logs/
 tmp/
 CLAUDE.md
 
-# Ignore generated certificates
-certs/*.crt
-certs/*.key
-certs/*.csr
-certs/*.p12
-certs/*.pfx
-certs/*.srl
-certs/*.pem

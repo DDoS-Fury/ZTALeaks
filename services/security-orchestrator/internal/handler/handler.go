@@ -73,10 +73,16 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 		ja3 := r.Header.Get("X-Ja3-Fingerprint")
 		clientIP := clientIPFromRequest(r)
 		now := time.Now().UTC()
+		reqID := r.Header.Get("X-Request-Id")
+		cc := cert.Parse(r.Header.Get("X-Forwarded-Client-Cert"))
 
 		token := bearerToken(r.Header.Get("Authorization"))
 		if token == "" {
-			slog.Info("ext_authz: nessun token", "path", origPath)
+			slog.Info("ext_authz: nessun token", "path", origPath, "request_id", reqID)
+			
+			// Chiama l'analisi fingerprint anche per richieste anonime per tracciamento
+			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID)
+
 			ctxInput := buildContext(now, 0, clientIP)
 			ok := evalOPA(r.Context(), opaClient, opa.Input{
 				Request:     opa.Request{Method: method, Path: origPath},
@@ -93,15 +99,18 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 
 		claims, err := verifier.Verify(token)
 		if err != nil {
-			slog.Warn("JWT verify fallita", "error", err)
+			slog.Warn("JWT verify fallita", "error", err, "request_id", reqID)
+			
+			// Chiama l'analisi fingerprint per richieste non autorizzate per tracciamento
+			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID)
+
 			http.Error(w, `{"allowed":false,"reason":"invalid token"}`, http.StatusUnauthorized)
 			return
 		}
 
-		cc := cert.Parse(r.Header.Get("X-Forwarded-Client-Cert"))
 		tpmOK, tpmData := tpmLookup.Verify(r.Context(), claims.UserID, claims.DeviceID)
 
-		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl, r)
+		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl, r, reqID)
 
 		if ja3 == "" {
 			ja3 = claims.JA3
@@ -182,7 +191,7 @@ func clientIPFromRequest(r *http.Request) string {
 }
 
 // evaluateStrictDeviceFingerprinting analizza il payload HW (certificato/tpm/db) e logga le discrepanze in Shadow Mode
-func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert, claims *jwtpkg.ZTAClaims, tpmOK bool, tpmData map[string]any, usersColl *mongo.Collection, r *http.Request) {
+func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert, claims *jwtpkg.ZTAClaims, tpmOK bool, tpmData map[string]any, usersColl *mongo.Collection, r *http.Request, reqID string) {
 	var certCommonName string
 	var certOU string
 
@@ -199,22 +208,27 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 	}
 
 	var ouMismatch bool
-	if cc.Present && certOU != "" {
+	if cc.Present && certOU != "" && claims != nil {
 		if !strings.EqualFold(certOU, claims.Role) {
 			ouMismatch = true
 		}
 	}
 
 	var user map[string]any
-	errQuery := usersColl.FindOne(ctx, bson.M{"_id": claims.UserID}).Decode(&user)
 	var userHasTPM bool
 	var username string
-	if errQuery == nil && user != nil {
-		if b, ok := user["has_tpm"].(bool); ok {
-			userHasTPM = b
-		}
-		if un, ok := user["username"].(string); ok {
-			username = un
+	userID := "anonymous"
+
+	if claims != nil {
+		userID = claims.UserID
+		errQuery := usersColl.FindOne(ctx, bson.M{"_id": claims.UserID}).Decode(&user)
+		if errQuery == nil && user != nil {
+			if b, ok := user["has_tpm"].(bool); ok {
+				userHasTPM = b
+			}
+			if un, ok := user["username"].(string); ok {
+				username = un
+			}
 		}
 	}
 
@@ -255,13 +269,18 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 		ja3 = claims.JA3
 	}
 
+	if reqID == "" {
+		reqID = "unknown_request"
+	}
+
 	slog.Info("strict_device_fingerprinting_evaluation",
+		"request_id", reqID,
 		"timestamp", time.Now().UTC().Format(time.RFC3339),
 		"request_method", method,
 		"request_path", origPath,
 		"zone_id", zoneID,
 		"ja3_fingerprint", ja3,
-		"user_id", claims.UserID,
+		"user_id", userID,
 		"username_db", username,
 		"cert_present", cc.Present,
 		"cert_common_name", certCommonName,

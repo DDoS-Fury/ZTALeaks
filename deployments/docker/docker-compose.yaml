@@ -172,7 +172,9 @@ services:
       - "/data.json"
     restart: unless-stopped
     networks:
-      - auth-net
+      auth-net:
+        aliases:
+          - opa
 
   business-logic:
     build:
@@ -249,7 +251,9 @@ services:
       - splunk-var:/opt/splunk/var
     restart: unless-stopped
     networks:
-      - back-net
+      back-net:
+        aliases:
+          - splunk
 
   splunk-uf:
     image: splunk/universalforwarder:latest

@@ -7,8 +7,8 @@ COPY tests/clients/go.mod ./
 RUN go mod download || true
 
 COPY certs/ca.crt /app/certs/
-COPY certs/client.crt /app/certs/
-COPY certs/client.key /app/certs/
+COPY certs/operator1.crt /app/certs/
+COPY certs/operator1.key /app/certs/
 
 COPY tests/clients/main.go ./
 

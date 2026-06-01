@@ -78,7 +78,7 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		personnel, _ := fetchAPI(client, "https://firewall:8443/api/v1/personnel")
-		reactor, _ := fetchAPI(client, "https://firewall:8443/api/v1/reactor")
+		reactor, _ := fetchAPI(client, "https://firewall:8443/api/v1/reactor-parameters")
 		zones, _ := fetchAPI(client, "https://firewall:8443/api/v1/zones")
 
 		data := DashboardData{

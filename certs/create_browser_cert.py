@@ -13,10 +13,10 @@ except ImportError:
 def main():
     # Definiamo i path relativi dalla cartella in cui eseguirai lo script
     base_dir = os.path.abspath(os.path.dirname(__file__))
-    cert_path = os.path.join(base_dir, "operator1.crt")
-    key_path = os.path.join(base_dir, "operator1.key")
-    p12_path = os.path.join(base_dir, "operator1.p12")
-    pfx_path = os.path.join(base_dir, "operator1-apple.pfx")
+    cert_path = os.path.join(base_dir, "admin.crt")
+    key_path = os.path.join(base_dir, "admin.key")
+    p12_path = os.path.join(base_dir, "admin.p12")
+    pfx_path = os.path.join(base_dir, "admin-apple.pfx")
 
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         print(f"Non ho trovato i certificati in {base_dir}.")

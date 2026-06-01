@@ -2,20 +2,21 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"io"
 	"log"
-	"net/http"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 var alertRegex = regexp.MustCompile(`^(\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d+)\s+\[\*\*\]\s+\[(\d+):(\d+):(\d+)\]\s+(.*?)\s+\[\*\*\](?:\s+\[Classification:\s+(.*?)\])?(?:\s+\[Priority:\s+(\d+)\])?(?:\s+\{.*\})?\s+([\d\.]+):(\d+)\s+->\s+([\d\.]+):(\d+)`)
-var httpClient = &http.Client{Timeout: 2 * time.Second}
 
 type SnortAlert struct {
 	Service        string `json:"service"`
@@ -32,6 +33,81 @@ type SnortAlert struct {
 	DstPort        string `json:"dst_port"`
 }
 
+// Rate limit: 1 allert ogni 5s per src_ip
+const (
+	rateInterval = 5 * time.Second
+	rateBurst    = 1
+)
+
+var (
+	rateMu   sync.Mutex
+	rateMap  = make(map[string]*rate.Limiter)
+	limiterN = rate.Every(rateInterval)
+)
+
+func allow(srcIP string) bool {
+	rateMu.Lock()
+	lim, ok := rateMap[srcIP]
+	if !ok {
+		lim = rate.NewLimiter(limiterN, rateBurst)
+		rateMap[srcIP] = lim
+	}
+	rateMu.Unlock()
+	return lim.Allow()
+}
+
+// AlertSender gestisce una singola connessione TCP persistente verso il
+// security-orchestrator, con riconnessione automatica e backoff.
+type AlertSender struct {
+	addr string
+	ch   chan SnortAlert
+}
+
+func NewAlertSender(addr string, buf int) *AlertSender {
+	s := &AlertSender{addr: addr, ch: make(chan SnortAlert, buf)}
+	go s.run()
+	return s
+}
+
+func (s *AlertSender) Send(a SnortAlert) {
+	select {
+	case s.ch <- a:
+	default:
+		log.Printf("alert channel full, dropping alert src=%s sid=%s", a.SrcIP, a.RuleSID)
+	}
+}
+
+func (s *AlertSender) run() {
+	backoff := 1 * time.Second
+	for {
+		conn, err := net.DialTimeout("tcp", s.addr, 5*time.Second)
+		if err != nil {
+			log.Printf("dial %s failed: %v (retry in %v)", s.addr, err, backoff)
+			time.Sleep(backoff)
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
+			continue
+		}
+		log.Printf("connected to %s", s.addr)
+		backoff = 1 * time.Second
+		if err := s.writeLoop(conn); err != nil {
+			log.Printf("write loop terminated: %v, reconnecting", err)
+		}
+		_ = conn.Close()
+	}
+}
+
+func (s *AlertSender) writeLoop(conn net.Conn) error {
+	enc := json.NewEncoder(conn)
+	for a := range s.ch {
+		if err := enc.Encode(&a); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func main() {
 	if len(os.Args) < 4 {
 		log.Fatalf("Usage: %s <input_file> <output_file> <service_name>", os.Args[0])
@@ -46,6 +122,12 @@ func main() {
 	}
 	defer out.Close()
 	jsonEncoder := json.NewEncoder(out)
+
+	orchestratorAddr := os.Getenv("ORCHESTRATOR_ALERTS_ADDR")
+	if orchestratorAddr == "" {
+		orchestratorAddr = "security-orchestrator:9000"
+	}
+	sender := NewAlertSender(orchestratorAddr, 1024)
 
 	cmd := exec.Command("tail", "-F", inputFile)
 	stdout, err := cmd.StdoutPipe()
@@ -92,7 +174,9 @@ func main() {
 			if err := jsonEncoder.Encode(alert); err != nil {
 				log.Printf("Failed to encode JSON: %v", err)
 			}
-			sendAlertToOrchestrator(alert)
+			if alert.SrcIP != "" && allow(alert.SrcIP) {
+				sender.Send(alert)
+			}
 		} else {
 			genAlert := SnortAlert{
 				Service:   service,
@@ -103,24 +187,4 @@ func main() {
 		}
 	}
 	cmd.Wait()
-}
-
-func sendAlertToOrchestrator(alert SnortAlert) {
-	if alert.SrcIP == "" {
-		return
-	}
-	body, err := json.Marshal(alert)
-	if err != nil {
-		return
-	}
-	// Usiamo il DNS interno di docker (security-orchestrator)
-	req, _ := http.NewRequest("POST", "http://security-orchestrator:8081/api/v1/snort-alerts", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err == nil {
-		resp.Body.Close()
-	} else {
-		log.Printf("Failed to send alert to orchestrator: %v", err)
-	}
 }

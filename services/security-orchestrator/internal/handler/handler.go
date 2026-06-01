@@ -49,26 +49,6 @@ func OPALogsHandler(opaLogFile *os.File) http.HandlerFunc {
 	}
 }
 
-// SnortAlertsHandler riceve gli allarmi da Snort e li salva in cache
-func SnortAlertsHandler(snortCache *cache.SnortCache) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var alert cache.SnortAlert
-		if err := json.NewDecoder(r.Body).Decode(&alert); err != nil {
-			http.Error(w, "bad json", http.StatusBadRequest)
-			return
-		}
-
-		if alert.SrcIP == "" {
-			http.Error(w, "missing src_ip", http.StatusBadRequest)
-			return
-		}
-
-		snortCache.SetAlert(alert.SrcIP, alert)
-
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
 // BuildEvaluateHandler costruisce l'handler ext_authz
 func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, usersColl *mongo.Collection, opaClient *opa.Client, aiClient *aiscorer.Client, snortCache *cache.SnortCache) http.HandlerFunc {
 	const evalPrefix = "/api/v1/evaluate"

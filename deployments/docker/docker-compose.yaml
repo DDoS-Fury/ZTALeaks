@@ -29,6 +29,7 @@ services:
           - ztaleaks_envoy
       back-net: {}
       auth-net: {}
+      snort-net: {}
     restart: unless-stopped
 
   envoy:
@@ -142,14 +143,13 @@ services:
     restart: unless-stopped
     environment:
       - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
-    # Esposto temp per test diretti durante lo sviluppo (rimuovere dopo step 4)
-    ports:
-      - "8081:8081"
+      - SNORT_ALERTS_TCP_PORT=${SNORT_ALERTS_TCP_PORT:-9000}
     volumes:
       - orchestrator-logs:/var/log/ztaleaks/orchestrator
     networks:
       - front-net
       - auth-net
+      - snort-net
 
   opa:
     image: openpolicyagent/opa:latest-envoy
@@ -308,6 +308,13 @@ networks:
     ipam:
       config:
         - subnet: 172.32.0.0/24
+  # Rete privata dedicata al trasporto allert Snort -> Security Orchestrator
+  # (TCP socket persistente sostituisce il vecchio endpoint HTTP).
+  snort-net:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.33.0.0/24
 
 volumes:
   business-db-data:

@@ -29,6 +29,7 @@ import (
 	"ztaleaks/security-orchestrator/internal/handler"
 	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
 	"ztaleaks/security-orchestrator/internal/opa"
+	"ztaleaks/security-orchestrator/internal/snortlistener"
 	"ztaleaks/security-orchestrator/internal/tpm"
 )
 
@@ -82,9 +83,6 @@ func main() {
 	// Decision logs ricevuti da OPA (--set=services.orchestrator...) — preservato
 	mux.HandleFunc("POST /api/v1/opa/logs", handler.OPALogsHandler(opaLogFile))
 
-	// Endpoint per ricevere gli allarmi da Snort
-	mux.HandleFunc("POST /api/v1/snort-alerts", handler.SnortAlertsHandler(snortCache))
-
 	// ext_authz endpoint chiamato da Envoy
 	evaluate := handler.BuildEvaluateHandler(verifier, tpmLookup, usersColl, opaClient, aiClient, snortCache)
 	mux.HandleFunc("/api/v1/evaluate", evaluate)
@@ -109,11 +107,22 @@ func main() {
 		}
 	}()
 
+	// Listener TCP per gli allert di Snort (sostituisce l'endpoint HTTP)
+	snortAlertsCtx, snortAlertsCancel := context.WithCancel(context.Background())
+	defer snortAlertsCancel()
+	snortAlertsPort := getenv("SNORT_ALERTS_TCP_PORT", "9000")
+	go func() {
+		if err := snortlistener.ListenAndServe(snortAlertsCtx, ":"+snortAlertsPort, snortCache); err != nil {
+			slog.Error("snort tcp listener error", "error", err)
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	slog.Info("shutdown")
 
+	snortAlertsCancel()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)

@@ -83,11 +83,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "errore generazione OTP", http.StatusInternalServerError)
 		return
 	}
-	otpHash, err := crypto.GenerateFromPassword(otp)
-	if err != nil {
-		respondError(w, "errore hash OTP", http.StatusInternalServerError)
-		return
-	}
+	otpHash := hashOTP(otp)
 	sessionToken := newSessionToken()
 
 	if err := api.OTP.Create(r.Context(), models.OTPSession{
@@ -101,10 +97,14 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Best-effort: se l'email fallisce l'OTP è in DB e l'utente puo' ritentare.
-	if err := api.Mail.SendOTP(user.Email, otp); err != nil {
-		slog.Error("login: invio email OTP", "error", err, "to", user.Email)
-	}
+	// Best-effort asincrono: l'invio SMTP non deve bloccare la risposta del
+	// login. L'OTP è gia' salvato in DB, quindi anche se la mail fallisce
+	// l'utente puo' ritentare.
+	go func(to, code string) {
+		if err := api.Mail.SendOTP(to, code); err != nil {
+			slog.Error("login: invio email OTP", "error", err, "to", to)
+		}
+	}(user.Email, otp)
 
 	slog.Info("OTP emesso", "user_id", user.ID, "email", user.Email)
 	respondJSON(w, http.StatusOK, loginResponse{

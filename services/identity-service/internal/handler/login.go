@@ -101,6 +101,18 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	// login. L'OTP è gia' salvato in DB, quindi anche se la mail fallisce
 	// l'utente puo' ritentare.
 	go func(to, code string) {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("PANIC nell'invio mail OTP", "recover", r)
+			}
+		}()
+
+		if api.Mail == nil {
+			slog.Error("impossibile inviare mail: mailer non inizializzato (nil)")
+			return
+		}
+
+		slog.Debug("tentativo invio mail OTP", "to", to)
 		if err := api.Mail.SendOTP(to, code); err != nil {
 			slog.Error("login: invio email OTP", "error", err, "to", to)
 		}

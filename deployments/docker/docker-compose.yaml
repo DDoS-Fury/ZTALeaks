@@ -124,7 +124,9 @@ services:
       - "8025:8025"   # Web UI (http://localhost:8025) per ispezione manuale OTP
     restart: unless-stopped
     networks:
-      - auth-net
+      auth-net:
+        aliases:
+          - mailhog
 
   security-orchestrator:
     build:

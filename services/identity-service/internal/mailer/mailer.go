@@ -44,8 +44,8 @@ func (m *SMTPMailer) SendOTP(to, otp string) error {
 		"From: " + m.from + "\r\n" +
 			"To: " + to + "\r\n" +
 			"Subject: " + subject + "\r\n" +
-			"MIME-version: 1.0;\r\n" +
-			"Content-Type: text/html; charset=\"UTF-8\";\r\n\r\n" +
+			"MIME-Version: 1.0\r\n" +
+			"Content-Type: text/html; charset=\"UTF-8\"\r\n\r\n" +
 			body)
 
 	return smtp.SendMail(addr, nil, m.from, []string{to}, msg)

@@ -7,7 +7,7 @@ COPY tests/dashboard-app/main.go tests/dashboard-app/index.html ./
 RUN go mod init dashboard-app && \
     go build -ldflags="-w -s" -o dashboard main.go
 
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /app
 COPY --from=builder /app/dashboard /app/index.html ./

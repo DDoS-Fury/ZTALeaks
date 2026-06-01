@@ -40,6 +40,48 @@ def simulate_port_scan(host):
             s.close()
     logging.info("[PortScan] Finished sending SYN packets for port scan.")
 
+def simulate_syn_flood(host, port, count=40):
+    logging.info(f"[SynFlood] Simulating high request rate on {host}:{port} ({count} requests)")
+    for _ in range(count):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.01)
+        try:
+            s.connect((host, port))
+            s.close()
+        except Exception:
+            pass
+        finally:
+            s.close()
+    logging.info(f"[SynFlood] Finished sending {count} connections.")
+
+def simulate_rapid_requests(host, port, count=100, interval=0.05):
+    logging.info(f"[RapidRequests] Sending {count} rapid TCP SYNs to {host}:{port} (interval={interval}s)")
+    for i in range(count):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.01)
+        try:
+            s.connect((host, port))
+            s.close()
+        except Exception:
+            pass
+        finally:
+            s.close()
+        time.sleep(interval)
+    logging.info(f"[RapidRequests] Finished rapid SYN sequence.")
+
+def simulate_malformed_requests(host, port, count=10):
+    logging.info(f"[MalformedRequests] Sending {count} malformed/incomplete TLS handshakes")
+    for _ in range(count):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.1)
+            s.connect((host, port))
+            s.send(b'\x16\x03\x01\x00\x04JUNK')
+            s.close()
+        except Exception:
+            pass
+    logging.info(f"[MalformedRequests] Finished malformed request sequence.")
+
 def main():
     logging.info("Waiting 10 seconds for Envoy to start...")
     time.sleep(10)
@@ -81,6 +123,15 @@ def main():
     port_scan_req_id = generate_uuid()
     logging.info(f"\nStarting Port Scan Simulation. X-Request-ID: {port_scan_req_id}")
     simulate_port_scan("ztaleaks_envoy")
+
+    # 5. Simulate SYN Flood to test nftables rate-limiting
+    simulate_syn_flood("ztaleaks_envoy", 8443)
+
+    # 6. Simulate Rapid Requests (high frequency to trigger rate-limiting thresholds)
+    simulate_rapid_requests("ztaleaks_envoy", 8443, count=50, interval=0.02)
+
+    # 7. Simulate Malformed TLS Handshakes
+    simulate_malformed_requests("ztaleaks_envoy", 8443, count=5)
 
 if __name__ == "__main__":
     main()

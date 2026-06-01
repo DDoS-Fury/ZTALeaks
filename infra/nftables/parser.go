@@ -56,6 +56,7 @@ func main() {
 		// <Data> <Ora> <Host> <Str> IN=... OUT=... MAC=... SRC=... DST=...
 
 		record := make(map[string]interface{})
+		record["service"] = "nftables"
 		record["timestamp"] = time.Now().Format(time.RFC3339)
 		record["raw"] = line
 
@@ -68,7 +69,21 @@ func main() {
 					record[strings.ToLower(kv[0])] = kv[1]
 				}
 			} else if strings.HasSuffix(part, ":") && !strings.Contains(part, "=") {
-				record["prefix"] = strings.TrimSuffix(part, ":")
+				prefix := strings.TrimSuffix(part, ":")
+				record["prefix"] = prefix
+
+				switch prefix {
+				case "fw-accept":
+					record["action"] = "accept"
+				case "fw-drop":
+					record["action"] = "drop"
+				case "fw-syn-flood-drop":
+					record["action"] = "drop"
+					record["threat"] = "syn_flood"
+				case "fw-egress-drop":
+					record["action"] = "drop"
+					record["threat"] = "unauthorized_egress"
+				}
 			}
 		}
 

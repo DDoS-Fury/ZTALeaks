@@ -21,21 +21,6 @@ func HomeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// LoginHandler gestisce la route della pagina di login HTML
-func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("templates/login.html")
-	if err != nil {
-		log.Printf("Errore nel parsing del template login: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	err = tmpl.Execute(w, nil)
-	if err != nil {
-		log.Printf("Errore nell'esecuzione del template login: %v", err)
-	}
-}
-
 // MaterialsHandler gestisce la route della pagina dei materiali HTML
 func MaterialsHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := template.ParseFiles("templates/materials.html")

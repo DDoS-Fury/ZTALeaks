@@ -38,6 +38,9 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			reqID = "unknown_request"
 		}
 
+		user := r.Header.Get("X-Current-User")
+		ja3 := r.Header.Get("X-Ja3-Fingerprint")
+
 		// Wrappa il ResponseWriter per catturare lo status code finale
 		rw := &responseWriter{
 			ResponseWriter: w,
@@ -59,6 +62,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		// Emetti log in JSON strutturato nativo per il forwarding a Splunk
 		slog.Info("Request handled",
 			slog.String("x_request_id", reqID),
+			slog.String("user", user),
+			slog.String("ja3_fingerprint", ja3),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("remote_addr", r.RemoteAddr),

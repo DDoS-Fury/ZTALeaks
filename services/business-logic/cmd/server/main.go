@@ -35,8 +35,10 @@ func main() {
 		logWriter = io.MultiWriter(os.Stdout, logFile)
 	}
 
-	// Imposta logger standard a JSON strutturato per Splunk indirizzato a console + file
-	logger := slog.New(slog.NewJSONHandler(logWriter, nil))
+	// Imposta logger standard a JSON strutturato per Splunk indirizzato a console + file.
+	// L'attributo `service` viene pre-popolato qui in modo che ogni slog.X in tutto
+	// il package erediti automaticamente la provenienza del log.
+	logger := slog.New(slog.NewJSONHandler(logWriter, nil)).With("service", "business-logic")
 	slog.SetDefault(logger)
 
 	appConfig, err := config.LoadConfig()

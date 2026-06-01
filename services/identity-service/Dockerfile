@@ -16,7 +16,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o identity-server ./cmd/identity
 
 # Fase 2: Immagine Esecutiva Distroless Minimalista (Pratica Zero Trust per la minimizzazione attacchi via container escape)
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /app
 
@@ -25,6 +25,9 @@ RUN apk add --no-cache ca-certificates && adduser -D -g '' identityapp
 
 # L'eseguibile compilato
 COPY --from=builder /app/identity-server /app/identity-server
+
+# Copia i template HTML nel container runtime
+COPY --from=builder /app/templates /app/templates
 
 # Crea la directory di base su cui i logger JSON verranno scritti 
 RUN mkdir -p /var/log/ztaleaks/identity && chown -R identityapp:identityapp /var/log/ztaleaks/identity

@@ -1,0 +1,65 @@
+package handler
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+
+	"ztaleaks/identity-service/internal/crypto"
+	"ztaleaks/identity-service/internal/models"
+)
+
+type registerRequest struct {
+	Username       string `json:"username"`
+	Email          string `json:"email"`
+	Password       string `json:"password"`
+	Role           string `json:"role"`
+	ClearanceLevel string `json:"clearance_level"`
+}
+
+type registerResponse struct {
+	Status string `json:"status"`
+	UserID string `json:"user_id"`
+}
+
+// Register crea un nuovo utente con password Argon2id e 2FA email abilitato di default.
+func (api *IdentityAPI) Register(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, "richiesta non valida", http.StatusBadRequest)
+		return
+	}
+	if req.Username == "" || req.Password == "" || req.Email == "" {
+		respondError(w, "campi mancanti (username, email, password)", http.StatusBadRequest)
+		return
+	}
+	if req.Role == "" {
+		req.Role = "operator" // Ruolo di default se non specificato
+	}
+	if req.ClearanceLevel == "" {
+		req.ClearanceLevel = "INTERNAL"
+	}
+
+	hash, err := crypto.GenerateFromPassword(req.Password)
+	if err != nil {
+		slog.Error("register: hash password", "error", err)
+		respondError(w, "errore interno", http.StatusInternalServerError)
+		return
+	}
+
+	u := &models.User{
+		Username:       req.Username,
+		Email:          req.Email,
+		PasswordHash:   hash,
+		Role:           req.Role,
+		ClearanceLevel: req.ClearanceLevel,
+		TwoFAEnabled:   true, // OTP via email è il default — direttiva mantenuta
+		Status:         "active",
+	}
+	if err := api.Users.Create(r.Context(), u); err != nil {
+		respondError(w, err.Error(), http.StatusConflict)
+		return
+	}
+	slog.Info("utente registrato", "username", u.Username, "role", u.Role)
+	respondJSON(w, http.StatusCreated, registerResponse{Status: "registered", UserID: u.ID})
+}

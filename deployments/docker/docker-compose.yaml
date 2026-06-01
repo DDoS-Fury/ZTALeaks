@@ -15,6 +15,9 @@ services:
       - ../../.env
     environment:
       - ENVOY_PORT=${ENVOY_PORT:-8443}
+      # Usato dall'entrypoint per risolvere l'interfaccia front-net
+      # (le rule IDS NFQUEUE devono intercettare solo il traffico esterno).
+      - FRONT_NET_SUBNET=172.30.0.0/24
     ports:
       - "${ENVOY_PORT:-8443}:${ENVOY_PORT:-8443}"
     volumes:
@@ -26,6 +29,7 @@ services:
           - ztaleaks_envoy
       back-net: {}
       auth-net: {}
+      snort-net: {}
     restart: unless-stopped
 
   envoy:
@@ -76,6 +80,21 @@ services:
       - snort-internal-logs:/var/log/ztaleaks/snort-internal
     restart: unless-stopped
 
+  snort-mid:
+    build:
+      context: ../../
+      dockerfile: infra/snort-mid/Dockerfile
+    container_name: ztaleaks_snort_mid
+    network_mode: service:firewall
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - firewall
+    volumes:
+      - snort-mid-logs:/var/log/ztaleaks/snort-mid
+    restart: unless-stopped
+
   identity-service:
     build:
       context: ../../services/identity-service
@@ -84,10 +103,25 @@ services:
     depends_on:
       security-db:
         condition: service_healthy
+      mailhog:
+        condition: service_started
     env_file:
       - ../../.env
+    # NOTE: porta esposta temporaneamente per test diretti durante lo sviluppo;
+    # in produzione le richieste dovrebbero passare solo via Envoy.
+    ports:
+      - "8082:8082"
     volumes:
       - identity-logs:/var/log/ztaleaks/identity
+    restart: unless-stopped
+    networks:
+      - auth-net
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ztaleaks_mailhog
+    ports:
+      - "8025:8025"   # Web UI (http://localhost:8025) per ispezione manuale OTP
     restart: unless-stopped
     networks:
       - auth-net
@@ -102,16 +136,20 @@ services:
         condition: service_started # OPA deve essere in ascolto prima di avviare l'orchestrator
       security-db:
         condition: service_healthy
+      identity-service:
+        condition: service_started  # JWKS endpoint deve essere up
     env_file:
       - ../../.env
     restart: unless-stopped
     environment:
       - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
+      - SNORT_ALERTS_TCP_PORT=${SNORT_ALERTS_TCP_PORT:-9000}
     volumes:
       - orchestrator-logs:/var/log/ztaleaks/orchestrator
     networks:
       - front-net
       - auth-net
+      - snort-net
 
   opa:
     image: openpolicyagent/opa:latest-envoy
@@ -119,6 +157,7 @@ services:
     container_name: ztaleaks_opa
     volumes:
       - ../../infra/opa/policy.rego:/policy.rego
+      - ../../infra/opa/data.json:/data.json
       - opa-logs:/var/log/ztaleaks/opa
     command:
       - "run"
@@ -130,9 +169,12 @@ services:
       - "--set=services.orchestrator.url=http://security-orchestrator:8081/api/v1/opa"
       - "--set=decision_logs.service=orchestrator"
       - "/policy.rego"
+      - "/data.json"
     restart: unless-stopped
     networks:
-      - auth-net
+      auth-net:
+        aliases:
+          - opa
 
   business-logic:
     build:
@@ -209,7 +251,9 @@ services:
       - splunk-var:/opt/splunk/var
     restart: unless-stopped
     networks:
-      - back-net
+      back-net:
+        aliases:
+          - splunk
 
   splunk-uf:
     image: splunk/universalforwarder:latest
@@ -230,6 +274,7 @@ services:
       - envoy-logs:/var/log/ztaleaks/envoy:ro
       - snort-logs:/var/log/ztaleaks/snort:ro
       - snort-internal-logs:/var/log/ztaleaks/snort-internal:ro
+      - snort-mid-logs:/var/log/ztaleaks/snort-mid:ro
       - business-logs:/var/log/ztaleaks/business-logic:ro
       - identity-logs:/var/log/ztaleaks/identity:ro
       - orchestrator-logs:/var/log/ztaleaks/orchestrator:ro
@@ -240,10 +285,36 @@ services:
     networks:
       - back-net
 
+  alerts-tester:
+    build:
+      context: ../../
+      dockerfile: tests/alerts/Dockerfile
+    container_name: ztaleaks_alerts_tester
+    profiles: ["alerttest"]
+
 networks:
+  # Subnet pinnate: l'entrypoint del firewall risolve l'interfaccia
+  # front-net per subnet (per le rule IDS NFQUEUE). Le altre sono
+  # pinnate per simmetria/leggibilita'.
   front-net:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
   auth-net:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
   back-net:
+    ipam:
+      config:
+        - subnet: 172.32.0.0/24
+  # Rete privata dedicata al trasporto allert Snort -> Security Orchestrator
+  # (TCP socket persistente sostituisce il vecchio endpoint HTTP).
+  snort-net:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.33.0.0/24
 
 volumes:
   business-db-data:
@@ -254,6 +325,7 @@ volumes:
   envoy-logs:
   snort-logs:
   snort-internal-logs:
+  snort-mid-logs:
   business-logs:
   identity-logs:
   orchestrator-logs:

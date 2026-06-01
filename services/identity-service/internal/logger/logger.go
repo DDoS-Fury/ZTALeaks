@@ -25,7 +25,8 @@ func InitLogger(logDir, logFilename string) (*slog.Logger, error) {
 		Level: slog.LevelInfo,
 	})
 
-	logger := slog.New(handler)
+	// Pre-popola l'attributo `service`: ogni slog.X erediter la provenienza.
+	logger := slog.New(handler).With("service", "identity-service")
 
 	// Imposta il default al nostro nuovo logger in json
 	slog.SetDefault(logger)

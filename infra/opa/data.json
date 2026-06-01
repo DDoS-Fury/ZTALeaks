@@ -1,0 +1,13 @@
+{
+  "zones": {
+    "ZONE-MAIN":     { "ztna_policy": { "min_tier": 0, "require_mfa": true } },
+    "ZONE-CR-01":    { "ztna_policy": { "min_tier": 1, "require_mfa": true } },
+    "ZONE-RC-01":    { "ztna_policy": { "min_tier": 2, "require_mfa": true } },
+    "ZONE-RC-01A":   { "ztna_policy": { "min_tier": 2, "require_mfa": true } },
+    "ZONE-RC-01B":   { "ztna_policy": { "min_tier": 2, "require_mfa": true } },
+    "ZONE-TB-01":    { "ztna_policy": { "min_tier": 1, "require_mfa": false } },
+    "ZONE-AUX-01":   { "ztna_policy": { "min_tier": 1, "require_mfa": false } },
+    "ZONE-SF-01":    { "ztna_policy": { "min_tier": 2, "require_mfa": true } },
+    "ZONE-ADM-01":   { "ztna_policy": { "min_tier": 0, "require_mfa": false } }
+  }
+}

@@ -184,7 +184,8 @@ services:
       dockerfile: Dockerfile
     container_name: ztaleaks_business_logic
     depends_on:
-      - business-db
+      business-db:
+        condition: service_healthy
     env_file:
       - ../../.env
     environment:

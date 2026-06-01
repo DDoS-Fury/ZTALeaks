@@ -77,14 +77,14 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// OTP a 6 cifre, hash Argon2id, TTL 5 min, max 3 tentativi
+	// OTP a 6 cifre, hash HMAC-SHA256 (chiave = session token), TTL 5 min, max 3 tentativi
 	otp, err := generateOTP()
 	if err != nil {
 		respondError(w, "errore generazione OTP", http.StatusInternalServerError)
 		return
 	}
-	otpHash := hashOTP(otp)
 	sessionToken := newSessionToken()
+	otpHash := hashOTP(otp, sessionToken)
 
 	if err := api.OTP.Create(r.Context(), models.OTPSession{
 		SessionToken: sessionToken,

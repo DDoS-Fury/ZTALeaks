@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"ztaleaks/security-orchestrator/internal/aiscorer"
+	"ztaleaks/security-orchestrator/internal/cache"
 	"ztaleaks/security-orchestrator/internal/db"
 	"ztaleaks/security-orchestrator/internal/handler"
 	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
@@ -66,6 +67,9 @@ func main() {
 	opaClient := opa.New()
 	aiClient := aiscorer.New()
 
+	// Inizializza la cache di Snort (TTL 3 minuti)
+	snortCache := cache.NewSnortCache(3 * time.Minute)
+
 	// --- HTTP routes ---
 	mux := http.NewServeMux()
 
@@ -78,8 +82,11 @@ func main() {
 	// Decision logs ricevuti da OPA (--set=services.orchestrator...) — preservato
 	mux.HandleFunc("POST /api/v1/opa/logs", handler.OPALogsHandler(opaLogFile))
 
+	// Endpoint per ricevere gli allarmi da Snort
+	mux.HandleFunc("POST /api/v1/snort-alerts", handler.SnortAlertsHandler(snortCache))
+
 	// ext_authz endpoint chiamato da Envoy
-	evaluate := handler.BuildEvaluateHandler(verifier, tpmLookup, usersColl, opaClient, aiClient)
+	evaluate := handler.BuildEvaluateHandler(verifier, tpmLookup, usersColl, opaClient, aiClient, snortCache)
 	mux.HandleFunc("/api/v1/evaluate", evaluate)
 	mux.HandleFunc("/api/v1/evaluate/", evaluate)
 	// Envoy con http_service ext_authz inoltra il path originale come parte

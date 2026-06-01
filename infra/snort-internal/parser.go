@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -13,6 +15,7 @@ import (
 )
 
 var alertRegex = regexp.MustCompile(`^(\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d+)\s+\[\*\*\]\s+\[(\d+):(\d+):(\d+)\]\s+(.*?)\s+\[\*\*\](?:\s+\[Classification:\s+(.*?)\])?(?:\s+\[Priority:\s+(\d+)\])?(?:\s+\{.*\})?\s+([\d\.]+):(\d+)\s+->\s+([\d\.]+):(\d+)`)
+var httpClient = &http.Client{Timeout: 2 * time.Second}
 
 type SnortAlert struct {
 	Service        string `json:"service"`
@@ -89,6 +92,7 @@ func main() {
 			if err := jsonEncoder.Encode(alert); err != nil {
 				log.Printf("Failed to encode JSON: %v", err)
 			}
+			sendAlertToOrchestrator(alert)
 		} else {
 			genAlert := SnortAlert{
 				Service:   service,
@@ -99,4 +103,24 @@ func main() {
 		}
 	}
 	cmd.Wait()
+}
+
+func sendAlertToOrchestrator(alert SnortAlert) {
+	if alert.SrcIP == "" {
+		return
+	}
+	body, err := json.Marshal(alert)
+	if err != nil {
+		return
+	}
+	// Usiamo il DNS interno di docker (security-orchestrator)
+	req, _ := http.NewRequest("POST", "http://security-orchestrator:8081/api/v1/snort-alerts", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	} else {
+		log.Printf("Failed to send alert to orchestrator: %v", err)
+	}
 }

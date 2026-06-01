@@ -100,6 +100,25 @@ Plan:
 - [x] **BLOCCANTE risolto**: envoy non è più in restart loop — `server.key` ora è di proprietà uid 101 (perm 644) e il processo gira come uid 101. Verificato 2026-06-01: `RestartCount 0`, running, nessun errore sui permessi nei log.
 - [x] Commit manuale dopo OK utente (mergiato su `master`)
 
+## Da chiedere agli altri
+
+### Auth/JWT nella business-logic?
+- **Cosa:** `services/business-logic/internal/middleware/logging.go` (righe 30 e 50) ha due `TODO (Futuro)` che prevedono autenticazione + verifica JWT dentro la business-logic.
+- **Tensione:** contraddice la scelta attuale (Step 5: OPA è l'unico decisore, niente auth/JWT nella business-logic). Però i compagni potrebbero volerla davvero implementare.
+- **Da decidere insieme:** teniamo i TODO (e in futuro implementiamo auth nella business-logic) oppure confermiamo "OPA unico decisore" e li rimuoviamo? Per ora **lasciati invariati** in attesa di risposta.
+
+### Frontend — non è un sistema coerente
+I pezzi singoli sono buoni, ma come "frontend" sono **due app scollegate con due
+modelli di auth incompatibili**. Domanda chiave per il team: *il frontend deve solo
+mostrare il login, oppure dimostrare il controllo accessi differenziato per ruolo
+(utente reale → JWT → Envoy+OPA → dati filtrati)?* Le due cose richiedono lavoro
+molto diverso. Punti emersi:
+- **Due mondi che non si parlano.** La UI di login (`identity-service/templates/login.html`, :8082) produce un JWT salvato nel browser; la dashboard (`tests/dashboard-app/`, :8080) NON usa quel JWT — si autentica con un **certificato client statico** montato nel container. Non esiste il flusso "utente fa login → usa la dashboard con la *sua* identità": la dashboard mostra sempre gli stessi dati con un'identità fissa.
+- **Il login bypassa il PEP.** La pagina chiama `/api/v1/auth/...` in modo relativo → parla **direttamente** all'identity-service su :8082, non passa da Envoy (il compose lo dice: "esposto temporaneamente per test"). Per lo Zero Trust il PEP dovrebbe stare davanti a tutto.
+- **JWT in `localStorage`** → esposto a XSS. Per un progetto di sicurezza, cookie `httpOnly`+`Secure` è più difendibile.
+- **Residui di stato "test":** il login reindirizza a `/reserved`, che non risulta una rotta registrata (probabile 404); la dashboard chiama `/api/v1/reactor` invece di `/api/v1/reactor-parameters`.
+- **Doc disallineata:** il CLAUDE.md descriveva una SPA nginx su :3000 che non esiste (già corretto nel working tree, non committato).
+
 ## Audit 2026-06-01 — criticità aperte (da discutere coi compagni)
 
 Audit eseguito sullo stack avviato in locale, testando ogni punto dal vivo.
@@ -122,3 +141,21 @@ Già risolti in questa sessione: race boot business-logic e hardening avvio Envo
 - **Cosa:** `handler.go:91` — nel ramo "nessun token" il cert è già parsato (`cc := cert.Parse(...)`) ma a OPA va `CertPresent: false` hardcoded e `Claims: nil`. Per richieste senza JWT, OPA non sa mai che c'era un cert (loggato ma non usato).
 - **Probabile intenzione:** serve comunque il JWT, quindi forse voluto. Resta un'incoerenza.
 - **Fix proposto (se confermato bug):** passare `CertPresent: cc.Present` e `CertSubject: cc.Subject` anche nel ramo anonimo.
+
+## Segreti/certificati nel repo — promemoria (NON emergenza)
+
+`.env` (con `SPLUNK_PASSWORD`, `SECURITY_DB_PASSWORD`, `MONGO_INITDB_ROOT_PASSWORD`,
+`SPLUNK_HEC_TOKEN`) e le chiavi private in `certs/` (`ca.key`, `server.key`,
+`admin.key`, ...) sono committati. **Per un progetto universitario è una scelta
+consapevole e pratica** (serve una CA condivisa perché l'mTLS funzioni per tutti),
+non un'emergenza. Da verificare/ricordare:
+- [ ] Confermare che il **repo è privato** (se diventasse pubblico → problema serio).
+- [ ] Confermare che lo **Splunk è quello locale** del compose (token/password non di un'istanza reale/condivisa).
+- [ ] Non riusare quelle password altrove (es. email reali): sono credenziali usa-e-getta del lab.
+- [ ] (Opzionale) aggiungere un `.env.example` con placeholder per documentazione.
+
+## Fix applicati in questa sessione (per la call)
+
+- ✅ `fix(identity)`: OTP ora hashato con HMAC-SHA256 + session token come salt (era SHA-256 semplice, rainbow-table su leak DB).
+- ✅ `chore(envoy)`: admin interface bound su `127.0.0.1` (era `0.0.0.0`, esposta sulle docker network).
+- ✅ `fix(dashboard-app)`: endpoint corretto `/api/v1/reactor-parameters` (era `/api/v1/reactor`, 404).

@@ -97,5 +97,28 @@ Plan:
 - [x] `deployments/docker/docker-compose.yaml`: servizio + volume + mount splunk-uf
 - [x] `.github/workflows/ci.yaml`: build di `infra/snort-mid/Dockerfile`
 - [x] Test live: payload SQL/XSS inviati via nc da firewall netns → alert correttamente generati su volume (UNION SELECT, tautology URL-encoded, OR 1=1, XSS <script>). Stdout identico agli altri due snort.
-- [ ] **BLOCCANTE indipendente**: envoy in restart loop — uid 101 non legge `/etc/envoy/certs/server.key` (perm 600 root). Pre-esistente, non causato da snort-mid. Test E2E via HTTPS:8443 richiede fix Dockerfile envoy.
-- [ ] Commit manuale dopo OK utente
+- [x] **BLOCCANTE risolto**: envoy non è più in restart loop — `server.key` ora è di proprietà uid 101 (perm 644) e il processo gira come uid 101. Verificato 2026-06-01: `RestartCount 0`, running, nessun errore sui permessi nei log.
+- [x] Commit manuale dopo OK utente (mergiato su `master`)
+
+## Audit 2026-06-01 — criticità aperte (da discutere coi compagni)
+
+Audit eseguito sullo stack avviato in locale, testando ogni punto dal vivo.
+Già risolti in questa sessione: race boot business-logic e hardening avvio Envoy
+(commit unico). Restano i 3 punti sotto, **da discutere prima di toccarli**.
+
+### #1 — mTLS NON imposto dal PEP (Envoy)  🔴 Alta
+- **Cosa:** `infra/envoy/envoy.yaml` → `require_client_certificate: false`. Una connessione senza certificato client completa comunque l'handshake TLS e arriva all'orchestrator con `cert_present:false`. Il cert è validato solo dall'identity-service al login, non dal proxy. Contraddice lo Zero Trust (CLAUDE.md indica `true`).
+- **Test:** `curl -sk https://localhost:8443/...` senza cert → handshake OK, HTTP 403 (da OPA, non dal TLS).
+- **Fix proposto:** `require_client_certificate: true`.
+- **In pausa perché:** i certificati client li gestisce un compagno e li usa per altri test; va coordinato con lui.
+
+### #2 — `network_location` falsificabile (spoofing X-Forwarded-For)  🔴 Alta
+- **Cosa:** `services/security-orchestrator/internal/handler/handler.go:187` `clientIPFromRequest` prende il **primo** elemento di `X-Forwarded-For`, controllabile dal client. Envoy ha `use_remote_address: true` e appende l'IP reale in coda, ma l'orchestrator legge la testa → bug lato orchestrator.
+- **Test:** `curl ... -H 'X-Forwarded-For: 10.0.0.99'` → orchestrator logga `ip_address: 10.0.0.99 | network_location: internal`. Un client esterno si dichiara "internal".
+- **Fix proposto:** in Envoy usare `xff_num_trusted_hops`; nell'orchestrator fidarsi solo dell'IP impostato da Envoy (ultimo hop), non del primo elemento.
+- **Caveat:** in Docker l'IP "vero" è il gateway della bridge → verificare insieme che `network_location` continui a classificare sensatamente il traffico di test. Trasparente per il flusso normale; blocca solo lo spoof manuale.
+
+### #3 — Ramo anonimo scarta il certificato verso OPA  🟡 Media
+- **Cosa:** `handler.go:91` — nel ramo "nessun token" il cert è già parsato (`cc := cert.Parse(...)`) ma a OPA va `CertPresent: false` hardcoded e `Claims: nil`. Per richieste senza JWT, OPA non sa mai che c'era un cert (loggato ma non usato).
+- **Probabile intenzione:** serve comunque il JWT, quindi forse voluto. Resta un'incoerenza.
+- **Fix proposto (se confermato bug):** passare `CertPresent: cc.Present` e `CertSubject: cc.Subject` anche nel ramo anonimo.

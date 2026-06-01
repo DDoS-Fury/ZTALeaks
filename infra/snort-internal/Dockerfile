@@ -1,8 +1,10 @@
 # Fase 1: Build parser Go
-FROM golang:1.22-alpine as builder
+FROM golang:1.25-alpine as builder
 WORKDIR /app
 COPY infra/snort-internal/parser.go .
-RUN go build -o snort-parser parser.go
+RUN go mod init snort-parser && \
+    go get golang.org/x/time/rate && \
+    go build -o snort-parser parser.go
 
 # Fase 2: Immagine Snort base
 FROM ubuntu:24.04

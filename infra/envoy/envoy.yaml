@@ -46,6 +46,7 @@ static_resources:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: ingress_http
+          use_remote_address: true
 
           # Forward delle info del client cert verso upstream + ext_authz.
           # SANITIZE_SET garantisce che il client non possa spoofare l'header:
@@ -158,6 +159,7 @@ static_resources:
                     - exact: "x-authz-request-method"
                     - exact: "x-forwarded-client-cert"
                     - exact: "x-zone-id"
+                    - exact: "x-forwarded-for"
                 authorization_response:
                   allowed_upstream_headers:
                     patterns:

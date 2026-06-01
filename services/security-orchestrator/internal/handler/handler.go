@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ztaleaks/security-orchestrator/internal/aiscorer"
+	"ztaleaks/security-orchestrator/internal/cache"
 	"ztaleaks/security-orchestrator/internal/cert"
 	jwtpkg "ztaleaks/security-orchestrator/internal/jwt"
 	"ztaleaks/security-orchestrator/internal/opa"
@@ -49,7 +50,7 @@ func OPALogsHandler(opaLogFile *os.File) http.HandlerFunc {
 }
 
 // BuildEvaluateHandler costruisce l'handler ext_authz
-func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, usersColl *mongo.Collection, opaClient *opa.Client, aiClient *aiscorer.Client) http.HandlerFunc {
+func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, usersColl *mongo.Collection, opaClient *opa.Client, aiClient *aiscorer.Client, snortCache *cache.SnortCache) http.HandlerFunc {
 	const evalPrefix = "/api/v1/evaluate"
 	return func(w http.ResponseWriter, r *http.Request) {
 		origPath := r.URL.Path
@@ -79,9 +80,9 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 		token := bearerToken(r.Header.Get("Authorization"))
 		if token == "" {
 			slog.Info("ext_authz: nessun token", "path", origPath, "request_id", reqID)
-			
+
 			// Chiama l'analisi fingerprint anche per richieste anonime per tracciamento
-			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID)
+			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID, snortCache)
 
 			ctxInput := buildContext(now, 0, clientIP)
 			ok := evalOPA(r.Context(), opaClient, opa.Input{
@@ -100,9 +101,9 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 		claims, err := verifier.Verify(token)
 		if err != nil {
 			slog.Warn("JWT verify fallita", "error", err, "request_id", reqID)
-			
+
 			// Chiama l'analisi fingerprint per richieste non autorizzate per tracciamento
-			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID)
+			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID, snortCache)
 
 			http.Error(w, `{"allowed":false,"reason":"invalid token"}`, http.StatusUnauthorized)
 			return
@@ -110,7 +111,7 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 
 		tpmOK, tpmData := tpmLookup.Verify(r.Context(), claims.UserID, claims.DeviceID)
 
-		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl, r, reqID)
+		evaluateStrictDeviceFingerprinting(r.Context(), cc, claims, tpmOK, tpmData, usersColl, r, reqID, snortCache)
 
 		if ja3 == "" {
 			ja3 = claims.JA3
@@ -191,7 +192,7 @@ func clientIPFromRequest(r *http.Request) string {
 }
 
 // evaluateStrictDeviceFingerprinting analizza il payload HW (certificato/tpm/db) e logga le discrepanze in Shadow Mode
-func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert, claims *jwtpkg.ZTAClaims, tpmOK bool, tpmData map[string]any, usersColl *mongo.Collection, r *http.Request, reqID string) {
+func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert, claims *jwtpkg.ZTAClaims, tpmOK bool, tpmData map[string]any, usersColl *mongo.Collection, r *http.Request, reqID string, snortCache *cache.SnortCache) {
 	var certCommonName string
 	var certOU string
 
@@ -240,11 +241,7 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 
 	// Calcolo Network Location per il modello AI
 	networkLocation := "perimeter"
-	xfwd := r.Header.Get("X-Forwarded-For")
-	if xfwd == "" {
-		xfwd = r.RemoteAddr
-	}
-	ip := strings.TrimSpace(strings.Split(xfwd, ",")[0])
+	ip := clientIPFromRequest(r)
 	if strings.HasPrefix(ip, "10.") || strings.HasPrefix(ip, "192.168.") || strings.HasPrefix(ip, "127.") || strings.HasPrefix(ip, "172.") {
 		networkLocation = "internal"
 	}
@@ -273,6 +270,38 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 		reqID = "unknown_request"
 	}
 
+	var alertEdge, alertMid, alertInt bool
+	if snortCache != nil {
+		if alerts, valid := snortCache.GetAlerts(ip); valid {
+			if alerts.AlertEdge != nil {
+				alertEdge = true
+			}
+			if alerts.AlertMid != nil {
+				alertMid = true
+			}
+			if alerts.AlertInternal != nil {
+				alertInt = true
+			}
+		}
+
+		// Fallback: snort-mid ispeziona il traffico ext_authz (Envoy -> Orchestrator).
+		// Il Source IP nel pacchetto IP per questo traffico è l'IP di Envoy.
+		envoyIP := strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0])
+		if ip != envoyIP {
+			if envoyAlerts, valid := snortCache.GetAlerts(envoyIP); valid {
+				if envoyAlerts.AlertMid != nil {
+					alertMid = true
+				}
+				if envoyAlerts.AlertEdge != nil {
+					alertEdge = true
+				}
+				if envoyAlerts.AlertInternal != nil {
+					alertInt = true
+				}
+			}
+		}
+	}
+
 	slog.Info("strict_device_fingerprinting_evaluation",
 		"request_id", reqID,
 		"timestamp", time.Now().UTC().Format(time.RFC3339),
@@ -292,6 +321,9 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 		"tpm_aaguid", tpmAAGUID,
 		"network_location", networkLocation,
 		"ip_address", ip,
+		"allert_snort_internal", alertInt,
+		"allert_snort", alertEdge,
+		"allert_snort_mid", alertMid,
 		"action", "LOG_ONLY",
 	)
 }

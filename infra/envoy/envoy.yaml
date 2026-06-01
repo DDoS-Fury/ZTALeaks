@@ -3,7 +3,9 @@ admin:
   address:
     socket_address:
       protocol: TCP
-      address: 0.0.0.0
+      # Solo loopback: l'interfaccia admin (drain/shutdown/dump config) non deve
+      # essere raggiungibile dagli altri container nello stesso netns.
+      address: 127.0.0.1
       port_value: 9901
 
 # Limite globale di connessioni downstream attive (evita esaurimento risorse).

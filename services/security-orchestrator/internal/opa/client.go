@@ -39,7 +39,7 @@ type Client struct {
 func New() *Client {
 	url := os.Getenv("OPA_URL")
 	if url == "" {
-		url = "http://opa:8181/v1/data/envoy/authz/allow"
+		url = "http://opa:8181/v1/data/envoy/authz"
 	}
 	return &Client{
 		url:        url,
@@ -111,10 +111,12 @@ func (c *Client) Evaluate(ctx context.Context, in Input) (bool, error) {
 		return false, fmt.Errorf("OPA HTTP %d", resp.StatusCode)
 	}
 	var out struct {
-		Result bool `json:"result"`
+		Result struct {
+			Allow bool `json:"allow"`
+		} `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return false, err
 	}
-	return out.Result, nil
+	return out.Result.Allow, nil
 }

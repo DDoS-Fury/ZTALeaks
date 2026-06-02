@@ -28,6 +28,15 @@ $RECYCLE.BIN/
 # Environments
 .env
 
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+
 # IDEs and Editors
 .idea/
 .vscode/
@@ -64,6 +73,7 @@ vendor/
 # AI Assistants
 .claude/
 .cursor/
+.antigravitycli/
 
 # Docker volumes and database temp data
 # Ignore database data directories to avoid committing binary data

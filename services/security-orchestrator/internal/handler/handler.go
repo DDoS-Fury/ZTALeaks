@@ -85,15 +85,28 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID, snortCache)
 
 			ctxInput := buildContext(now, 0, clientIP)
+			
+			// Valutazione AI per Guest
+			aiEvent := buildAIEvent(r, origPath, method, now, clientIP, ja3, nil, cc, false, snortCache)
+			ai := aiClient.Infer(r.Context(), aiEvent)
+
 			ok := evalOPA(r.Context(), opaClient, opa.Input{
 				Request:     opa.Request{Method: method, Path: origPath},
 				Claims:      nil,
 				CertPresent: false,
 				TPMVerified: false,
 				ZoneID:      zoneID,
+				AI:          &opa.AI{Score: ai.Score, Confidence: ai.Confidence},
 				Context:     ctxInput,
 				JA3:         ja3Input(ja3),
 			})
+
+			if ok {
+				go func() {
+					_ = aiClient.Update(context.Background(), aiEvent)
+				}()
+			}
+
 			respondAllow(w, ok, "")
 			return
 		}
@@ -119,16 +132,8 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 		sessionAge := sessionAgeSeconds(claims, now)
 		ctxInput := buildContext(now, sessionAge, clientIP)
 
-		ai := aiClient.Evaluate(r.Context(), aiscorer.Features{
-			UserID:    claims.UserID,
-			Method:    method,
-			Path:      origPath,
-			Timestamp: ctxInput.Timestamp,
-			HourOfDay: ctxInput.HourOfDay,
-			DayOfWeek: ctxInput.DayOfWeek,
-			JA3:       ja3,
-			ClientIP:  clientIP,
-		})
+		aiEvent := buildAIEvent(r, origPath, method, now, clientIP, ja3, claims, cc, tpmOK, snortCache)
+		ai := aiClient.Infer(r.Context(), aiEvent)
 
 		input := opa.Input{
 			Request:     opa.Request{Method: method, Path: origPath},
@@ -142,6 +147,12 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 			JA3:         ja3Input(ja3),
 		}
 		allow := evalOPA(r.Context(), opaClient, input)
+
+		if allow {
+			go func() {
+				_ = aiClient.Update(context.Background(), aiEvent)
+			}()
+		}
 		slog.Info("decisione",
 			"path", origPath, "method", method, "user", claims.UserID,
 			"role", claims.Role, "clearance", claims.ClearanceLevel,
@@ -386,4 +397,106 @@ func ClaimsToMap(c *jwtpkg.ZTAClaims) map[string]any {
 		m["ja3"] = c.JA3
 	}
 	return m
+}
+
+func buildAIEvent(r *http.Request, origPath string, method string, now time.Time, clientIP string, ja3Header string, claims *jwtpkg.ZTAClaims, cc cert.ClientCert, tpmOK bool, snortCache *cache.SnortCache) aiscorer.Event {
+	ja3Float := 1.0
+	if claims != nil && claims.JA3 != "" && claims.JA3 != ja3Header {
+		ja3Float = 0.0
+	}
+
+	var alertEdge, alertMid, alertInt float64
+	if snortCache != nil {
+		if alerts, valid := snortCache.GetAlerts(clientIP); valid {
+			if alerts.AlertEdge != nil {
+				alertEdge = 1.0
+			}
+			if alerts.AlertMid != nil {
+				alertMid = 1.0
+			}
+			if alerts.AlertInternal != nil {
+				alertInt = 1.0
+			}
+		}
+		envoyIP := strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0])
+		if clientIP != envoyIP {
+			if envoyAlerts, valid := snortCache.GetAlerts(envoyIP); valid {
+				if envoyAlerts.AlertMid != nil {
+					alertMid = 1.0
+				}
+				if envoyAlerts.AlertEdge != nil {
+					alertEdge = 1.0
+				}
+				if envoyAlerts.AlertInternal != nil {
+					alertInt = 1.0
+				}
+			}
+		}
+	}
+
+	snortFloat := 0.0
+	if alertEdge == 1.0 || alertMid == 1.0 || alertInt == 1.0 {
+		snortFloat = 1.0
+	}
+
+	methodFloat := 0.0
+	switch method {
+	case "POST":
+		methodFloat = 1.0
+	case "PUT":
+		methodFloat = 2.0
+	case "DELETE":
+		methodFloat = 3.0
+	case "PATCH":
+		methodFloat = 4.0
+	}
+
+	srcFeat := make([]float64, 16)
+	roles := []string{"plant_manager", "operator", "maintenance_technician", "radiation_protection_officer", "security_officer", "inspector"}
+
+	if claims != nil {
+		roleIdx := -1
+		for i, r := range roles {
+			if r == claims.Role {
+				roleIdx = i
+				break
+			}
+		}
+		if roleIdx != -1 {
+			srcFeat[0] = float64(roleIdx) / 6.0
+		}
+		
+		clearances := []string{"PUBLIC", "INTERNAL", "CONFIDENTIAL", "SECRET", "TOP_SECRET"}
+		clrIdx := 0
+		for i, c := range clearances {
+			if strings.EqualFold(c, claims.ClearanceLevel) {
+				clrIdx = i
+				break
+			}
+		}
+		srcFeat[1] = float64(clrIdx) / 4.0
+	}
+
+	tier := 0.0
+	if cc.Present {
+		if tpmOK {
+			tier = 1.0
+		} else {
+			tier = 0.5
+		}
+	}
+	srcFeat[2] = tier
+
+	keySrc := clientIP
+	if claims != nil {
+		keySrc = claims.UserID
+	}
+
+	return aiscorer.Event{
+		KeySrc:    keySrc,
+		KeyDst:    origPath,
+		Timestamp: now.Unix(),
+		Features:  []float64{ja3Float, snortFloat, alertEdge, alertMid, alertInt, methodFloat},
+		SrcFeat:   srcFeat,
+	}
 }

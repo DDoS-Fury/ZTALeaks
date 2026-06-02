@@ -1,2 +1,18 @@
-# Regola Snort 2.9 compatibile per il rilevamento passivo dei Port Scan.
-alert tcp any any -> any any (msg:"ZTA: TCP Port Scanning Detected"; flags:S; detection_filter:track by_src, count 5, seconds 5; classtype:attempted-recon; sid:1000001; rev:1;)
+# =============================================================================
+# Snort Rules - snort (external, queue 1)
+# Scope: all inbound traffic on the front-net interface.
+# Focus: reconnaissance and port scanning activity.
+#
+# SID layout:
+#   1000001  TCP port scan detection (sfportscan preprocessor supplement)
+# =============================================================================
+
+# Passive TCP port scan detection.
+# Triggers when a single source IP sends more than 5 SYN packets to
+# different destinations within a 5-second window.
+# Snort 2.9 compatible; works in conjunction with the sfportscan preprocessor.
+alert tcp any any -> any any \
+    (msg:"ZTA: TCP Port Scanning Detected"; \
+     flags:S; \
+     detection_filter:track by_src, count 5, seconds 5; \
+     classtype:attempted-recon; sid:1000001; rev:1;)

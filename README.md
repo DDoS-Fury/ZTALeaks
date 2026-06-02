@@ -57,7 +57,7 @@ The system is composed of the following containerized components:
 
 **Business Logic Service (Go):** Provides a RESTful JSON API over seven domain collections. Implements the repository pattern with full CRUD operations for each resource type. Computes SHA-256 data integrity hashes for all records before persistence, enabling tamper detection. Serves a minimal HTML frontend for browser-based interaction. Logs all HTTP requests in structured JSON format including the `X-Request-ID` propagated by Envoy for end-to-end traceability.
 
-**Identity Service (Go):** Handles user authentication. Stores user records in the dedicated Security Database, separate from business data. Verifies credentials using Argon2id password hashing with constant-time comparison to prevent timing attacks. On successful authentication, generates a JWT signed with HMAC-SHA256, valid for 15 minutes, containing user identity, role, MFA status, secure enclave validity, and the JA3 fingerprint of the authenticating client. Sets the token as an HttpOnly, Secure, SameSite=Strict cookie.
+**Identity Service (Go):** Handles user authentication. Stores user records in the dedicated Security Database, separate from business data. Verifies credentials using Argon2id password hashing with constant-time comparison to prevent timing attacks. On successful authentication, generates a JWT signed with RS256, valid for 15 minutes, containing user identity, role, MFA status, secure enclave validity, and the JA3 fingerprint of the authenticating client. Sets the token as an HttpOnly, Secure, SameSite=Strict cookie.
 
 ### Data Layer
 
@@ -107,84 +107,165 @@ All repository implementations compute a SHA-256 hash of critical record fields 
 
 ### Authentication Security Measures
 
-- Password hashing uses Argon2id with 64 MB memory, 3 iterations, and 4-degree parallelism.
-- Constant-time comparison (`crypto/subtle.ConstantTimeCompare`) prevents timing-based credential enumeration.
-- When a username is not found, the service performs a dummy Argon2id comparison to equalize response timing and prevent username enumeration.
-- JWT tokens have a 15-minute validity window, consistent with strict Zero Trust session requirements.
-- The JWT includes the JA3 fingerprint of the client that authenticated, enabling device continuity verification on subsequent requests.
-- Cookies carrying the session token are set with `HttpOnly`, `Secure`, and `SameSite=Strict` attributes.
-- The HTTP server enforces `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` to mitigate slow-connection attacks such as Slowloris.
+- **Password hashing:** Uses Argon2id with 64 MB memory, 3 iterations, and 4-degree parallelism, ensuring resistance to both GPU and ASIC-based attacks.
+- **Timing attack resistance:** Employs constant-time comparison (`crypto/subtle.ConstantTimeCompare`) for credential verification. When a username is not found, a dummy Argon2id computation is performed to equalize response timing and prevent username enumeration.
+- **JWT signing:** RS256 algorithm with asymmetric key pairs. Private key held exclusively by Identity Service; public key published at `/.well-known/jwks.json` for verification by downstream services.
+- **Token claims:** Each JWT includes user identity (subject), assigned role, MFA enrollment status, device tier, and the TLS JA3 fingerprint of the authenticating client.
+- **Token validity:** 15-minute expiration window enforces strict Zero Trust session requirements, mitigating the impact of token compromise.
+- **Device continuity:** The JA3 fingerprint embedded in the JWT is verified on subsequent requests to detect device switching attacks or credential sharing across different TLS profiles.
+- **Cookie attributes:** Session tokens set with `HttpOnly`, `Secure`, and `SameSite=Strict` flags to prevent XSS-based theft and CSRF attacks.
+- **HTTP timeouts:** The HTTP server enforces `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` to mitigate slow-connection attacks such as Slowloris.
+- **WebAuthn support:** Users can enroll FIDO2 credentials for passwordless authentication, bypassing password compromise vectors entirely.
 
 ---
 
 ## Project Structure
 
 ```
-ZTALeaks-master/
+ZTALeaks/
 ├── api/
 │   └── ext_authz.proto             # Protobuf definition for ext_authz RPC
-├── certs/                          # TLS certificates and generation script
-│   ├── ca.crt / ca.key             # Internal Root CA
-│   ├── server.crt / server.key     # Envoy server certificate
-│   ├── client.crt / client.key     # Test client certificate
-│   └── gen-certs.sh                # Certificate generation script
 ├── deployments/
 │   ├── docker/
 │   │   ├── docker-compose.yaml     # Primary deployment composition
-│   │   └── docker-compose.test.yaml
-│   └── kubernetes/                 # Kubernetes manifests
-│       ├── 01-configs.yaml
-│       ├── 02-secrets.yaml
-│       ├── 03-business-db.yaml
-│       ├── 04-security-db.yaml
-│       ├── 05-pep-edge.yaml
-│       ├── 06-pdp.yaml
-│       ├── 07-business.yaml
-│       ├── 08-network-policies.yaml
-│       └── kustomization.yaml
+│   │   ├── docker-compose.test.yaml # Automated test execution
+│   │   └── docker-compose.arm.yaml # ARM64 platform configuration
+│   └── kubernetes/                 # Kubernetes manifests with Kustomize
+│       ├── 01-configs.yaml         # ConfigMaps for infrastructure services
+│       ├── 02-secrets.yaml         # Opaque secrets for credentials and TLS
+│       ├── 03-business-db.yaml     # Business Database StatefulSet
+│       ├── 04-security-db.yaml     # Security Database StatefulSet
+│       ├── 05-pep-edge.yaml        # PEP layer deployment (Firewall, Envoy, Snort)
+│       ├── 06-pdp.yaml             # PDP layer (Security Orchestrator, OPA)
+│       ├── 07-business.yaml        # Business Logic and Frontend services
+│       ├── 08-network-policies.yaml # Zero Trust network segmentation
+│       └── kustomization.yaml      # Kustomize entry point
 ├── infra/
 │   ├── databases/
-│   │   ├── business/               # MongoDB init scripts and configuration
-│   │   └── security/               # Security DB initialization
+│   │   ├── business/               # Business Database initialization
+│   │   │   ├── Dockerfile
+│   │   │   ├── mongod.conf         # MongoDB configuration with authorization
+│   │   │   └── init-scripts/       # Collection schemas and role definitions
+│   │   └── security/               # Security Database initialization
+│   │       ├── Dockerfile
+│   │       ├── mongod.conf
+│   │       └── db_init/            # Identity user collection initialization
 │   ├── envoy/
-│   │   └── envoy.yaml              # Envoy listener, filter chain, cluster definitions
-│   ├── nftables/                   # Firewall rules, ulogd configuration, log parser
+│   │   ├── Dockerfile
+│   │   └── envoy.yaml              # Complete Envoy v3 API configuration
+│   ├── nftables/
+│   │   ├── Dockerfile
+│   │   ├── entrypoint.sh           # Firewall bootstrap and rule installation
+│   │   ├── nftables.conf           # Stateful packet filtering rules
+│   │   ├── ulogd.conf              # Netfilter logging configuration
+│   │   └── parser.go               # JSON parser for ulogd LOGEMU output
 │   ├── opa/
-│   │   └── policy.rego             # Rego authorization policy
-│   ├── snort/                      # External IDS rules and alert parser
-│   ├── snort-internal/             # Internal IDS rules and alert parser
-│   └── splunk-uf/                  # Universal Forwarder inputs and outputs
+│   │   ├── policy.rego             # Multi-dimensional authorization engine
+│   │   ├── policy_test.rego        # OPA policy unit tests
+│   │   └── data.json               # Static policy data for role/path matrices
+│   ├── snort/
+│   │   ├── Dockerfile
+│   │   ├── parser.go               # Alert parser with rate limiting
+│   │   └── rules/                  # Port scanning detection rules
+│   ├── snort-internal/
+│   │   ├── Dockerfile
+│   │   ├── parser.go               # Alert parser for internal threats
+│   │   └── rules/                  # mTLS violations, cipher anomaly, SYN flood rules
+│   ├── snort-mid/
+│   │   ├── Dockerfile
+│   │   ├── parser.go
+│   │   └── rules/                  # Mid-tier traffic inspection rules
+│   └── splunk-uf/
+│       ├── inputs.conf             # Log source definitions
+│       └── outputs.conf            # Splunk indexer forwarding targets
 ├── services/
-│   ├── business-logic/             # Plant data API service
-│   │   ├── cmd/server/main.go
-│   │   ├── config/
+│   ├── business-logic/             # REST API for operational plant data
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── cmd/server/main.go      # Entry point
+│   │   ├── config/config.go        # Configuration loading
 │   │   ├── internal/
 │   │   │   ├── db/                 # MongoDB repository implementations
-│   │   │   ├── handler/            # HTTP handlers and route registration
-│   │   │   ├── middleware/         # Logging middleware
-│   │   │   └── models/             # Go structs and enumeration constants
-│   │   ├── static/css/
-│   │   └── templates/              # HTML templates
-│   ├── identity-service/           # Authentication and JWT issuance
-│   │   ├── cmd/identity/main.go
-│   │   └── internal/
-│   │       ├── crypto/             # Argon2id and JWT implementation
-│   │       ├── db/                 # User repository
-│   │       ├── handler/            # Login API handler
-│   │       ├── logger/             # Structured JSON logger
-│   │       └── models/             # User and LoginInfo structs
-│   └── security-orchestrator/      # PDP coordination and OPA integration
-│       └── cmd/orchestrator/main.go
-├── tasks/
-│   └── todo.md                     # Kubernetes migration task tracking
+│   │   │   ├── handler/            # HTTP handlers with route registration
+│   │   │   ├── middleware/         # Request logging and correlation
+│   │   │   └── models/             # Domain models and enumerations
+│   │   ├── static/css/             # Stylesheet assets
+│   │   └── templates/              # HTML templates for browser UI
+│   ├── identity-service/           # Authentication and credential management
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── cmd/identity/main.go    # Entry point
+│   │   ├── config/config.go        # Configuration loading
+│   │   ├── internal/
+│   │   │   ├── crypto/             # Argon2id hashing and RS256 JWT generation
+│   │   │   ├── db/                 # User and device repositories
+│   │   │   ├── handler/            # Authentication endpoints
+│   │   │   ├── logger/             # Structured JSON logging
+│   │   │   ├── mailer/             # Email notification service
+│   │   │   ├── seed/               # Default user provisioning
+│   │   │   └── webauthn/           # WebAuthn/FIDO2 credential management
+│   │   └── templates/              # Authentication UI templates
+│   └── security-orchestrator/      # Policy Decision Point coordinator
+│       ├── Dockerfile
+│       ├── go.mod
+│       ├── cmd/orchestrator/main.go # Entry point
+│       ├── config/config.go         # Configuration loading
+│       └── internal/
+│           ├── aiscorer/           # Simulated risk score computation
+│           ├── cache/              # Snort alert cache with TTL
+│           ├── db/                 # MongoDB connection management
+│           ├── handler/            # Authorization evaluation handler
+│           ├── jwt/                # JWT verification and token extraction
+│           ├── opa/                # OPA policy engine client
+│           ├── snortlistener/      # Snort alert ingestion
+│           └── tpm/                # TPM device verification lookup
 ├── tests/
-│   ├── clients/                    # Go and Python test clients
-│   └── dashboard-app/              # Internal dashboard for testing API access
-└── tools/
-    └── seeder/                     # Database population tool
-        ├── cmd/seeder/main.go
-        ├── models/                 # Seed data struct definitions
-        └── seeders/                # Per-collection seed functions
+│   ├── alerts/                     # Snort alert generation tests
+│   │   ├── Dockerfile
+│   │   ├── conftest.py             # Pytest configuration
+│   │   ├── pytest.ini              # Test runner options
+│   │   ├── requirements.txt        # Python dependencies
+│   │   ├── snort-test.conf         # Snort configuration for testing
+│   │   └── test_snort_*.py         # Detection rule validation tests
+│   ├── clients/                    # End-to-end test clients
+│   │   ├── Dockerfile              # Go client container
+│   │   ├── Dockerfile.python       # Python client container
+│   │   ├── go.mod
+│   │   ├── main.go                 # Go test scenarios
+│   │   └── main.py                 # Python test scenarios
+│   ├── dashboard-app/              # Data visualization test application
+│   │   ├── Dockerfile
+│   │   ├── main.go
+│   │   └── index.html
+│   ├── e2e/                        # End-to-end security policy tests
+│   │   ├── abac.sh                 # Attribute-based access control tests
+│   │   ├── auth.sh                 # Authentication flow tests
+│   │   ├── lib.sh                  # Shared testing utilities
+│   │   ├── nftables.sh             # Firewall rule validation
+│   │   ├── pep.sh                  # Policy enforcement tests
+│   │   ├── rbac.sh                 # Role-based access control tests
+│   │   ├── tier.sh                 # Device tier admission tests
+│   │   ├── run_all.sh              # Master test runner
+│   │   └── REPORT.md               # Test execution documentation
+│   ├── opa/                        # OPA policy tests
+│   ├── scripts/                    # Utility scripts
+│   └── snort_live/                 # Live Snort integration tests
+├── tools/
+│   └── seeder/                     # Database initialization utility
+│       ├── Dockerfile
+│       ├── go.mod
+│       ├── cmd/
+│       ├── models/                 # Seed data structures
+│       └── seeders/                # Per-collection seed logic
+├── .env                            # Environment configuration
+├── .github/
+│   ├── copilot-instructions.md     # Workspace guidelines
+│   ├── instructions/
+│   │   └── golang.instructions.md  # Go development standards
+│   └── workflows/                  # CI/CD pipeline definitions
+├── go.mod                          # Go workspace module definition
+├── LICENSE                         # MIT License
+└── README.md                       # This file
 ```
 
 ---
@@ -193,17 +274,43 @@ ZTALeaks-master/
 
 ### Business Logic Service
 
-Written in Go. Exposes a JSON REST API on port 8080 (configurable via `BUSINESS_LOGIC_PORT`). Connects to the Business Database using the `seed_service` account by default (configurable via `MONGO_URI` and `MONGO_DB`). Serves HTML templates for the home, login, materials, and reserved pages. Logs all requests in structured JSON to both stdout and `/var/log/ztaleaks/business-logic/app.jsonl`, which is forwarded to Splunk by the Universal Forwarder.
+Written in Go. Exposes a JSON REST API on port 8080 (configurable via `BUSINESS_LOGIC_PORT`). Implements the repository pattern with full CRUD operations across seven MongoDB collections: personnel, zones, access badges, reactor parameters, maintenance orders, documents, and nuclear materials. Each collection is backed by a MongoDB repository implementation enforcing JSON Schema validation at the database layer.
 
-**Graceful shutdown:** Intercepts `SIGINT` and `SIGTERM`, waits up to 5 seconds for active connections to complete, then disconnects from MongoDB.
+Connects to the Business Database via role-based credentials (configurable via `MONGO_URI` and `MONGO_DB`). All records are persisted with SHA-256 data integrity hashes computed from critical fields, enabling tamper detection during data retrieval. Serves HTML templates for browser-based interaction and logs all HTTP requests in structured JSON format to both stdout and `/var/log/ztaleaks/business-logic/app.jsonl` for Splunk ingestion.
+
+**Request traceability:** Propagates the `X-Request-ID` header throughout the request lifecycle, enabling end-to-end correlation of events across all system components.
+
+**Graceful shutdown:** Intercepts `SIGINT` and `SIGTERM` signals, waits up to 5 seconds for active connections to complete, then disconnects from MongoDB.
 
 ### Identity Service
 
-Written in Go. Exposes a single endpoint `POST /api/v1/auth/login` on port 8082 (configurable via `PORT`). Connects to the Security Database (`securitydb`) at the address specified by `SECURITY_DB_URI`. On startup, seeds a default admin user with a hashed password if the `identity_users` collection is empty. Logs events in structured JSON to `/var/log/ztaleaks/identity/identity_events.json`. Implements graceful shutdown with a 10-second timeout.
+Written in Go. Exposes authentication endpoints on port 8082 (configurable via `PORT`). Manages user credentials, device enrollment, and token lifecycle. Connects to the Security Database at the address specified by `SECURITY_DB_URI`, maintaining complete isolation from the Business Database.
+
+**Authentication flow:** Accepts credentials via `POST /api/v1/auth/login`, verifies against Argon2id hashed passwords using constant-time comparison, and issues RS256-signed JSON Web Tokens valid for 15 minutes. Each token contains the user identity, assigned role, MFA enrollment status, and the JA3 fingerprint of the authenticating TLS connection for subsequent device continuity verification.
+
+**Multi-factor authentication:** Supports one-time password generation and verification via `POST /api/v1/auth/verify-otp`.
+
+**WebAuthn enrollment:** Implements FIDO2 credential registration and assertion via `/api/v1/auth/webauthn/register/*` and `/api/v1/auth/webauthn/authenticate/*` endpoints, enabling passwordless authentication.
+
+**Session management:** Issues JWT tokens as HttpOnly, Secure, SameSite=Strict cookies. On startup, seeds a default administrative user if the `identity_users` collection is empty. Logs authentication events in structured JSON to `/var/log/ztaleaks/identity/identity_events.json`. Implements graceful shutdown with a 10-second timeout.
+
+**JWKS publication:** Exposes its public key set at `/.well-known/jwks.json` for JWT verification by downstream services.
 
 ### Security Orchestrator
 
-Written in Go. Exposes an evaluation endpoint on port 8081 (configurable via `SECURITY_ORCHESTRATOR_PORT`). Queries OPA at the address specified by `OPA_URL` (default: `http://opa:8181/v1/data/envoy/authz/allow`). Assembles an OPA input document containing the simulated AI risk score and the request attributes forwarded by Envoy. Returns `{"allowed": true}` or `{"allowed": false, "reason": "policy denied"}` to Envoy. On OPA failure, returns 503 with a policy-engine-unavailable message, enforcing fail-closed behavior.
+Written in Go. Exposes authorization evaluation endpoints on port 8081 (configurable via `SECURITY_ORCHESTRATOR_PORT`). Acts as the Policy Decision Point, receiving authorization requests from Envoy via `POST /api/v1/evaluate` and returning allow/deny verdicts.
+
+**Decision logic:** On each request, the orchestrator:
+1. Verifies the JWT signature and extracts claims (user identity, role, MFA status)
+2. Queries the Security Database to verify device fingerprints and TPM enrollment status
+3. Computes a risk score via the embedded AI scorer module based on temporal, behavioral, and device-based signals
+4. Assembles a comprehensive input document containing request metadata, user claims, device posture, and risk signals
+5. Submits the input to OPA for policy evaluation
+6. Returns the policy engine's verdict to Envoy
+
+**Cache layer:** Maintains an in-memory cache of Snort IDS alerts with a 3-minute TTL, enabling rapid correlation of detected threats with authorization decisions.
+
+**Fail-safe behavior:** On OPA unavailability, returns HTTP 503 with a policy-engine-unavailable error, ensuring fail-closed access denial.
 
 ---
 
@@ -211,25 +318,74 @@ Written in Go. Exposes an evaluation endpoint on port 8081 (configurable via `SE
 
 ### Envoy Configuration
 
-Envoy listens on port 8443 with the TLS Inspector listener filter enabled and `enable_ja3_fingerprinting: true`. The filter chain requires client certificates (`require_client_certificate: false` in the primary configuration, `true` in the Kubernetes variant). The HTTP connection manager inserts the JA3 fingerprint and original URI into request headers before routing. The ext_authz filter calls the Security Orchestrator with a 0.5-second timeout. If the orchestrator does not respond, `failure_mode_allow: false` ensures the request is blocked.
+Envoy listens on port 8443 with the TLS Inspector listener filter enabled and JA3 fingerprinting activated. The filter chain accepts client certificates as optional for flexibility in device tier admission. The HTTP connection manager inserts the JA3 fingerprint and original URI into request headers (`x-ja3-fingerprint`, `x-original-uri`) before forwarding all requests to the external authorization service.
 
-Routes:
-- `POST /api/v1/auth/login` → Identity Service cluster (port 8082)
+**Authorization integration:** The `ext_authz` HTTP filter calls the Security Orchestrator at `http://security-orchestrator:8081/api/v1/evaluate` with a 500-millisecond timeout. Configuration enforces fail-closed semantics: `failure_mode_allow: false` ensures that orchestrator unavailability results in access denial.
+
+**Routing:** 
+- `POST /api/v1/auth/*` → Identity Service cluster (port 8082)
+- `GET /.well-known/jwks.json` → Identity Service cluster
 - `GET|POST|PUT|DELETE /api/v1/*` → Business Logic cluster (port 8080)
-- `/` → Business Logic cluster
+- `/`, `/login`, `/register`, `/static/*` → Business Logic cluster
 
-### OPA Policy
+**Access logging:** Generates structured JSON access logs to both stdout and `/var/log/ztaleaks/envoy/access.jsonl`, including the TLS JA3 fingerprint, request ID, response code, and authenticated user for Splunk correlation.
 
-The Rego policy in `infra/opa/policy.rego` under package `envoy.authz`:
+### OPA Policy Engine
 
-- Default rule: `allow = false`
-- Public paths (`/`, `/login`, `/register`, `/api/v1/auth/login`) are permitted when `input.risk_score < 0.3`
-- Business API paths (prefix `/api/v1`) are permitted when `input.risk_score < 0.5`
-- An unconditional `allow if { true }` rule exists as a permissive baseline for the current development state, intended to be replaced by role and clearance-based rules in production
+Deploys the Open Policy Agent with a multi-dimensional authorization model defined in `infra/opa/policy.rego`. The policy operates under package `envoy.authz` and evaluates authorization decisions across four independent dimensions:
+
+**1. Path classification:** Distinguishes public, authentication, and protected business paths. Public paths (login, registration, health checks, static assets) require no authentication.
+
+**2. Device tier admission:** Classifies devices into three tiers based on trust indicators:
+- Tier 0: No client certificate, password + OTP required
+- Tier 1: Client certificate validated by internal CA
+- Tier 2: Certificate + TPM enrollment verified via Security Database
+
+**3. Role-based access control:** Maps (path, HTTP method) pairs to permitted role sets. Each endpoint declares the roles authorized to execute its operations.
+
+**4. Resource clearance:** Enforces a five-level classification hierarchy (PUBLIC < INTERNAL < CONFIDENTIAL < SECRET < TOP_SECRET). The authenticated user's clearance level must equal or exceed the resource's minimum clearance for access.
+
+**Default deny:** The policy defaults to `allow = false`, requiring explicit matching rules for every authorization decision. Policy evaluation failure or timeout results in automatic denial.
+
+**Decision logging:** OPA logs all decisions to `/var/log/ztaleaks/orchestrator/opa_decision.jsonl` for audit and forensic analysis.
+
+### Intrusion Detection System (Snort)
+
+Three independent Snort instances provide defense-in-depth at different network boundaries:
+
+**External IDS (`snort`):** Listens on the external-facing network interface co-located with Envoy. Detects inbound attack signatures, with primary emphasis on port scanning detection via SYN threshold analysis. Parses alerts into JSON format and writes to `/var/log/ztaleaks/snort/alerts.jsonl`.
+
+**Internal IDS (`snort-internal`):** Monitors the traffic between the Firewall and Envoy. Detects:
+- mTLS violations: Absence of valid client certificate in TLS 1.2 handshakes from internal sources
+- Cipher anomalies: Deprecated or suspicious cipher suite usage inconsistent with known device fingerprints
+- Obsolete TLS versions: TLS 1.0 and SSLv3 record header patterns
+- Volumetric threats: SYN flood conditions targeting the Envoy port with abnormal connection rates
+
+Alerts are parsed and written to `/var/log/ztaleaks/snort-internal/alerts.jsonl`.
+
+**Mid-tier IDS (`snort-mid`):** Provides additional inspection of inter-service traffic within the back-net and auth-net segments.
+
+All Snort alert parsers implement rate limiting (one alert per source IP per 5 seconds) to prevent alert spam and maintain Splunk ingestion bandwidth efficiency. Alerts are formatted as JSON and sent to the orchestrator's alert cache for real-time correlation with authorization decisions.
+
+### Firewall (nftables)
+
+Implements stateful packet filtering with default-drop ingress policy. Configured in `infra/nftables/nftables.conf`, the firewall:
+- Maintains connection state tracking for TCP and UDP flows
+- Permits inbound connections only on the Envoy-configured port
+- Enforces egress filtering to constrain outbound traffic to authorized services and ports
+- Logs all accept/reject decisions via ulogd in LOGEMU format
+- Parses logs to JSON via embedded Go parser for Splunk forwarding
+
+Runs with elevated Linux capabilities (`NET_ADMIN`, `NET_RAW`, `SYSLOG`, `SYS_ADMIN`) required for kernel-level packet manipulation.
 
 ### Certificate Management
 
-The `certs/gen-certs.sh` script generates a 4096-bit RSA Root CA, a 2048-bit server certificate for Envoy with Subject Alternative Names for `ztaleaks_envoy`, `localhost`, and `127.0.0.1`, and a 2048-bit client test certificate. All certificates are valid for 3650 days. The script uses OpenSSL extension files to enforce appropriate key usage and extended key usage constraints.
+The `certs/gen-certs.sh` script (excluded from version control per `.gitignore`) generates:
+- **Root CA:** 4096-bit RSA certificate valid for 10 years, used to sign all service certificates
+- **Envoy server certificate:** 2048-bit RSA with Subject Alternative Names for `ztaleaks_envoy`, `localhost`, `127.0.0.1`, valid for 10 years
+- **Client certificate:** 2048-bit RSA for test clients, valid for 10 years
+
+All certificates use OpenSSL extension files to enforce strict key usage and extended key usage constraints, preventing certificate misuse attacks.
 
 ---
 
@@ -409,7 +565,7 @@ The Business Database and Security Database include health checks. Dependent ser
 
 **5. Populate the Business Database:**
 
-The Seeder container runs automatically on startup if the Business Database is healthy. It inserts seed data across all seven collections in dependency order: zones, personnel, access badges, reactor parameters, maintenance orders, documents, nuclear materials. The seeder exits after completion (`restart: "no"`).
+The Seeder container (`tools/seeder/`) initializes all seven MongoDB collections with realistic seed data. The seeder is idempotent: each operation checks whether the target collection is already populated before inserting data. Seed data is inserted in dependency order: zones, then personnel, access badges, reactor parameters, maintenance orders, documents, and nuclear materials. The seeder runs as a non-root user (`seeduser`, UID 1001) and exits with code 0 after successful completion. If the Seeder container exits before completion due to missing dependencies, it will retry automatically when those dependencies become available.
 
 **6. Access the interface:**
 
@@ -446,35 +602,54 @@ The NetworkPolicy `default-deny-all` drops all ingress and egress by default. Ex
 
 ## Testing
 
-### Automated Test Client
+The project includes comprehensive test suites across multiple layers:
 
-Two test clients are provided under `tests/clients/`:
+### End-to-End Security Policy Tests
 
-**Go client (`main.go`):** Executes six test scenarios in sequence:
-1. Valid request with standard TLS 1.2 and no client certificate (triggers Snort mTLS violation detection)
-2. Anomalous request using deprecated cipher `TLS_RSA_WITH_AES_128_CBC_SHA` (triggers JA3 anomaly detection)
-3. Obsolete protocol test using TLS 1.0 (triggers obsolete TLS version detection)
-4. SYN flood simulation against port 8443 with 40 concurrent connections (triggers volumetric attack detection)
-5. Request with a valid client certificate against the CA-trusted endpoint
-6. Port scan simulation against ports 8000–8014 (triggers port scanning detection)
+Located in `tests/e2e/`, these shell-based tests validate the complete Zero Trust policy enforcement chain:
 
-**Python client (`main.py`):** Equivalent test scenarios using the Python `ssl` and `socket` modules.
+- **abac.sh:** Attribute-based access control evaluation, verifying that authorization decisions respect user attributes (role, clearance, device tier) and resource attributes (classification level, required MFA).
+- **auth.sh:** Authentication flow validation, including password-based login, OTP verification, WebAuthn enrollment and assertion, JWT token issuance, and token refresh.
+- **rbac.sh:** Role-based access control matrix testing, ensuring that each role can access only the permitted operations and resources.
+- **tier.sh:** Device tier admission testing, verifying correct classification of passwordless, certificate-only, and TPM-enrolled devices.
+- **nftables.sh:** Firewall rule validation, confirming that packet filtering operates correctly at the network boundary.
+- **pep.sh:** Policy Enforcement Point behavior testing, validating Envoy's authorization delegation, request routing, and fail-closed behavior on orchestrator unavailability.
+- **run_all.sh:** Master test orchestrator executing all test suites in dependency order and generating `REPORT.md` with pass/fail results.
 
-Both clients require the CA, client certificate, and client key to be mounted at `/app/certs/`.
+### Automated Test Clients
 
-**Run the test client:**
+Two language implementations provide programmatic scenario simulation:
 
+**Go client (`tests/clients/main.go`):** Executes six threat scenarios:
+1. Valid TLS 1.2 without client certificate (mTLS violation detection)
+2. Deprecated cipher suite usage (JA3 anomaly detection)
+3. TLS 1.0 protocol downgrade attempt (obsolete TLS version detection)
+4. SYN flood with 40 concurrent connections (volumetric attack detection)
+5. Valid client certificate authentication (legitimate flow)
+6. Port scanning simulation against ports 8000–8014 (port scan detection)
+
+**Python client (`tests/clients/main.py`):** Equivalent scenarios using the Python `ssl` and `socket` modules.
+
+Both clients require mounted certificates at `/app/certs/` and connect through the Envoy listener to validate the complete PEP-to-PDP pipeline.
+
+**Execution:**
 ```bash
 docker compose -f deployments/docker/docker-compose.test.yaml up
 ```
 
+### Snort Alert Generation Tests
+
+Located in `tests/alerts/`, pytest-based tests validate Snort rule detection:
+
+- **test_snort_base.py:** Port scanning and external attack detection
+- **test_snort_internal.py:** mTLS violations, cipher anomalies, TLS version downgrades
+- **test_snort_mid.py:** Mid-tier traffic inspection rules
+
+Tests generate synthetic malicious traffic patterns and verify that Snort produces alerts matching expected classifications and priorities.
+
 ### Internal Dashboard
 
-`tests/dashboard-app/` provides a minimal Go web application that fetches personnel, reactor, and zone data from the Business Logic API using a client certificate and renders the results in an HTML table. If access is denied by the Zero Trust PEP, the table displays a clear denial message. The dashboard listens on port 8080 and requires certificates mounted at `/certs/`.
-
-### Database Seeder
-
-`tools/seeder/` is a standalone Go application that connects directly to MongoDB and populates all seven collections with realistic seed data. It is idempotent: each seeder function checks whether the target collection is non-empty before inserting data. The seeder runs as a non-root user (`seeduser`, UID 1001) in a minimal Alpine container. It exits with code 0 after successful population.
+`tests/dashboard-app/` provides a Go web application that demonstrates authorized API consumption. The dashboard fetches personnel, reactor, and zone data from the Business Logic API using a client certificate and renders results in an HTML table. Access denial by the Zero Trust PEP produces a clear denial message. The application listens on port 8080 and requires certificates at `/certs/`.
 
 ---
 
@@ -502,30 +677,51 @@ docker compose -f deployments/docker/docker-compose.test.yaml up
 
 ## Observability
 
-### Log Volumes
+### Centralized Logging
 
-Each service writes structured JSON logs to a named Docker volume:
+Splunk acts as the centralized log aggregation and indexing platform. The Splunk Universal Forwarder monitors log volumes written by all infrastructure and application services, forwarding their contents to the Splunk indexer over TCP port 9997 (configurable via `outputs.conf`).
 
-| Volume | Contents |
-|---|---|
-| `firewall-logs` | nftables accept/reject events parsed to JSON |
-| `envoy-logs` | Envoy access logs with JA3 fingerprint, request ID, response code |
-| `snort-logs` | External IDS alerts (port scanning) |
-| `snort-internal-logs` | Internal IDS alerts (mTLS violations, cipher anomalies, SYN floods) |
-| `business-logs` | Business Logic HTTP request logs |
-| `identity-logs` | Identity Service authentication events |
-| `business-db-logs` | MongoDB operational logs |
-| `security-db-logs` | Security MongoDB operational logs |
+### Log Sources
 
-All volumes are mounted read-only by the Splunk Universal Forwarder, which forwards their contents to the Splunk indexer.
+| Service | Volume | Location | Forwarded to |
+|---|---|---|---|
+| Firewall | firewall-logs | `/var/log/ztaleaks/nftables` | Splunk |
+| Envoy | envoy-logs | `/var/log/ztaleaks/envoy/access.jsonl` | Splunk |
+| Snort (external) | snort-logs | `/var/log/ztaleaks/snort/alerts.jsonl` | Splunk |
+| Snort (internal) | snort-internal-logs | `/var/log/ztaleaks/snort-internal/alerts.jsonl` | Splunk |
+| Snort (mid-tier) | snort-mid-logs | `/var/log/ztaleaks/snort-mid/alerts.jsonl` | Splunk |
+| Business Logic | business-logs | `/var/log/ztaleaks/business-logic/app.jsonl` | Splunk |
+| Identity Service | identity-logs | `/var/log/ztaleaks/identity/identity_events.json` | Splunk |
+| Security Orchestrator | orchestrator-logs | `/var/log/ztaleaks/orchestrator/app.jsonl` | Splunk |
+| OPA Decisions | opa-logs | `/var/log/ztaleaks/orchestrator/opa_decision.jsonl` | Splunk |
+| Business Database | business-db-logs | MongoDB diagnostic logs | Splunk |
+| Security Database | security-db-logs | MongoDB diagnostic logs | Splunk |
 
-### Traceability
+### Request Traceability
 
-Every component propagates the `X-Request-ID` header. The value is extracted from the incoming request (inserted by Envoy) and included in every structured log entry as `x_request_id`. This enables correlation of all log events related to a single client request across the Firewall, Envoy, Security Orchestrator, and Business Logic service in a single Splunk query.
+All components propagate the `X-Request-ID` header injected by Envoy. This header enables end-to-end correlation of events across the firewall, proxy, orchestrator, databases, and application services. Each log entry includes the request ID as a standard field, allowing Splunk to reconstruct the complete request flow:
 
-### Logging Middleware
+```
+firewall → envoy → orchestrator → opa → business-logic
+```
 
-The Business Logic service wraps all HTTP handlers with a `LoggingMiddleware` that captures the HTTP method, path, remote address, response status code, and request duration. The middleware also extracts the `X-Request-ID` header for inclusion in the log entry, defaulting to `unknown_request` if absent.
+Example Splunk query for end-to-end tracing:
+```
+index=ztaleaks x_request_id=12345-67890 | table service,timestamp,action
+```
+
+### Log Format Standardization
+
+All services emit structured JSON logs with consistent field naming:
+- `service`: Source service identifier
+- `timestamp`: RFC3339 formatted timestamp
+- `x_request_id`: Request correlation identifier
+- `level`: Log severity (debug, info, warn, error)
+- Additional context-specific fields (user, resource, action, result)
+
+### Audit Logging
+
+OPA decision logs record every authorization decision with full context, enabling forensic analysis and compliance auditing. MongoDB operation logs capture all data modifications with user attribution. The combination provides a complete audit trail for regulatory compliance (applicable to nuclear facility operations).
 
 ---
 

@@ -1,73 +1,148 @@
-# Snort rules for internal traffic (Firewall <-> Envoy)
-# Focus: mTLS integrity, TLS version downgrade, weak cipher detection.
+# =============================================================================
+# Snort Rules - snort-internal (queue 2)
+# Scope: TCP traffic directed at the Envoy listener port (ENV_ENVOY_PORT).
+# Focus: mTLS integrity, TLS version/cipher anomalies, volumetric DoS.
 #
-# Layout SID:
-#   1000004           ICMP canary (test signal)
-#   2000002           mTLS Violation (missing client certificate)
-#   2000006           SYN flood (volumetric DoS)
-#   2000010..2000019  Legacy TLS version offered (ClientHello.legacy_version)
-#   2000020..2000029  TLS downgrade ATTACK (ServerHello negotiated legacy version)
-#   2000030..2000039  Weak cipher suites offered (ClientHello cipher_suites list)
+# SID layout:
+#   1000004          ICMP canary (connectivity test)
+#   2000002          mTLS violation (missing client certificate)
+#   2000006          SYN flood (volumetric DoS toward Envoy)
+#   2000010-2000019  Legacy TLS version offered in ClientHello
+#   2000020-2000029  TLS downgrade attack (ServerHello negotiated legacy version)
+#   2000030-2000039  Weak cipher suites offered in ClientHello
+#
+# Design note on TLS version matching:
+#   We match ClientHello.legacy_version (bytes at payload offset 9-10), NOT the
+#   TLS record-layer version (bytes 1-2). TLS 1.3 clients set the record-layer
+#   version to 0x0301 for compatibility, which would generate false positives on
+#   every modern TLS 1.3 connection. The ClientHello.legacy_version field is
+#   always 0x0303 for TLS 1.3, so matching offset 9-10 avoids this ambiguity.
+# =============================================================================
 
-# --- Canary ---
-alert icmp any any -> any any (msg:"ZTA: ICMP Test Ping Detected"; itype:8; sid:1000004; rev:1;)
+# -----------------------------------------------------------------------------
+# Canary - ICMP echo (used during integration testing to verify IDS is active)
+# -----------------------------------------------------------------------------
+alert icmp any any -> any any \
+    (msg:"ZTA: ICMP Test Ping Detected"; itype:8; sid:1000004; rev:1;)
 
-# --- mTLS / handshake anomalies ---
-# Empty Certificate handshake message (handshake type 0x0B with zero-length cert list)
-alert tcp any any -> any any (msg:"ZTA: mTLS Violation Detected (Missing Client Certificate)"; content:"|0B 00 00 03 00 00 00|"; classtype:protocol-command-decode; sid:2000002; rev:5;)
+# -----------------------------------------------------------------------------
+# mTLS anomaly - empty Certificate handshake message
+# Handshake type 0x0B with a zero-length certificate list indicates that the
+# client did not provide a certificate during the mTLS handshake.
+# -----------------------------------------------------------------------------
+alert tcp any any -> any any \
+    (msg:"ZTA: mTLS Violation Detected (Missing Client Certificate)"; \
+     content:"|0B 00 00 03 00 00 00|"; \
+     classtype:protocol-command-decode; sid:2000002; rev:5;)
 
-# --- Volumetric ---
-# SYN flood toward Envoy port
-alert tcp any any -> any ENV_ENVOY_PORT (msg:"ZTA: SYN Flood - Volumetric Network Attack Detected"; flags:S; detection_filter:track by_dst, count 30, seconds 2; classtype:attempted-dos; sid:2000006; rev:1;)
+# -----------------------------------------------------------------------------
+# Volumetric DoS - SYN flood toward the Envoy listener port
+# Triggers when a destination receives more than 30 SYN packets in 2 seconds.
+# -----------------------------------------------------------------------------
+alert tcp any any -> any ENV_ENVOY_PORT \
+    (msg:"ZTA: SYN Flood - Volumetric Network Attack Detected"; \
+     flags:S; \
+     detection_filter:track by_dst, count 30, seconds 2; \
+     classtype:attempted-dos; sid:2000006; rev:1;)
 
+# =============================================================================
+# Section A: Legacy TLS versions offered by the client (ClientHello)
+#
+# Anchor: TLS record header (16 03 xx) + ClientHello type (01 00 00).
+# Version match at payload offset 9-10 (legacy_version field).
+# =============================================================================
 
-# =====================================================================
-# A) LEGACY TLS VERSIONS OFFERED BY CLIENT
-# =====================================================================
-# Match: TLS record (16 03 0X) + ClientHello (HS type 01) + legacy_version (03 0X)
-# at offset 9-10 of the TCP payload.
-# NOTE: we match the ClientHello.legacy_version field (offset 9-10), NOT the
-# record-layer legacy_record_version (offset 1-2). TLS 1.3 clients use 0x0303
-# in ClientHello.legacy_version but 0x0301 in the record layer -> matching the
-# record layer alone produces false positives on every modern TLS 1.3 client.
+alert tcp any any -> any any \
+    (msg:"ZTA: SSLv3 ClientHello Detected (legacy version offered)"; \
+     flow:to_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|01 00 00|"; distance:3; within:3; \
+     content:"|03 00|"; distance:1; within:2; \
+     classtype:protocol-command-decode; sid:2000010; rev:1;)
 
-alert tcp any any -> any any (msg:"ZTA: SSLv3 ClientHello Detected (legacy version offered)"; flow:to_server,established; content:"|16 03|"; depth:2; content:"|01 00 00|"; distance:3; within:3; content:"|03 00|"; distance:1; within:2; classtype:protocol-command-decode; sid:2000010; rev:1;)
+alert tcp any any -> any any \
+    (msg:"ZTA: TLS 1.0 ClientHello Detected (legacy version offered)"; \
+     flow:to_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|01 00 00|"; distance:3; within:3; \
+     content:"|03 01|"; distance:1; within:2; \
+     classtype:bad-unknown; sid:2000011; rev:1;)
 
-alert tcp any any -> any any (msg:"ZTA: TLS 1.0 ClientHello Detected (legacy version offered)"; flow:to_server,established; content:"|16 03|"; depth:2; content:"|01 00 00|"; distance:3; within:3; content:"|03 01|"; distance:1; within:2; classtype:bad-unknown; sid:2000011; rev:1;)
+alert tcp any any -> any any \
+    (msg:"ZTA: TLS 1.1 ClientHello Detected (legacy version offered)"; \
+     flow:to_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|01 00 00|"; distance:3; within:3; \
+     content:"|03 02|"; distance:1; within:2; \
+     classtype:bad-unknown; sid:2000012; rev:1;)
 
-alert tcp any any -> any any (msg:"ZTA: TLS 1.1 ClientHello Detected (legacy version offered)"; flow:to_server,established; content:"|16 03|"; depth:2; content:"|01 00 00|"; distance:3; within:3; content:"|03 02|"; distance:1; within:2; classtype:bad-unknown; sid:2000012; rev:1;)
+# =============================================================================
+# Section B: TLS downgrade attack - ServerHello negotiated a legacy version
+#
+# Anchor: TLS record header (16 03 xx) + ServerHello type (02 00 00).
+# Version match at payload offset 9-10 (selected_version field).
+# TLS 1.3 servers always set ServerHello.legacy_version = 0x0303; any other
+# value means the server actually agreed to a pre-TLS 1.2 protocol.
+# =============================================================================
 
+alert tcp any any -> any any \
+    (msg:"ZTA: TLS Downgrade Attack - ServerHello negotiated SSLv3"; \
+     flow:from_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|02 00 00|"; distance:3; within:3; \
+     content:"|03 00|"; distance:1; within:2; \
+     classtype:successful-recon-limited; priority:1; sid:2000020; rev:1;)
 
-# =====================================================================
-# B) TLS DOWNGRADE ATTACK - SERVERHELLO NEGOTIATED A LEGACY VERSION
-# =====================================================================
-# Match: TLS record (16 03 0X) + ServerHello (HS type 02) + selected version (03 0X)
-# at offset 9-10. These are the highest-fidelity downgrade indicators because TLS 1.3
-# servers always set ServerHello.legacy_version = 0x0303 regardless of negotiation;
-# any other value here means the server actually agreed to a pre-TLS 1.2 protocol.
+alert tcp any any -> any any \
+    (msg:"ZTA: TLS Downgrade Attack - ServerHello negotiated TLS 1.0"; \
+     flow:from_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|02 00 00|"; distance:3; within:3; \
+     content:"|03 01|"; distance:1; within:2; \
+     classtype:successful-recon-limited; priority:1; sid:2000021; rev:1;)
 
-alert tcp any any -> any any (msg:"ZTA: TLS Downgrade Attack - ServerHello negotiated SSLv3"; flow:from_server,established; content:"|16 03|"; depth:2; content:"|02 00 00|"; distance:3; within:3; content:"|03 00|"; distance:1; within:2; classtype:successful-recon-limited; priority:1; sid:2000020; rev:1;)
+alert tcp any any -> any any \
+    (msg:"ZTA: TLS Downgrade Attack - ServerHello negotiated TLS 1.1"; \
+     flow:from_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|02 00 00|"; distance:3; within:3; \
+     content:"|03 02|"; distance:1; within:2; \
+     classtype:successful-recon-limited; priority:1; sid:2000022; rev:1;)
 
-alert tcp any any -> any any (msg:"ZTA: TLS Downgrade Attack - ServerHello negotiated TLS 1.0"; flow:from_server,established; content:"|16 03|"; depth:2; content:"|02 00 00|"; distance:3; within:3; content:"|03 01|"; distance:1; within:2; classtype:successful-recon-limited; priority:1; sid:2000021; rev:1;)
-
-alert tcp any any -> any any (msg:"ZTA: TLS Downgrade Attack - ServerHello negotiated TLS 1.1"; flow:from_server,established; content:"|16 03|"; depth:2; content:"|02 00 00|"; distance:3; within:3; content:"|03 02|"; distance:1; within:2; classtype:successful-recon-limited; priority:1; sid:2000022; rev:1;)
-
-
-# =====================================================================
-# C) WEAK CIPHER SUITES OFFERED IN CLIENTHELLO
-# =====================================================================
-# After anchoring on the ClientHello header (16 03 0X .. 01 00 00 ..), we search
-# the rest of the payload (relative PCRE) for known-weak cipher suite codes that
-# may appear in the cipher_suites list. False positives are possible if random
-# bytes (e.g. in the Random field or session_id) coincidentally match, but the
+# =============================================================================
+# Section C: Weak cipher suites offered in ClientHello
+#
+# After anchoring on the ClientHello header, a relative PCRE searches the
+# remaining payload for known-weak cipher suite byte codes that may appear
+# in the cipher_suites list. False positives are possible if random bytes
+# (e.g. in the Random field or session_id) coincidentally match, but the
 # ClientHello anchor combined with flow:to_server makes them rare in practice.
+# =============================================================================
 
-# RC4: 0x0004, 0x0005, 0xC002, 0xC007, 0xC00C, 0xC011, 0xC016, 0xC033
-alert tcp any any -> any any (msg:"ZTA: Weak Cipher Offered - RC4 family"; flow:to_server,established; content:"|16 03|"; depth:2; content:"|01 00 00|"; distance:3; within:3; pcre:"/\x00[\x04\x05]|\xC0[\x02\x07\x0C\x11\x16\x33]/R"; classtype:policy-violation; sid:2000030; rev:1;)
+# RC4 cipher suites: 0x0004, 0x0005, 0xC002, 0xC007, 0xC00C, 0xC011, 0xC016, 0xC033
+alert tcp any any -> any any \
+    (msg:"ZTA: Weak Cipher Offered - RC4 family"; \
+     flow:to_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|01 00 00|"; distance:3; within:3; \
+     pcre:"/\x00[\x04\x05]|\xC0[\x02\x07\x0C\x11\x16\x33]/R"; \
+     classtype:policy-violation; sid:2000030; rev:1;)
 
-# 3DES: 0x000A, 0x0013, 0x0016, 0xC003, 0xC008, 0xC00D, 0xC012, 0xC017
-alert tcp any any -> any any (msg:"ZTA: Weak Cipher Offered - 3DES family"; flow:to_server,established; content:"|16 03|"; depth:2; content:"|01 00 00|"; distance:3; within:3; pcre:"/\x00[\x0A\x13\x16]|\xC0[\x03\x08\x0D\x12\x17]/R"; classtype:policy-violation; sid:2000031; rev:1;)
+# 3DES cipher suites: 0x000A, 0x0013, 0x0016, 0xC003, 0xC008, 0xC00D, 0xC012, 0xC017
+alert tcp any any -> any any \
+    (msg:"ZTA: Weak Cipher Offered - 3DES family"; \
+     flow:to_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|01 00 00|"; distance:3; within:3; \
+     pcre:"/\x00[\x0A\x13\x16]|\xC0[\x03\x08\x0D\x12\x17]/R"; \
+     classtype:policy-violation; sid:2000031; rev:1;)
 
-# NULL / EXPORT / anonymous DH: 0x0000-0x0003, 0x0006, 0x0008, 0x000B, 0x000E,
-# 0x0011, 0x0014, 0x0017-0x001B (anon DH and EXPORT variants - FREAK/LOGJAM territory)
-alert tcp any any -> any any (msg:"ZTA: Weak Cipher Offered - NULL/EXPORT/anonymous DH"; flow:to_server,established; content:"|16 03|"; depth:2; content:"|01 00 00|"; distance:3; within:3; pcre:"/\x00[\x00-\x03\x06\x08\x0B\x0E\x11\x14\x17-\x1B]/R"; classtype:policy-violation; sid:2000032; rev:1;)
+# NULL / EXPORT / anonymous DH cipher suites (FREAK / LOGJAM territory):
+# 0x0000-0x0003, 0x0006, 0x0008, 0x000B, 0x000E, 0x0011, 0x0014, 0x0017-0x001B
+alert tcp any any -> any any \
+    (msg:"ZTA: Weak Cipher Offered - NULL/EXPORT/anonymous DH"; \
+     flow:to_server,established; \
+     content:"|16 03|"; depth:2; \
+     content:"|01 00 00|"; distance:3; within:3; \
+     pcre:"/\x00[\x00-\x03\x06\x08\x0B\x0E\x11\x14\x17-\x1B]/R"; \
+     classtype:policy-violation; sid:2000032; rev:1;)

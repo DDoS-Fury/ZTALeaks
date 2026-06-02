@@ -1,15 +1,74 @@
-# Snort rules for traffic between Envoy and Security Orchestrator (port 8081)
-# Detects SQL Injection and Cross-Site Scripting (XSS) on plaintext HTTP ext_authz traffic
+# =============================================================================
+# Snort Rules - snort-mid (queue 3)
+# Scope: TCP traffic from Envoy to the Security Orchestrator on port 8081.
+# Focus: application-layer attacks on the plaintext ext_authz HTTP channel.
+#
+# SID layout:
+#   3000001-3000004  SQL Injection patterns
+#   3000010-3000014  Cross-Site Scripting (XSS) patterns
+# =============================================================================
 
-# --- SQL Injection ---
-alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - UNION SELECT"; content:"union"; nocase; content:"select"; nocase; distance:0; within:50; classtype:web-application-attack; sid:3000001; rev:1;)
-alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - OR 1=1"; content:"or"; nocase; content:"1=1"; distance:0; within:10; classtype:web-application-attack; sid:3000002; rev:1;)
-alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - DROP TABLE"; content:"drop"; nocase; content:"table"; nocase; distance:0; within:20; classtype:web-application-attack; sid:3000003; rev:1;)
-alert tcp any any -> any 8081 (msg:"ZTA: SQL Injection - tautology URL-encoded"; content:"%27"; content:"OR"; nocase; distance:0; within:20; content:"%3D"; distance:0; within:20; classtype:web-application-attack; sid:3000004; rev:1;)
+# -----------------------------------------------------------------------------
+# SQL Injection detection
+# -----------------------------------------------------------------------------
 
-# --- Cross-Site Scripting ---
-alert tcp any any -> any 8081 (msg:"ZTA: XSS - <script tag"; content:"<script"; nocase; classtype:web-application-attack; sid:3000010; rev:1;)
-alert tcp any any -> any 8081 (msg:"ZTA: XSS - URL-encoded <script"; content:"%3Cscript"; nocase; classtype:web-application-attack; sid:3000011; rev:1;)
-alert tcp any any -> any 8081 (msg:"ZTA: XSS - javascript: URI"; content:"javascript:"; nocase; classtype:web-application-attack; sid:3000012; rev:1;)
-alert tcp any any -> any 8081 (msg:"ZTA: XSS - onerror handler"; content:"onerror="; nocase; classtype:web-application-attack; sid:3000013; rev:1;)
-alert tcp any any -> any 8081 (msg:"ZTA: XSS - onload handler"; content:"onload="; nocase; classtype:web-application-attack; sid:3000014; rev:1;)
+# UNION SELECT - classic SQL injection to extract data from additional tables
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: SQL Injection - UNION SELECT"; \
+     content:"union"; nocase; content:"select"; nocase; distance:0; within:50; \
+     classtype:web-application-attack; sid:3000001; rev:1;)
+
+# OR 1=1 tautology - trivially true WHERE clause to bypass authentication
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: SQL Injection - OR 1=1 tautology"; \
+     content:"or"; nocase; content:"1=1"; distance:0; within:10; \
+     classtype:web-application-attack; sid:3000002; rev:1;)
+
+# DROP TABLE - destructive DDL statement
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: SQL Injection - DROP TABLE"; \
+     content:"drop"; nocase; content:"table"; nocase; distance:0; within:20; \
+     classtype:web-application-attack; sid:3000003; rev:1;)
+
+# URL-encoded tautology: %27 OR ... %3D (single-quote and equals sign encoded)
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: SQL Injection - URL-encoded tautology"; \
+     content:"%27"; content:"OR"; nocase; distance:0; within:20; \
+     content:"%3D"; distance:0; within:20; \
+     classtype:web-application-attack; sid:3000004; rev:1;)
+
+# -----------------------------------------------------------------------------
+# Cross-Site Scripting (XSS) detection
+# These rules detect XSS payloads injected into the URI forwarded by Envoy
+# to the orchestrator in the ext_authz request.
+# -----------------------------------------------------------------------------
+
+# Raw <script> tag
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: XSS - <script> tag detected"; \
+     content:"<script"; nocase; \
+     classtype:web-application-attack; sid:3000010; rev:1;)
+
+# URL-encoded <script> tag (%3C = '<')
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: XSS - URL-encoded <script> tag"; \
+     content:"%3Cscript"; nocase; \
+     classtype:web-application-attack; sid:3000011; rev:1;)
+
+# javascript: URI scheme (used in href/src attributes)
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: XSS - javascript: URI scheme"; \
+     content:"javascript:"; nocase; \
+     classtype:web-application-attack; sid:3000012; rev:1;)
+
+# onerror event handler attribute
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: XSS - onerror event handler"; \
+     content:"onerror="; nocase; \
+     classtype:web-application-attack; sid:3000013; rev:1;)
+
+# onload event handler attribute
+alert tcp any any -> any 8081 \
+    (msg:"ZTA: XSS - onload event handler"; \
+     content:"onload="; nocase; \
+     classtype:web-application-attack; sid:3000014; rev:1;)

@@ -185,6 +185,9 @@ static_resources:
                     - exact: "x-forwarded-client-cert"
                     - exact: "x-zone-id"
                     - exact: "x-forwarded-for"
+                    # IP reale del client imposto da Envoy (use_remote_address):
+                    # non falsificabile, usato dall'orchestrator per network_location.
+                    - exact: "x-envoy-external-address"
                 authorization_response:
                   allowed_upstream_headers:
                     patterns:

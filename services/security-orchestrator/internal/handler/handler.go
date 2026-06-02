@@ -184,9 +184,21 @@ func sessionAgeSeconds(claims *jwtpkg.ZTAClaims, now time.Time) int64 {
 	return int64(age)
 }
 
+// clientIPFromRequest ricava l'IP reale del client fidandosi SOLO di ciò che
+// Envoy impone, mai di header controllabili dal client. Con use_remote_address:
+// true Envoy popola x-envoy-external-address con l'indirizzo che vede davvero
+// sulla connessione e lo sovrascrive ad ogni richiesta: non è falsificabile.
+// Il primo elemento di X-Forwarded-For invece è iniettabile dall'esterno
+// (un client può dichiararsi "interno"), quindi non va usato.
 func clientIPFromRequest(r *http.Request) string {
+	if ext := strings.TrimSpace(r.Header.Get("X-Envoy-External-Address")); ext != "" {
+		return ext
+	}
+	// Fallback difensivo: Envoy appende l'IP reale in CODA a X-Forwarded-For,
+	// quindi l'ultimo elemento è quello attendibile (non il primo).
 	if xfwd := r.Header.Get("X-Forwarded-For"); xfwd != "" {
-		return strings.TrimSpace(strings.Split(xfwd, ",")[0])
+		parts := strings.Split(xfwd, ",")
+		return strings.TrimSpace(parts[len(parts)-1])
 	}
 	return strings.TrimSpace(strings.Split(r.RemoteAddr, ":")[0])
 }

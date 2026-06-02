@@ -129,11 +129,11 @@ Già risolti in questa sessione: race boot business-logic e hardening avvio Envo
 - **Decisione:** `false` è **corretto e voluto**. Imporre il cert nel TLS (`true`) farebbe fallire l'handshake per le connessioni senza certificato, rendendo **irraggiungibile il tier 0** (risorse a bassa sensibilità, accesso no-cert). Il modello a 3 tier richiede che anche il traffico senza cert raggiunga OPA, che decide in base a `cert_present`. La validazione del cert resta a OPA (PDP), non al TLS.
 - **Nota:** il riferimento `true` nel CLAUDE.md è superato da questa scelta architetturale (admission a tier in OPA).
 
-### #2 — `network_location` falsificabile (spoofing X-Forwarded-For)  🔴 Alta
-- **Cosa:** `services/security-orchestrator/internal/handler/handler.go:187` `clientIPFromRequest` prende il **primo** elemento di `X-Forwarded-For`, controllabile dal client. Envoy ha `use_remote_address: true` e appende l'IP reale in coda, ma l'orchestrator legge la testa → bug lato orchestrator.
-- **Test:** `curl ... -H 'X-Forwarded-For: 10.0.0.99'` → orchestrator logga `ip_address: 10.0.0.99 | network_location: internal`. Un client esterno si dichiara "internal".
-- **Fix proposto:** in Envoy usare `xff_num_trusted_hops`; nell'orchestrator fidarsi solo dell'IP impostato da Envoy (ultimo hop), non del primo elemento.
-- **Caveat:** in Docker l'IP "vero" è il gateway della bridge → verificare insieme che `network_location` continui a classificare sensatamente il traffico di test. Trasparente per il flusso normale; blocca solo lo spoof manuale.
+### #2 — `network_location` falsificabile (spoofing X-Forwarded-For)  ✅ RISOLTO (2026-06-02)
+- **Cosa:** `clientIPFromRequest` prendeva il **primo** elemento di `X-Forwarded-For`, controllabile dal client.
+- **Fix applicato:** l'orchestrator ora si fida **solo dell'IP imposto da Envoy**: legge `X-Envoy-External-Address` (Envoy con `use_remote_address: true` lo sovrascrive ad ogni richiesta → non falsificabile), con fallback all'**ultimo** elemento di `X-Forwarded-For` (quello che Envoy appende), mai il primo. Envoy ora inoltra `x-envoy-external-address` tra gli `allowed_headers` dell'ext_authz.
+- **Verificato live:** `curl -H 'X-Forwarded-For: 10.0.0.99'` → orchestrator logga `ip_address: 192.168.65.1` (IP reale), non più 10.0.0.99. Lo spoof non ha più effetto.
+- **Caveat (invariato):** in Docker l'IP reale è il gateway della bridge, quindi `network_location` resta `internal` per il traffico di test locale — ma ora basato sull'IP vero, non su un header forgiabile.
 
 ### #3 — Ramo anonimo scarta il certificato verso OPA  ✅ CHIUSO (2026-06-02) — non rilevante per OPA
 - **Cosa:** `handler.go:91` — nel ramo "nessun token" il cert è già parsato (`cc := cert.Parse(...)`) ma a OPA va `CertPresent: false` hardcoded e `Claims: nil`.

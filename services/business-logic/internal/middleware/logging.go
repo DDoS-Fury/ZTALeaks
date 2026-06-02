@@ -27,7 +27,6 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 
 // LoggingMiddleware è il middleware per loggare le richieste HTTP in formato JSON
 // Strutturato per la compatibilità con Splunk (Tracciabilità ZTA).
-// TODO (Futuro): In seguito, qui verrà gestita l'autenticazione e la verifica del JWT.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -46,8 +45,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			ResponseWriter: w,
 			statusCode:     0,
 		}
-
-		// TODO (Futuro): Controllo autenticazione e validazione Token JWT andranno collocati qui.
 
 		// Passa la richiesta al gestore effettivo (ServeMux router o handler sottostante)
 		next.ServeHTTP(rw, r)

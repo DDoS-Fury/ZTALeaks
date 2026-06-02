@@ -107,10 +107,9 @@ services:
         condition: service_started
     env_file:
       - ../../.env
-    # NOTE: porta esposta temporaneamente per test diretti durante lo sviluppo;
-    # in produzione le richieste dovrebbero passare solo via Envoy.
-    ports:
-      - "8082:8082"
+    # Nessuna porta esposta sull'host: identity-service è raggiungibile solo
+    # via Envoy (PEP). Login/register e le rotte /api/v1/auth/* passano quindi
+    # da ext_authz → orchestrator → OPA (PDP), come tutte le altre rotte.
     volumes:
       - identity-logs:/var/log/ztaleaks/identity
     restart: unless-stopped

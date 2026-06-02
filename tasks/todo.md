@@ -102,10 +102,9 @@ Plan:
 
 ## Da chiedere agli altri
 
-### Auth/JWT nella business-logic?
-- **Cosa:** `services/business-logic/internal/middleware/logging.go` (righe 30 e 50) ha due `TODO (Futuro)` che prevedono autenticazione + verifica JWT dentro la business-logic.
-- **Tensione:** contraddice la scelta attuale (Step 5: OPA è l'unico decisore, niente auth/JWT nella business-logic). Però i compagni potrebbero volerla davvero implementare.
-- **Da decidere insieme:** teniamo i TODO (e in futuro implementiamo auth nella business-logic) oppure confermiamo "OPA unico decisore" e li rimuoviamo? Per ora **lasciati invariati** in attesa di risposta.
+### Auth/JWT nella business-logic?  ✅ RISOLTO (2026-06-02)
+- I due `TODO (Futuro)` in `services/business-logic/internal/middleware/logging.go` (righe 30 e 50) erano **commenti vecchi e superati**: la scelta architetturale corretta è quella attuale (OPA è l'unico decisore, niente auth/JWT nella business-logic).
+- **Rimossi** entrambi i commenti. Nessuna auth verrà implementata nella business-logic.
 
 ### Frontend — non è un sistema coerente
 I pezzi singoli sono buoni, ma come "frontend" sono **due app scollegate con due
@@ -114,7 +113,7 @@ mostrare il login, oppure dimostrare il controllo accessi differenziato per ruol
 (utente reale → JWT → Envoy+OPA → dati filtrati)?* Le due cose richiedono lavoro
 molto diverso. Punti emersi:
 - **Due mondi che non si parlano.** La UI di login (`identity-service/templates/login.html`, :8082) produce un JWT salvato nel browser; la dashboard (`tests/dashboard-app/`, :8080) NON usa quel JWT — si autentica con un **certificato client statico** montato nel container. Non esiste il flusso "utente fa login → usa la dashboard con la *sua* identità": la dashboard mostra sempre gli stessi dati con un'identità fissa.
-- **Il login bypassa il PEP.** La pagina chiama `/api/v1/auth/...` in modo relativo → parla **direttamente** all'identity-service su :8082, non passa da Envoy (il compose lo dice: "esposto temporaneamente per test"). Per lo Zero Trust il PEP dovrebbe stare davanti a tutto.
+- ~~**Il login bypassa il PEP.**~~ ✅ RISOLTO (2026-06-02): rimossa l'esposizione host `8082:8082` da `docker-compose.yaml` e `docker-compose.arm.yaml`. identity-service ora è raggiungibile **solo via Envoy** (auth-net). I template usano già path relativi, quindi `/login`, `/register` e `/api/v1/auth/*` passano da Envoy → ext_authz → orchestrator → OPA (PDP), che le consente come public path. La rotta di login è ora valutata dal PDP come tutte le altre.
 - **JWT in `localStorage`** → esposto a XSS. Per un progetto di sicurezza, cookie `httpOnly`+`Secure` è più difendibile.
 - **Residui di stato "test":** il login reindirizza a `/reserved`, che non risulta una rotta registrata (probabile 404); la dashboard chiama `/api/v1/reactor` invece di `/api/v1/reactor-parameters`.
 - **Doc disallineata:** il CLAUDE.md descriveva una SPA nginx su :3000 che non esiste (già corretto nel working tree, non committato).
@@ -125,11 +124,10 @@ Audit eseguito sullo stack avviato in locale, testando ogni punto dal vivo.
 Già risolti in questa sessione: race boot business-logic e hardening avvio Envoy
 (commit unico). Restano i 3 punti sotto, **da discutere prima di toccarli**.
 
-### #1 — mTLS NON imposto dal PEP (Envoy)  🔴 Alta
-- **Cosa:** `infra/envoy/envoy.yaml` → `require_client_certificate: false`. Una connessione senza certificato client completa comunque l'handshake TLS e arriva all'orchestrator con `cert_present:false`. Il cert è validato solo dall'identity-service al login, non dal proxy. Contraddice lo Zero Trust (CLAUDE.md indica `true`).
-- **Test:** `curl -sk https://localhost:8443/...` senza cert → handshake OK, HTTP 403 (da OPA, non dal TLS).
-- **Fix proposto:** `require_client_certificate: true`.
-- **In pausa perché:** i certificati client li gestisce un compagno e li usa per altri test; va coordinato con lui.
+### #1 — mTLS NON imposto dal PEP (Envoy)  ✅ CHIUSO (2026-06-02) — comportamento voluto
+- **Cosa:** `infra/envoy/envoy.yaml` → `require_client_certificate: false`. Una connessione senza certificato client completa l'handshake TLS e arriva all'orchestrator con `cert_present:false`.
+- **Decisione:** `false` è **corretto e voluto**. Imporre il cert nel TLS (`true`) farebbe fallire l'handshake per le connessioni senza certificato, rendendo **irraggiungibile il tier 0** (risorse a bassa sensibilità, accesso no-cert). Il modello a 3 tier richiede che anche il traffico senza cert raggiunga OPA, che decide in base a `cert_present`. La validazione del cert resta a OPA (PDP), non al TLS.
+- **Nota:** il riferimento `true` nel CLAUDE.md è superato da questa scelta architetturale (admission a tier in OPA).
 
 ### #2 — `network_location` falsificabile (spoofing X-Forwarded-For)  🔴 Alta
 - **Cosa:** `services/security-orchestrator/internal/handler/handler.go:187` `clientIPFromRequest` prende il **primo** elemento di `X-Forwarded-For`, controllabile dal client. Envoy ha `use_remote_address: true` e appende l'IP reale in coda, ma l'orchestrator legge la testa → bug lato orchestrator.
@@ -137,10 +135,9 @@ Già risolti in questa sessione: race boot business-logic e hardening avvio Envo
 - **Fix proposto:** in Envoy usare `xff_num_trusted_hops`; nell'orchestrator fidarsi solo dell'IP impostato da Envoy (ultimo hop), non del primo elemento.
 - **Caveat:** in Docker l'IP "vero" è il gateway della bridge → verificare insieme che `network_location` continui a classificare sensatamente il traffico di test. Trasparente per il flusso normale; blocca solo lo spoof manuale.
 
-### #3 — Ramo anonimo scarta il certificato verso OPA  🟡 Media
-- **Cosa:** `handler.go:91` — nel ramo "nessun token" il cert è già parsato (`cc := cert.Parse(...)`) ma a OPA va `CertPresent: false` hardcoded e `Claims: nil`. Per richieste senza JWT, OPA non sa mai che c'era un cert (loggato ma non usato).
-- **Probabile intenzione:** serve comunque il JWT, quindi forse voluto. Resta un'incoerenza.
-- **Fix proposto (se confermato bug):** passare `CertPresent: cc.Present` e `CertSubject: cc.Subject` anche nel ramo anonimo.
+### #3 — Ramo anonimo scarta il certificato verso OPA  ✅ CHIUSO (2026-06-02) — non rilevante per OPA
+- **Cosa:** `handler.go:91` — nel ramo "nessun token" il cert è già parsato (`cc := cert.Parse(...)`) ma a OPA va `CertPresent: false` hardcoded e `Claims: nil`.
+- **Decisione:** non è un problema. Queste informazioni del cert nel ramo anonimo **non sono destinate a OPA**, ma al **modello AI** (vedi piano estensione AI policy). OPA continua a decidere su JWT + tier; il cert/contesto del ramo anonimo verrà consumato dal modello AI, non dal PDP Rego.
 
 ## Segreti/certificati nel repo — promemoria (NON emergenza)
 

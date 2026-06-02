@@ -2,13 +2,11 @@
 // AI Scorer Client — chiama il microservizio di anomaly detection
 // Project: ZTALeaks - Security Orchestrator
 // =============================================================================
-// Il microservizio (separato, in arrivo) e' un anomaly detector graph-based
-// che ricostruisce il pattern di richieste dell'utente e restituisce uno
-// score [0, 0.99]: piu' alto = piu' anomalo. Lo score viene poi consumato
-// da policy.rego (sezione 6) come threshold per la decisione.
-//
-// In caso di errore/timeout/URL non configurato → confidence "low" e score 0.
-// La policy in Rego attivera' il fallback deterministico basato sul contesto.
+// Il microservizio TGN valuta le richieste ricostruendo il grafo storico.
+// Implementa il flusso Anti-Poisoning in due step:
+// 1. Infer() valuta lo score (sola lettura).
+// 2. OPA decide.
+// 3. Se ALLOW, Update() committa l'evento nella memoria del modello.
 // =============================================================================
 
 package aiscorer
@@ -17,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -31,23 +30,27 @@ const (
 	ConfidenceLow  = "low"
 )
 
-// Score e' il risultato della valutazione AI.
+// ScoreResp e' il risultato della valutazione AI (restituito da /infer o /score).
+type ScoreResp struct {
+	AnomalyScore float64 `json:"anomaly_score"`
+	IsAnomaly    bool    `json:"is_anomaly"`
+	Threshold    float64 `json:"threshold"`
+}
+
+// Score incapsula la risposta del modello e la confidence della chiamata di rete.
 type Score struct {
 	Score      float64 `json:"score"`
 	Confidence string  `json:"confidence"`
 }
 
-// Features sono le feature inviate al microservizio per la singola richiesta.
-// Il modello accumulera' la sequenza per user_id costruendo il grafo lato AI.
-type Features struct {
-	UserID    string `json:"user_id"`
-	Method    string `json:"method"`
-	Path      string `json:"path"`
-	Timestamp string `json:"timestamp"`
-	HourOfDay int    `json:"hour_of_day"`
-	DayOfWeek int    `json:"day_of_week"`
-	JA3       string `json:"ja3,omitempty"`
-	ClientIP  string `json:"client_ip,omitempty"`
+// Event rappresenta la tupla da inviare al modello TGN.
+type Event struct {
+	KeySrc    string    `json:"key_src"`
+	KeyDst    string    `json:"key_dst"`
+	Timestamp int64     `json:"timestamp"`
+	Features  []float64 `json:"features"`
+	SrcFeat   []float64 `json:"src_feat,omitempty"`
+	DstFeat   []float64 `json:"dst_feat,omitempty"`
 }
 
 // Client e' il client HTTP verso ai-scorer. Url vuoto → fallback immediato.
@@ -63,39 +66,57 @@ func New() *Client {
 	}
 }
 
-// Evaluate chiama il microservizio. Su qualsiasi problema (env mancante,
-// timeout, HTTP non-200, JSON malformato) ritorna confidence "low" e score 0.
-func (c *Client) Evaluate(ctx context.Context, f Features) Score {
+// post effettua la chiamata HTTP.
+func (c *Client) post(ctx context.Context, path string, in any, out any) error {
 	if c.url == "" {
-		return Score{Score: 0, Confidence: ConfidenceLow}
+		return fmt.Errorf("AI_SCORER_URL non configurato")
 	}
-	body, err := json.Marshal(f)
+	body, err := json.Marshal(in)
 	if err != nil {
-		slog.Warn("ai-scorer: marshal fallito", "error", err)
-		return Score{Score: 0, Confidence: ConfidenceLow}
+		return fmt.Errorf("marshal fallito: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+path, bytes.NewReader(body))
 	if err != nil {
-		slog.Warn("ai-scorer: request fallita", "error", err)
-		return Score{Score: 0, Confidence: ConfidenceLow}
+		return fmt.Errorf("request fallita: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		slog.Warn("ai-scorer: chiamata fallita (timeout o rete)", "error", err)
-		return Score{Score: 0, Confidence: ConfidenceLow}
+		return fmt.Errorf("chiamata HTTP fallita: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("ai-scorer: HTTP non OK", "status", resp.StatusCode)
+		return fmt.Errorf("HTTP status %d", resp.StatusCode)
+	}
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return fmt.Errorf("decode fallito: %w", err)
+		}
+	}
+	return nil
+}
+
+// Infer chiama il microservizio in modalita' sola lettura (/infer) per ottenere lo score.
+func (c *Client) Infer(ctx context.Context, event Event) Score {
+	if c.url == "" {
 		return Score{Score: 0, Confidence: ConfidenceLow}
 	}
-	var out struct {
-		Score float64 `json:"score"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		slog.Warn("ai-scorer: decode fallito", "error", err)
+	var s ScoreResp
+	if err := c.post(ctx, "/infer", event, &s); err != nil {
+		slog.Warn("ai-scorer: infer fallito (timeout o rete)", "error", err)
 		return Score{Score: 0, Confidence: ConfidenceLow}
 	}
-	return Score{Score: out.Score, Confidence: ConfidenceHigh}
+	return Score{Score: s.AnomalyScore, Confidence: ConfidenceHigh}
+}
+
+// Update committa un evento nel modello chiamando /update.
+func (c *Client) Update(ctx context.Context, event Event) error {
+	if c.url == "" {
+		return nil
+	}
+	err := c.post(ctx, "/update", event, nil)
+	if err != nil {
+		slog.Warn("ai-scorer: update fallito", "error", err)
+	}
+	return err
 }

@@ -140,12 +140,15 @@ services:
         condition: service_healthy
       identity-service:
         condition: service_started  # JWKS endpoint deve essere up
+      ai-inference:
+        condition: service_healthy
     env_file:
       - ../../.env
     restart: unless-stopped
     environment:
       - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
       - SNORT_ALERTS_TCP_PORT=${SNORT_ALERTS_TCP_PORT:-9000}
+      - AI_SCORER_URL=http://ai-inference:8088
     volumes:
       - orchestrator-logs:/var/log/ztaleaks/orchestrator
     networks:
@@ -222,6 +225,35 @@ services:
     restart: unless-stopped
     networks:
       - auth-net
+
+  ai-inference:
+    build:
+      context: ../../infra/ai-inference
+      dockerfile: docker/Dockerfile
+    container_name: ztaleaks_ai_inference
+    image: graphagate
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ../../infra/ai-inference/public:/app/public
+      - ../../infra/ai-inference/src:/app/src
+    command: ["graphagate.serve_api"]
+    ports:
+      - "8888:8088"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8088/health').status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - auth-net
+    restart: unless-stopped
 
   seeder:
     build:

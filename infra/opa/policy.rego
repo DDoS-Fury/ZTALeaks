@@ -31,6 +31,7 @@ import rego.v1
 #   - allow:        bool — decisione finale (PEP la consuma)
 #   - risk_bucket:  "low"|"medium"|"high" — usato dall'orchestrator per audit
 #   - risk_score:   int — fallback deterministico (solo per confidence=low)
+#   - ai_score:     float — score dal modello AI (se disponibile)
 # =============================================================================
 
 default allow := false
@@ -271,3 +272,9 @@ fallback_bucket := "medium" if {
 }
 
 fallback_bucket := "low" if risk_score < 25
+
+# -----------------------------------------------------------------------------
+# 7. EXPORTED VARIABLES FOR LOGGING
+# -----------------------------------------------------------------------------
+ai_score := input.ai.score
+

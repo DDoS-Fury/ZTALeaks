@@ -1,0 +1,6 @@
+services:
+  ai-inference:
+    deploy:
+      resources:
+        reservations:
+          devices: []

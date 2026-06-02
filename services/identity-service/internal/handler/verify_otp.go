@@ -106,7 +106,7 @@ func (api *IdentityAPI) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		JA3Finger: ja3,
 	})
 
-	slog.Info("login completato", "user_id", user.ID, "device_enrolled", deviceID != "")
+	slog.Info("login completato", "username", user.Username, "role", user.Role, "src_ip", r.RemoteAddr)
 	respondJSON(w, http.StatusOK, tokenResponse{
 		AccessToken: tok,
 		ExpiresIn:   int(crypto.AccessTokenTTL.Seconds()),

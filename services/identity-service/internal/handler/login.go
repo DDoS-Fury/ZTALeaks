@@ -33,6 +33,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Username == "" || req.Password == "" {
 		respondError(w, "credenziali mancanti", http.StatusBadRequest)
+		slog.Warn("login fallito: credenziali mancanti", "username", req.Username, "role", "guest", "src_ip", r.RemoteAddr)
 		return
 	}
 
@@ -42,6 +43,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		dummy, _ := crypto.GenerateFromPassword("dummy")
 		_, _ = crypto.ComparePasswordAndHash(req.Password, dummy)
 		respondError(w, "credenziali non valide", http.StatusUnauthorized)
+		slog.Warn("login fallito: password errata", "username", user.Username, "role", user.Role, "src_ip", r.RemoteAddr)
 		return
 	}
 
@@ -52,20 +54,20 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	if !certPresent {
 		// 1. Se il certificato non è presente, l'utente DEVE avere il ruolo guest
 		if !strings.EqualFold(user.Role, "guest") {
-			slog.Warn("login fallito: certificato mancante per non-guest", "username", req.Username)
+			slog.Warn("login fallito: certificato mancante per non-guest", "username", user.Username, "role", user.Role, "src_ip", r.RemoteAddr)
 			respondError(w, "accesso negato: certificato mTLS richiesto per questo ruolo", http.StatusForbidden)
 			return
 		}
 	} else {
 		// 2. Controllo CN == username (case-insensitive)
 		if !strings.EqualFold(cn, req.Username) {
-			slog.Warn("login fallito: mismatch CN-Username", "cn", cn, "username", req.Username)
+			slog.Warn("login fallito: mismatch CN-Username", "cn", cn, "username", user.Username, "role", user.Role, "src_ip", r.RemoteAddr)
 			respondError(w, "accesso negato: certificato non corrisponde all'utente", http.StatusForbidden)
 			return
 		}
 		// 3. Controllo OU (nel certificato) == Role (nel database) (case-insensitive)
 		if !strings.EqualFold(ou, user.Role) {
-			slog.Warn("login fallito: mismatch OU-Role", "ou", ou, "role", user.Role)
+			slog.Warn("login fallito: mismatch OU-Role", "ou", ou, "username", user.Username, "role", user.Role, "src_ip", r.RemoteAddr)
 			respondError(w, "accesso negato: ruolo certificato non valido", http.StatusForbidden)
 			return
 		}
@@ -74,6 +76,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	ok, err := crypto.ComparePasswordAndHash(req.Password, user.PasswordHash)
 	if err != nil || !ok {
 		respondError(w, "credenziali non valide", http.StatusUnauthorized)
+		slog.Warn("login fallito: password errata", "username", user.Username, "role", user.Role, "src_ip", r.RemoteAddr)
 		return
 	}
 
@@ -81,6 +84,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	otp, err := generateOTP()
 	if err != nil {
 		respondError(w, "errore generazione OTP", http.StatusInternalServerError)
+
 		return
 	}
 	sessionToken := newSessionToken()

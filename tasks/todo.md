@@ -145,10 +145,10 @@ Già risolti in questa sessione: race boot business-logic e hardening avvio Envo
 `SPLUNK_HEC_TOKEN`) e le chiavi private in `certs/` (`ca.key`, `server.key`,
 `admin.key`, ...) sono committati. **Per un progetto universitario è una scelta
 consapevole e pratica** (serve una CA condivisa perché l'mTLS funzioni per tutti),
-non un'emergenza. Da verificare/ricordare:
-- [ ] Confermare che il **repo è privato** (se diventasse pubblico → problema serio).
-- [ ] Confermare che lo **Splunk è quello locale** del compose (token/password non di un'istanza reale/condivisa).
-- [ ] Non riusare quelle password altrove (es. email reali): sono credenziali usa-e-getta del lab.
+non un'emergenza. **Confermato 2026-06-02:**
+- [x] **Repo privato** → confermato dall'utente, non un problema.
+- [x] **Splunk locale**: istanza locale con licenza di prova (60 giorni) presente nei container; se i container vengono eliminati l'immagine si azzera. Token/password non di un'istanza reale/condivisa.
+- [x] **Password non riusate altrove**: confermato, credenziali usa-e-getta del lab.
 - [ ] (Opzionale) aggiungere un `.env.example` con placeholder per documentazione.
 
 ## Fix applicati in questa sessione (per la call)

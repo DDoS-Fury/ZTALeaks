@@ -1,3 +1,3 @@
 [submodule "infra/ai-inference"]
 	path = infra/ai-inference
-	url = git@github.com:DDoS-Fury/Graphagate
+	url = https://github.com/DDoS-Fury/Graphagate.git

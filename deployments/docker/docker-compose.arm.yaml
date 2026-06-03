@@ -29,6 +29,7 @@ services:
           - ztaleaks_envoy
       back-net: {}
       auth-net: {}
+      snort-net: {}
     restart: unless-stopped
 
   envoy:
@@ -138,19 +139,21 @@ services:
         condition: service_healthy
       identity-service:
         condition: service_started  # JWKS endpoint deve essere up
+      ai-inference:
+        condition: service_healthy
     env_file:
       - ../../.env
     restart: unless-stopped
     environment:
       - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
-    # Esposto temp per test diretti durante lo sviluppo (rimuovere dopo step 4)
-    ports:
-      - "8081:8081"
+      - SNORT_ALERTS_TCP_PORT=${SNORT_ALERTS_TCP_PORT:-9000}
+      - AI_SCORER_URL=http://ai-inference:8088
     volumes:
       - orchestrator-logs:/var/log/ztaleaks/orchestrator
     networks:
       - front-net
       - auth-net
+      - snort-net
 
   opa:
     image: openpolicyagent/opa:latest-envoy
@@ -173,7 +176,9 @@ services:
       - "/data.json"
     restart: unless-stopped
     networks:
-      - auth-net
+      auth-net:
+        aliases:
+          - opa
 
   business-logic:
     build:
@@ -220,6 +225,28 @@ services:
     networks:
       - auth-net
 
+  ai-inference:
+    build:
+      context: ../../infra/ai-inference
+      dockerfile: docker/Dockerfile
+    container_name: ztaleaks_ai_inference
+    image: graphagate
+    volumes:
+      - ../../infra/ai-inference/public:/app/public
+      - ../../infra/ai-inference/src:/app/src
+    command: ["graphagate.serve_api"]
+    ports:
+      - "8888:8088"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8088/health').status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - auth-net
+    restart: unless-stopped
+
   seeder:
     build:
       context: ../../tools/seeder
@@ -234,6 +261,56 @@ services:
     networks:
       - back-net
 
+  # splunk:
+  #   image: splunk/splunk:latest
+  #   container_name: ztaleaks_splunk
+  #   env_file:
+  #     - ../../.env
+  #   environment:
+  #     - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
+  #     - SPLUNK_START_ARGS=--accept-license --answer-yes
+  #   ports:
+  #     - "8000:8000"
+  #     - "8088:8088"
+  #     - "9997:9997"
+  #   volumes:
+  #     - splunk-etc:/opt/splunk/etc
+  #     - splunk-var:/opt/splunk/var
+  #   restart: unless-stopped
+  #   networks:
+  #     back-net:
+  #       aliases:
+  #         - splunk
+
+  # splunk-uf:
+  #   image: splunk/universalforwarder:latest
+  #   container_name: ztaleaks_splunk_uf
+  #   user: root
+  #   env_file:
+  #     - ../../.env
+  #   environment:
+  #     - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
+  #     - SPLUNK_START_ARGS=--accept-license --answer-yes --run-as-root
+  #     - SPLUNK_USER=root
+  #     - SPLUNK_STANDALONE_URL=splunk
+  #   depends_on:
+  #     - splunk
+  #   volumes:
+  #     - ../../infra/splunk-uf:/opt/splunkforwarder/etc/apps/ztaleaks_forwarder/local
+  #     - firewall-logs:/var/log/ztaleaks/nftables:ro
+  #     - envoy-logs:/var/log/ztaleaks/envoy:ro
+  #     - snort-logs:/var/log/ztaleaks/snort:ro
+  #     - snort-internal-logs:/var/log/ztaleaks/snort-internal:ro
+  #     - snort-mid-logs:/var/log/ztaleaks/snort-mid:ro
+  #     - business-logs:/var/log/ztaleaks/business-logic:ro
+  #     - identity-logs:/var/log/ztaleaks/identity:ro
+  #     - orchestrator-logs:/var/log/ztaleaks/orchestrator:ro
+  #     - opa-logs:/var/log/ztaleaks/opa:ro
+  #     - business-db-logs:/var/log/ztaleaks/mongodb:ro
+  #     - security-db-logs:/var/log/ztaleaks/security-db:ro
+  #   restart: unless-stopped
+  #   networks:
+  #     - back-net
 
   alerts-tester:
     build:
@@ -258,6 +335,13 @@ networks:
     ipam:
       config:
         - subnet: 172.32.0.0/24
+  # Rete privata dedicata al trasporto allert Snort -> Security Orchestrator
+  # (TCP socket persistente sostituisce il vecchio endpoint HTTP).
+  snort-net:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.33.0.0/24
 
 volumes:
   business-db-data:
@@ -273,5 +357,5 @@ volumes:
   identity-logs:
   orchestrator-logs:
   opa-logs:
-  splunk-etc:
-  splunk-var:
+  # splunk-etc:
+  # splunk-var:

@@ -1,10 +1,24 @@
 # ZTALeaks
 
-## Zero Trust Architecture for Nuclear Plant Management Systems
+![Copertina](docs/images/rdm1.png)
 
----
+<div align="center">
+  <img src="https://img.shields.io/badge/go-%2300ADD8.svg?style=for-the-badge&logo=go&logoColor=white" alt="Go" />
+  <img src="https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54" alt="Python" />
+  <img src="https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white" alt="PyTorch" />
+  <img src="https://img.shields.io/badge/scikit--learn-%23F7931E.svg?style=for-the-badge&logo=scikit-learn&logoColor=white" alt="scikit-learn" />
+  <img src="https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/kubernetes-%23326ce5.svg?style=for-the-badge&logo=kubernetes&logoColor=white" alt="Kubernetes" />
+  <img src="https://img.shields.io/badge/MongoDB-%234ea94b.svg?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
+  <img src="https://img.shields.io/badge/envoy-%23242424.svg?style=for-the-badge&logo=envoyproxy&logoColor=white" alt="Envoy" />
+  <img src="https://img.shields.io/badge/OPA-%23323D47.svg?style=for-the-badge&logo=open-policy-agent&logoColor=white" alt="Open Policy Agent" />
+  <img src="https://img.shields.io/badge/splunk-%23000000.svg?style=for-the-badge&logo=splunk&logoColor=white" alt="Splunk" />
+  <img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License: MIT" />
+</div>
 
-## Table of Contents
+<br/>
+
+## Summary
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)

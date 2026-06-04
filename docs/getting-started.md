@@ -7,12 +7,30 @@ Welcome to the ZTALeaks Zero Trust Architecture simulation. This guide will help
 Before starting, ensure you have the following installed on your machine:
 - **Docker**
 - **Docker Compose**
+- **CUDA runtime** (to train the model)
 
-### 1. Configuration (`.env`)
+Once downloaded this repository, since it has a submodule you must launch the following command.
+```bash
+git submodule update --init --recursive
+```
+
+### Configuration (`.env`)
 You must configure the required environment variables before starting the cluster. 
 Create an `.env` file in the root directory and ensure the following variables are set:
 - Splunk HTTP Event Collector (HEC) tokens
 - Database passwords and credentials for both Security DB (device fingerprints) and Business DB (application data)
+
+### AI Model Initialization
+In order to make the solution functionable, you MUST train Graphadata (to obtain the weights). That operation require only 2 minutes on a RTX 5070TI Blackwell, you must have (at least) 7GB of free VRAM; althought you must change some settings. If you have problem, let us know, so we can give you the weights. Below the commands.
+
+- enter the `infra/ai-inference/` .
+- launch the following compose command.
+```bash
+   docker compose --profile training-tgn up --build
+```
+- once finished, return to the repo's root and enjoy your AI-based ZTA!
+
+
 
 ## Starting the Environment
 
@@ -23,7 +41,7 @@ To build and start all the services in detached mode, run:
 docker-compose -f deployments/docker-compose/docker-compose.yaml up -d --build
 ```
 
-### 2. Seeding the Database (First Run)
+### Seeding the Database (First Run)
 The database structure is created automatically on the first start, but it remains empty. To populate the Business DB with realistic test data (personnel, zones, access badges, reactor parameters), you must explicitly run the `seeder` profile:
 ```bash
 docker-compose -f deployments/docker-compose/docker-compose.yaml --profile seed up -d seeder
@@ -33,6 +51,7 @@ To stop the environment:
 ```bash
 docker-compose -f deployments/docker-compose/docker-compose.yaml down
 ```
+
 
 ## Testing the Solution
 

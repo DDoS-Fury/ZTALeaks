@@ -10,29 +10,75 @@
 // =============================================================================
 
 db = db.getSiblingDB('nuclear_plant_db');
-
-// ---------------------------------------------------------------------------
-// Service account for the PEP (Envoy proxy).
-// Requires readWrite to forward authorized CRUD operations from clients.
-// In a production environment, this would be further restricted using
-// collection-level privileges via custom roles.
-// ---------------------------------------------------------------------------
+// 1. Creiamo un ruolo personalizzato che permette l'accesso SOLO alle collezioni 'personnel' e 'reactor_parameters'
+db.createRole({
+    role: "adminRole",
+    privileges: [
+        {
+            resource: { db: "nuclear_plant_db", collection: "personnel" },
+            actions: ["find", "insert", "update", "remove"]
+        },
+        {
+            resource: { db: "nuclear_plant_db", collection: "reactor_parameters" },
+            actions: ["find", "insert", "update", "remove"]
+        },
+        {
+            resource: { db: "nuclear_plant_db", collection: "nuclear_materials" },
+            actions: ["find", "insert", "update", "remove"]
+        },
+        {
+            resource: { db: "nuclear_plant_db", collection: "documents" },
+            actions: ["find", "insert", "update", "remove"]
+        }
+    ],
+    roles: []
+});
+db.createRole({
+    role: "managerRole",
+    privileges: [
+        {
+            resource: { db: "nuclear_plant_db", collection: "personnel" },
+            actions: ["find", "insert", "update", "remove"]
+        },
+        {
+            resource: { db: "nuclear_plant_db", collection: "nuclear_materials" },
+            actions: ["find", "insert", "update", "remove"]
+        },
+        {
+            resource: { db: "nuclear_plant_db", collection: "documents" },
+            actions: ["find", "insert", "update", "remove"]
+        }
+    ],
+    roles: []
+});
+db.createRole({
+    role: "operatorRole",
+    privileges: [
+        {
+            resource: { db: "nuclear_plant_db", collection: "personnel" },
+            actions: ["find", "insert", "update", "remove"]
+        }
+    ],
+    roles: []
+});
+// 2. Assegniamo questo nuovo ruolo all'utente admin_client
 db.createUser({
-    user: "envoy_service",
-    pwd: "envoyServicePass2025!",
-    roles: [{ role: "readWrite", db: "nuclear_plant_db" }]
+    user: "admin_client",
+    pwd: "adminPass2026!",
+    roles: [{ role: "adminCustomRole", db: "nuclear_plant_db" }]
+});
+db.createUser({
+    user: "manager_client",
+    pwd: "adminPass2026!",
+    roles: [{ role: "adminCustomRole", db: "nuclear_plant_db" }]
+});
+db.createUser({
+    user: "operator_client",
+    pwd: "adminPass2026!",
+    roles: [{ role: "adminCustomRole", db: "nuclear_plant_db" }]
 });
 
-// ---------------------------------------------------------------------------
-// Service account for the seed process.
-// Requires readWrite to perform the initial data population.
-// This account should be disabled or removed after initial deployment.
-// ---------------------------------------------------------------------------
-db.createUser({
-    user: "seed_service",
-    pwd: "seedServicePass2025!",
-    roles: [{ role: "readWrite", db: "nuclear_plant_db" }]
-});
+
 
 // ---------------------------------------------------------------------------
 // Read-only service account for the observability stack (Splunk).

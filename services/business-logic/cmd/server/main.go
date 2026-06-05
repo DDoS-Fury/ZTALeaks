@@ -46,10 +46,8 @@ func main() {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
-	database := appConfig.Database
-
 	// Initialize repositories and API handler
-	repos := db.InitRepositories(database)
+	repos := db.InitRepositories(appConfig)
 	api := handler.NewAPIHandler(repos)
 
 	// Register routes

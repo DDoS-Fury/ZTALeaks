@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 
 	"ztaleaks/business-logic/internal/models"
 
@@ -39,14 +38,11 @@ func (r *mongoNuclearMaterialRepo) computeDataIntegrityHash(m *models.NuclearMat
 }
 
 func (r *mongoNuclearMaterialRepo) Create(ctx context.Context, material *models.NuclearMaterial) error {
-	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Creating nuclear material", "material_id", material.MaterialID, "req_id", reqID)
 
 	material.DataIntegrityHash = r.computeDataIntegrityHash(material)
 
 	_, err := r.collection.InsertOne(ctx, material)
 	if err != nil {
-		slog.Error("Failed to insert nuclear material", "error", err, "req_id", reqID)
 		return fmt.Errorf("failed to create nuclear material: %w", err)
 	}
 
@@ -54,8 +50,6 @@ func (r *mongoNuclearMaterialRepo) Create(ctx context.Context, material *models.
 }
 
 func (r *mongoNuclearMaterialRepo) GetByID(ctx context.Context, id string) (*models.NuclearMaterial, error) {
-	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Fetching nuclear material by ID", "material_id", id, "req_id", reqID)
 
 	var material models.NuclearMaterial
 	err := r.collection.FindOne(ctx, bson.M{"material_id": id}).Decode(&material)
@@ -63,7 +57,6 @@ func (r *mongoNuclearMaterialRepo) GetByID(ctx context.Context, id string) (*mod
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("nuclear material not found")
 		}
-		slog.Error("Failed to fetch nuclear material", "error", err, "req_id", reqID)
 		return nil, fmt.Errorf("failed to fetch nuclear material: %w", err)
 	}
 
@@ -71,20 +64,16 @@ func (r *mongoNuclearMaterialRepo) GetByID(ctx context.Context, id string) (*mod
 }
 
 func (r *mongoNuclearMaterialRepo) GetAll(ctx context.Context) ([]*models.NuclearMaterial, error) {
-	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Fetching all nuclear materials", "req_id", reqID)
 
 	opts := options.Find().SetSort(bson.D{{Key: "material_id", Value: 1}})
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
-		slog.Error("Failed to fetch nuclear materials", "error", err, "req_id", reqID)
 		return nil, fmt.Errorf("failed to fetch nuclear materials: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	var materials []*models.NuclearMaterial
 	if err = cursor.All(ctx, &materials); err != nil {
-		slog.Error("Cursor decode error", "error", err, "req_id", reqID)
 		return nil, fmt.Errorf("failed to decode nuclear materials: %w", err)
 	}
 
@@ -92,8 +81,6 @@ func (r *mongoNuclearMaterialRepo) GetAll(ctx context.Context) ([]*models.Nuclea
 }
 
 func (r *mongoNuclearMaterialRepo) Update(ctx context.Context, material *models.NuclearMaterial) error {
-	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Updating nuclear material", "material_id", material.MaterialID, "req_id", reqID)
 
 	material.DataIntegrityHash = r.computeDataIntegrityHash(material)
 
@@ -103,7 +90,6 @@ func (r *mongoNuclearMaterialRepo) Update(ctx context.Context, material *models.
 		bson.M{"$set": material},
 	)
 	if err != nil {
-		slog.Error("Failed to update nuclear material", "error", err, "req_id", reqID)
 		return fmt.Errorf("failed to update nuclear material: %w", err)
 	}
 
@@ -115,12 +101,9 @@ func (r *mongoNuclearMaterialRepo) Update(ctx context.Context, material *models.
 }
 
 func (r *mongoNuclearMaterialRepo) Delete(ctx context.Context, id string) error {
-	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Deleting nuclear material", "material_id", id, "req_id", reqID)
 
 	result, err := r.collection.DeleteOne(ctx, bson.M{"material_id": id})
 	if err != nil {
-		slog.Error("Failed to delete nuclear material", "error", err, "req_id", reqID)
 		return fmt.Errorf("failed to delete nuclear material: %w", err)
 	}
 

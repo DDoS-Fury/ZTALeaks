@@ -20,12 +20,11 @@ type mongoPersonnelRepo struct {
 }
 
 // NewMongoPersonnelRepository creates a new PersonnelRepository
-func NewMongoPersonnelRepository(db *mongo.Database) PersonnelRepository {
+func NewMongoPersonnelRepository(connessioni *mongo.Database) PersonnelRepository {
 	return &mongoPersonnelRepo{
-		collection: db.Collection("personnel"),
+		collection: connessioni.Collection("personnel"),
 	}
 }
-
 func (r *mongoPersonnelRepo) computeDataIntegrityHash(p *models.Personnel) string {
 	data := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s",
 		p.EmployeeID,

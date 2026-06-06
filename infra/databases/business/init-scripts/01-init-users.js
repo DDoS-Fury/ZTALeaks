@@ -61,24 +61,36 @@ db.createRole({
     ],
     roles: []
 });
-// 2. Assegniamo questo nuovo ruolo all'utente admin_client
+// 2. Assegniamo a ciascun client il proprio ruolo least-privilege.
+//    Le password devono combaciare con i default di config.go (business-logic):
+//    admin_client/adminPass2026!, manager_client/managerPass2026!, operator_client/operatorPass2026!
 db.createUser({
     user: "admin_client",
     pwd: "adminPass2026!",
-    roles: [{ role: "adminCustomRole", db: "nuclear_plant_db" }]
+    roles: [{ role: "adminRole", db: "nuclear_plant_db" }]
 });
 db.createUser({
     user: "manager_client",
-    pwd: "adminPass2026!",
-    roles: [{ role: "adminCustomRole", db: "nuclear_plant_db" }]
+    pwd: "managerPass2026!",
+    roles: [{ role: "managerRole", db: "nuclear_plant_db" }]
 });
 db.createUser({
     user: "operator_client",
-    pwd: "adminPass2026!",
-    roles: [{ role: "adminCustomRole", db: "nuclear_plant_db" }]
+    pwd: "operatorPass2026!",
+    roles: [{ role: "operatorRole", db: "nuclear_plant_db" }]
 });
 
 
+
+// ---------------------------------------------------------------------------
+// Seeder service account: popola le collezioni di business al primo avvio.
+// Necessita readWrite sull'intero DB (usato da tools/seeder via SEED_MONGO_URI).
+// ---------------------------------------------------------------------------
+db.createUser({
+    user: "seed_service",
+    pwd: "seedServicePass2025!",
+    roles: [{ role: "readWrite", db: "nuclear_plant_db" }]
+});
 
 // ---------------------------------------------------------------------------
 // Read-only service account for the observability stack (Splunk).

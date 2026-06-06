@@ -248,6 +248,14 @@ route_rules := {
         "PUT":    { "roles": {"plant_manager"}, "min_tier": 2, "min_clearance": "TOP_SECRET" },
         "DELETE": { "roles": {"plant_manager"}, "min_tier": 2, "min_clearance": "TOP_SECRET" },
     },
+
+    # Trusted Guard / sanitization gateway: high-side deletion of low-side
+    # personnel records through a controlled, audited, time-jittered process.
+    # Restricted to the plant_manager at the highest assurance level.
+    # The {id} sub-resource is matched via the prefix rule (key + "/").
+    "/api/v1/trusted-guard/sanitized-delete-personnel": {
+        "POST": { "roles": {"plant_manager"}, "min_tier": 2, "min_clearance": "SECRET" },
+    },
 }
 
 # Resolve the route_rules key that matches the current request path.

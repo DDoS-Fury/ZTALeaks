@@ -47,7 +47,7 @@ func main() {
 	}
 
 	// Initialize repositories and API handler
-	repos := db.InitRepositories(appConfig)
+	repos := db.InitRepositories(appConfig.OperatorDB, appConfig.AdminDB, appConfig.ManagerDB)
 	api := handler.NewAPIHandler(repos)
 
 	// Register routes

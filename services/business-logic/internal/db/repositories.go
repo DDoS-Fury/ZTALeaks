@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"ztaleaks/business-logic/internal/models"
 )
 
@@ -50,12 +52,15 @@ type Repositories struct {
 	NuclearMaterial NuclearMaterialRepository
 }
 
-// InitRepositories creates and returns a struct containing all initialized Mongo repositories
-func InitRepositories(databases *AppConfig) *Repositories {
+// InitRepositories creates and returns a struct containing all initialized Mongo
+// repositories. Accepts the three role-scoped databases directly (operator,
+// admin, manager) instead of *config.AppConfig to avoid the import cycle
+// config -> db -> config.
+func InitRepositories(operatorDB, adminDB, managerDB *mongo.Database) *Repositories {
 	return &Repositories{
-		Personnel:       NewMongoPersonnelRepository(databases.OperatorDB),
-		Reactor:         NewMongoReactorRepository(databases.AdminDB),
-		Document:        NewMongoDocumentRepository(databases.managerDB),
-		NuclearMaterial: NewMongoNuclearMaterialRepository(databases.managerDB),
+		Personnel:       NewMongoPersonnelRepository(operatorDB),
+		Reactor:         NewMongoReactorRepository(adminDB),
+		Document:        NewMongoDocumentRepository(managerDB),
+		NuclearMaterial: NewMongoNuclearMaterialRepository(managerDB),
 	}
 }

@@ -156,3 +156,31 @@ non un'emergenza. **Confermato 2026-06-02:**
 - ✅ `fix(identity)`: OTP ora hashato con HMAC-SHA256 + session token come salt (era SHA-256 semplice, rainbow-table su leak DB).
 - ✅ `chore(envoy)`: admin interface bound su `127.0.0.1` (era `0.0.0.0`, esposta sulle docker network).
 - ✅ `fix(dashboard-app)`: endpoint corretto `/api/v1/reactor-parameters` (era `/api/v1/reactor`, 404).
+
+## Frontend finale — Dashboard autenticata role-aware (2026-06-06)
+
+Obiettivo: frontend finale basato su quello esistente, accesso autenticato con
+azioni gated per ruolo, **solo frontend** (no backend/policy/seed), stile invariato.
+Modello ruoli di riferimento: `policy.rego` runtime (6 ruoli + tier + clearance).
+Piano: `~/.claude/plans/contesto-questa-una-calm-peach.md`.
+
+- [x] Nuovo `static/js/app.js`: token/JWT (`getToken`/`decodeJWT`/`isExpired`/`requireAuth`/`logout`), `apiFetch` con `Authorization: Bearer`, mirror RBAC di `policy.rego` (solo rotte implementate), `renderIdentity`.
+- [x] `templates/reserved.html` riscritta: dashboard SPA role-aware (nav + viste generate via JS in base al ruolo), tabelle dati generiche, form POST (JSON), DELETE per id, trusted-guard (annotato deny), pannello esito fedele, WebAuthn enroll invariato.
+- [x] `templates/materials.html`: fix bug regressione (chiamata senza Bearer → ora `apiFetch`), guardia `requireAuth`, link Dashboard; CSS tabella/badge spostato in `styles.css`.
+- [x] `templates/index.html`: link Dashboard in sidebar + stato login dinamico ("Vai alla Dashboard" se autenticato).
+- [x] `static/css/styles.css`: aggiunte additive (tabelle, badge, form, pannello esito, bottoni azione) con le variabili esistenti; nessun override.
+
+### Fix backend NECESSARI (il branch role_manage non compilava/partiva — preesistenti, commit ba66a96)
+Lo scope iniziale era frontend-only, ma per buildare e far girare lo stack (richiesto esplicitamente dall'utente) ho dovuto correggere bug preesistenti:
+- `services/business-logic/internal/db/repositories.go` + `cmd/server/main.go`: `InitRepositories` usava `AppConfig` non qualificato (import cycle config↔db) e campo `managerDB`. Ora accetta i 3 `*mongo.Database`. **Compila** (`go build ./...`).
+- `infra/databases/business/init-scripts/01-init-users.js`: ruolo inesistente `adminCustomRole`, password non allineate a `config.go`, `seed_service` rimosso dal commit ba66a96 → ripristinati ruoli corretti (`adminRole/managerRole/operatorRole`), password (`admin/manager/operatorPass2026!`) e `seed_service`.
+- `infra/opa/policy.rego`: aggiunta rotta `trusted-guard/sanitized-delete-personnel` (plant_manager, tier 2, SECRET). `opa check` OK, **28/28 test**.
+- Reinizializzato il volume `docker_business-db-data` (autorizzato dall'utente) → utenti ruolo creati, seeder ha ripopolato i dati.
+
+### Review
+- `git status`: 5 file frontend + 4 file backend (repositories.go, main.go, 01-init-users.js, policy.rego).
+- **Scelta architetturale**: dashboard come SPA dentro `/reserved` perché il backend espone page-route solo per `/`,`/materials`,`/reserved` e l'OPA whitelista esattamente questi → nuove pagine avrebbero richiesto toccare `routes.go` + `public_paths`.
+- **Rotte**: incluse solo le 5 realmente implementate (`personnel`, `documents`, `nuclear-materials`, `reactor-parameters`, `trusted-guard`). `zones`/`badges`/`maintenance-orders` (in policy ma non nel backend) escluse per evitare 404. `trusted-guard` inclusa ma annotata (non in `policy.rego` → deny atteso).
+- **RBAC client = solo UX**: il gating show/hide è per ruolo; tier/clearance/AI restano enforced server-side e la UI mostra fedelmente status+corpo (anche i deny). In un browser senza cert mTLS (tier 0) molte GET tornano 403: comportamento corretto, reso esplicito.
+- **Validazione statica fatta**: `node --check` su `app.js` OK; tutti gli script inline dei 3 template validati (new Function) OK; nessun delimitatore Go template `{{` nei file (no conflitti con `html/template`).
+- **Verifica E2E (da fare con lo stack su)**: `docker compose -f deployments/docker/docker-compose.yaml up -d --build business-logic`; login `operator1/admin123` via `:8443/login` + OTP da MailHog; controllare gating sidebar per ruolo, header `Authorization` presente su `/reserved` e `/materials`, deny 403 senza cert mTLS, `documents` GET ok (tier 0).

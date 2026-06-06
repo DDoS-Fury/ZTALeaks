@@ -5,45 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Materiali Nucleari - ZTALeaks</title>
     <link rel="stylesheet" href="/static/css/styles.css">
-    <style>
-        .table-wrapper { 
-            width: 100%; 
-            overflow-x: auto; 
-            margin-top: 1rem; 
-            background: var(--bg-card); 
-            border: 1px solid var(--border); 
-            border-radius: 8px; 
-        }
-        table { 
-            width: 100%; 
-            border-collapse: collapse; 
-            text-align: left; 
-        }
-        th, td { 
-            padding: 1rem; 
-            border-bottom: 1px solid var(--border); 
-        }
-        th { 
-            background-color: var(--bg-sidebar); 
-            color: var(--text-muted); 
-            font-weight: bold; 
-            text-transform: uppercase; 
-            font-size: 0.85rem; 
-            letter-spacing: 1px; 
-        }
-        tr:last-child td { border-bottom: none; }
-        tr:hover { background-color: rgba(255, 255, 255, 0.02); }
-        .status-badge { 
-            padding: 0.25rem 0.5rem; 
-            border-radius: 999px; 
-            font-size: 0.75rem; 
-            font-weight: bold; 
-            display: inline-block;
-        }
-        .status-active { background-color: rgba(34, 197, 94, 0.2); color: var(--success); }
-        .status-inactive { background-color: rgba(239, 68, 68, 0.2); color: var(--danger); }
-        .status-warning { background-color: rgba(245, 158, 11, 0.2); color: var(--accent); }
-    </style>
 </head>
 <body>
     <div class="layout">
@@ -54,6 +15,7 @@
             </div>
             <ul class="nav-list">
                 <li><a href="/" class="nav-link">Home</a></li>
+                <li><a href="/reserved" class="nav-link">Dashboard Operativa</a></li>
                 <li><a href="/materials" class="nav-link active">Materiali Nucleari</a></li>
             </ul>
         </nav>
@@ -91,18 +53,24 @@
         </main>
     </div>
 
+    <script src="/static/js/app.js"></script>
     <script>
+        // Guardia: senza token valido si torna al login.
+        ZTA.requireAuth();
+
         async function loadMaterials() {
             document.getElementById('loading-card').style.display = 'block';
             document.getElementById('table-card').style.display = 'none';
 
             try {
-                const response = await fetch('/api/v1/nuclear-materials');
+                // apiFetch allega sempre l'header Authorization: Bearer <jwt>
+                // (la versione precedente lo ometteva -> sempre negato da OPA/Envoy).
+                const response = await ZTA.apiFetch('GET', '/api/v1/nuclear-materials');
                 if (!response.ok) {
                     throw new Error(`Errore di Accesso: ${response.status} ${response.statusText}`);
                 }
-                const responseJson = await response.json();
-                
+                const responseJson = JSON.parse(response.text);
+
                 // If the response holds raw array, or it's wrapped in API envelope:
                 const materials = responseJson.data ? responseJson.data : responseJson;
                 

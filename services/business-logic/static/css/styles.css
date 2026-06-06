@@ -39,3 +39,57 @@ body {
 .landing-card { background: var(--bg-card); padding: 40px; border-radius: 8px; border: 1px solid var(--border); max-width: 600px; margin: 100px auto; text-align: center; }
 .landing-card h2 { color: var(--accent); font-size: 2rem; margin-bottom: 1.5rem; }
 .landing-card p { color: var(--text-muted); line-height: 1.6; margin-bottom: 2rem; }
+
+/* ===========================================================================
+   Componenti condivisi: tabelle, badge di stato, dashboard
+   (usati da materials.html e reserved.html)
+   =========================================================================== */
+
+/* Tabelle dati */
+.table-wrapper { width: 100%; overflow-x: auto; margin-top: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th, td { padding: 1rem; border-bottom: 1px solid var(--border); }
+th { background-color: var(--bg-sidebar); color: var(--text-muted); font-weight: bold; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px; }
+tr:last-child td { border-bottom: none; }
+tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+.cell-id { font-family: monospace; color: var(--accent); }
+.cell-chip { border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; }
+
+/* Badge di stato */
+.status-badge { padding: 0.25rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: bold; display: inline-block; }
+.status-active { background-color: rgba(34, 197, 94, 0.2); color: var(--success); }
+.status-inactive { background-color: rgba(239, 68, 68, 0.2); color: var(--danger); }
+.status-warning { background-color: rgba(245, 158, 11, 0.2); color: var(--accent); }
+
+/* Pulsanti azione (varianti usate nelle viste operative) */
+.btn-blue { background: var(--info); color: #fff; font-weight: bold; }
+.btn-blue:hover { opacity: 0.85; }
+.btn-red { background: var(--danger); color: #fff; font-weight: bold; }
+.btn-red:hover { opacity: 0.85; }
+.btn-green { background: var(--success); color: #06281a; font-weight: bold; }
+.btn-green:hover { opacity: 0.85; }
+.btn-logout { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+.btn-logout:hover { background: rgba(239, 68, 68, 0.1); }
+
+/* Identita' utente nell'header */
+.identity { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.35rem; }
+
+/* Barra azioni di una vista operativa */
+.action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+.action-note { color: var(--text-muted); font-size: 0.75rem; margin: 0.25rem 0 0.75rem; }
+
+/* Form di creazione risorsa */
+.resource-form { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: none; }
+.resource-form.open { display: block; }
+.resource-form label { display: block; font-size: 0.75rem; color: var(--text-muted); margin: 0.5rem 0 0.25rem; text-transform: uppercase; letter-spacing: 1px; }
+.resource-form input, .resource-form select { width: 100%; padding: 0.5rem; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-family: inherit; }
+.resource-form .form-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.resource-form .form-row > div { flex: 1; min-width: 140px; }
+
+/* Pannello esito / console delle policy */
+.result-panel { background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-top: 1rem; font-family: monospace; color: var(--success); white-space: pre-wrap; word-break: break-word; min-height: 4rem; max-height: 40vh; overflow-y: auto; }
+.result-panel.error { color: var(--danger); }
+
+/* Stato vuoto / messaggi */
+.empty-hint { color: var(--text-muted); padding: 1rem 0; }
+.badge-locked { font-size: 0.7rem; color: var(--danger); border: 1px solid var(--danger); border-radius: 4px; padding: 1px 5px; margin-left: 0.5rem; }

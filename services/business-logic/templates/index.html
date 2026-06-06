@@ -48,6 +48,7 @@
             </div>
             <ul class="nav-list">
                 <li><a href="/" class="nav-link active">Home</a></li>
+                <li><a href="/reserved" class="nav-link">Dashboard Operativa</a></li>
                 <li><a href="/materials" class="nav-link">Materiali Nucleari</a></li>
             </ul>
         </nav>
@@ -55,7 +56,7 @@
         <main class="content">
             <header class="content-header">
                 <h2>Dashboard Home</h2>
-                <div class="header-actions">
+                <div class="header-actions" id="header-actions">
                     <button class="btn btn-primary" onclick="window.location.href='/login'">Log In</button>
                     <button class="btn btn-secondary" onclick="alert('Demo feature')">Docs</button>
                 </div>
@@ -64,9 +65,27 @@
             <div class="landing-card">
                 <h2>Benvenuto in ZTALeaks</h2>
                 <p>Questa è la pagina base del servizio Business Logic e la tua area operativa principale. Per accedere in maniera sicura alle funzionalità del Reattore Nucleare e operare attraverso l'architettura Zero Trust, devi prima autenticarti con le tue credenziali valide e badge di accesso.</p>
-                <button class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1rem;" onclick="window.location.href='/login'">Procedi al Login in Area Sicura</button>
+                <button class="btn btn-primary" id="cta-btn" style="padding: 1rem 2rem; font-size: 1rem;" onclick="window.location.href='/login'">Procedi al Login in Area Sicura</button>
             </div>
         </main>
     </div>
+
+    <script src="/static/js/app.js"></script>
+    <script>
+        // Se gia' autenticati, offri l'accesso diretto alla dashboard.
+        (function () {
+            const token = ZTA.getToken();
+            if (!token || ZTA.isExpired(token)) return;
+            const claims = ZTA.decodeJWT(token);
+
+            document.getElementById('header-actions').innerHTML =
+                '<button class="btn btn-primary" onclick="window.location.href=\'/reserved\'">Vai alla Dashboard</button>' +
+                '<button class="btn btn-secondary" onclick="ZTA.logout()">Logout</button>';
+
+            const cta = document.getElementById('cta-btn');
+            cta.textContent = claims ? ('Entra nella Dashboard (' + claims.role + ')') : 'Entra nella Dashboard';
+            cta.setAttribute('onclick', "window.location.href='/reserved'");
+        })();
+    </script>
 </body>
 </html>

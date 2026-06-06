@@ -3,146 +3,383 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard ABAC/RBAC - ZTALeaks</title>
+    <title>Dashboard Operativa - ZTALeaks</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root {
-            --bg-dark: #0a0e17; --bg-card: #111827; --border: #1e293b; 
-            --text: #e2e8f0; --text-muted: #94a3b8; --accent: #f59e0b;
-            --btn-blue: #3b82f6; --btn-red: #ef4444; --btn-green: #10b981;
-        }
-        body {
-            font-family: system-ui, -apple-system, sans-serif; background: var(--bg-dark);
-            color: var(--text); padding: 20px;
-        }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
-        .container { display: flex; gap: 20px; max-width: 1200px; margin: 0 auto; }
-        .controls { flex: 1; background: var(--bg-card); border: 1px solid var(--border); padding: 20px; border-radius: 8px; }
-        .console { flex: 2; background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-y: auto; height: 75vh; font-family: monospace; color: #10b981; white-space: pre-wrap; }
-        h1, h2, h3 { color: var(--text); }
-        button { padding: 10px 15px; border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; transition: opacity 0.2s; }
-        button:hover { opacity: 0.8; }
-        .btn-blue { background: var(--btn-blue); }
-        .btn-red { background: var(--btn-red); }
-        .btn-green { background: var(--btn-green); }
-        .btn-gray { background: var(--border); color: var(--text); }
-        .btn-logout { background: transparent; border: 1px solid var(--btn-red); color: var(--btn-red); width: auto; }
-        .section { margin-bottom: 25px; }
-        .section h3 { font-size: 1rem; color: var(--text-muted); margin-bottom: 10px; border-bottom: 1px dotted var(--border); padding-bottom: 5px; }
+        /* Solo piccoli adattamenti locali; il grosso e' in styles.css */
+        .content-header { align-items: flex-start; }
+        .header-actions { gap: 0.5rem; }
+        .view { display: none; }
+        .view.active { display: block; }
+        .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
     </style>
 </head>
 <body>
-    <div style="max-width: 1200px; margin: 0 auto;">
-        <div class="header">
-            <div>
-                <h1>ZTA Leaks - Controllo Accessi</h1>
-                <p style="color: var(--text-muted); margin-top: 5px;" id="user-info">Decodifica Token in corso...</p>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>ZTALeaks</h1>
+                <p>Dashboard Operativa ZTA</p>
             </div>
-            <div>
-                <button class="btn-green" id="enroll-tpm-btn" style="width: auto; margin-right: 10px;">Registra Security Key</button>
-                <button class="btn-logout" onclick="logout()">Logout</button>
-            </div>
-        </div>
+            <ul class="nav-list" id="nav-list">
+                <li><a href="/" class="nav-link">Home</a></li>
+                <!-- Voci risorse generate dinamicamente in base al ruolo -->
+            </ul>
+        </nav>
 
-        <div class="container">
-            <div class="controls">
-                <div class="section">
-                    <h3>PUBBLICO / TIER 0</h3>
-                    <button class="btn-gray" onclick="doFetch('GET', '/api/v1/zones')">GET /zones</button>
+        <main class="content">
+            <header class="content-header">
+                <div>
+                    <h2 id="view-title">Dashboard</h2>
+                    <p class="identity" id="identity">Decodifica token in corso...</p>
                 </div>
-                
-                <div class="section">
-                    <h3>PERSONNEL (Security Officer / HR)</h3>
-                    <button class="btn-blue" onclick="doFetch('GET', '/api/v1/personnel')">GET /personnel</button>
-                    <button class="btn-red" onclick="doFetch('POST', '/api/v1/personnel', {name: 'Test', role: 'operator'})">POST /personnel (Crea)</button>
+                <div class="header-actions">
+                    <button class="btn btn-green" id="enroll-tpm-btn">Registra Security Key</button>
+                    <button class="btn btn-logout" id="logout-btn">Logout</button>
                 </div>
+            </header>
 
-                <div class="section">
-                    <h3>REACTOR (Operator / Plant Manager)</h3>
-                    <button class="btn-blue" onclick="doFetch('GET', '/api/v1/reactor-parameters')">GET /reactor-parameters</button>
-                </div>
-
-                <div class="section">
-                    <h3>MAINTENANCE (Tech / Plant Manager)</h3>
-                    <button class="btn-blue" onclick="doFetch('GET', '/api/v1/maintenance-orders')">GET /maintenance-orders</button>
-                    <button class="btn-green" onclick="doFetch('POST', '/api/v1/maintenance-orders', {equipment_id: 'PUMP-1', description: 'Test', priority: 'HIGH'})">POST /maintenance-orders</button>
-                </div>
-
-                <div class="section">
-                    <h3>NUCLEAR MATERIALS (Plant Manager / Tier 2)</h3>
-                    <!-- Questo richiede solitamente TPM/CERT e clearance TOP_SECRET -->
-                    <button class="btn-red" onclick="doFetch('GET', '/api/v1/nuclear-materials')">GET /nuclear-materials (Conf/Secret/TopS)</button>
-                    <button class="btn-red" onclick="doFetch('POST', '/api/v1/nuclear-materials', {material_type: 'URANIUM', quantity_kg: 1.5, status: 'STORED'})">POST /nuclear-materials (TopSecret)</button>
-                </div>
-            </div>
-
-            <div class="console" id="console">Seleziona un'operazione per vedere l'esito delle policy OPA...</div>
-        </div>
+            <div id="views"><!-- Viste generate dinamicamente --></div>
+        </main>
     </div>
 
+    <script src="/static/js/app.js"></script>
     <script>
-        const token = localStorage.getItem('access_token');
-        if (!token) {
-            window.location.href = '/login';
+        // === Guardia di autenticazione ===========================================
+        const claims = ZTA.requireAuth();
+        if (claims) {
+            ZTA.renderIdentity(document.getElementById('identity'));
+            buildDashboard(claims.role);
         }
 
-        // Estrai dati base dal JWT senza validazione vera e propria
-        try {
-            const payloadBase64 = token.split('.')[1];
-            const decodedJson = atob(payloadBase64);
-            const payload = JSON.parse(decodedJson);
-            document.getElementById('user-info').textContent = 
-                `Utente: ${payload.sub} | Ruolo: ${payload.role} | Clearance: ${payload.clearance_level} | Auth: ${payload.mfa_verified ? '2FA' : '1FA'}`;
-        } catch(e) {
-            document.getElementById('user-info').textContent = "Token non valido o illeggibile.";
-        }
+        document.getElementById('logout-btn').addEventListener('click', ZTA.logout);
 
-        const out = document.getElementById('console');
+        // === Configurazione risorse ==============================================
+        // Solo rotte realmente implementate nel backend. Le capacita' (GET/POST/
+        // DELETE) vengono filtrate per ruolo tramite il mirror RBAC (ZTA.roleCan).
+        const RESOURCES = [
+            {
+                key: 'personnel', label: 'Personnel', path: '/api/v1/personnel',
+                columns: ['id', 'name', 'role', 'department', 'clearance_level', 'status'],
+                sample: { name: 'Mario Rossi', role: 'operator', department: 'OPS' },
+                hasDelete: false,
+                trustedGuard: true, // POST sanitized-delete (admin, annotato)
+            },
+            {
+                key: 'reactor', label: 'Reactor Parameters', path: '/api/v1/reactor-parameters',
+                columns: ['id', 'reactor_id', 'parameter', 'value', 'unit', 'status'],
+                sample: { reactor_id: 'RX-1', parameter: 'core_temp', value: 320.5, unit: 'C' },
+                hasDelete: true,
+            },
+            {
+                key: 'documents', label: 'Documents', path: '/api/v1/documents',
+                columns: ['id', 'title', 'classification_level', 'author', 'status'],
+                sample: { title: 'Procedura Operativa', classification_level: 'INTERNAL', author: 'ops' },
+                hasDelete: true,
+            },
+            {
+                key: 'materials', label: 'Nuclear Materials', path: '/api/v1/nuclear-materials',
+                columns: ['material_id', 'type', 'description', 'mass_kg', 'classification_level', 'status'],
+                sample: { material_type: 'URANIUM', quantity_kg: 1.5, status: 'STORED' },
+                hasDelete: true,
+            },
+        ];
 
-        async function doFetch(method, url, body = null) {
-            out.textContent = `Richiesta in corso: ${method} ${url}...\n\n`;
-            try {
-                const opts = {
-                    method: method,
-                    headers: { 'Authorization': `Bearer ${token}` }
-                };
-                if (body) {
-                    opts.headers['Content-Type'] = 'application/json';
-                    opts.body = JSON.stringify(body);
-                }
-                
-                const response = await fetch(url, opts);
-                const text = await response.text();
-                
-                let appendStr = `Status: ${response.status} ${response.statusText}\n\n`;
-                if (!response.ok) {
-                    appendStr += `OPA / Envoy / Service ha rifiutato la richiesta.\n\nRisposta:\n${text}`;
-                } else {
-                    try { appendStr += JSON.stringify(JSON.parse(text), null, 2); } 
-                    catch { appendStr += text; }
-                }
-                
-                out.textContent = appendStr;
-            } catch (err) {
-                out.textContent = `Errore di rete: ${err.message}`;
+        const TRUSTED_GUARD_PATH = '/api/v1/trusted-guard/sanitized-delete-personnel';
+
+        // === Costruzione UI in base al ruolo =====================================
+        function buildDashboard(role) {
+            const navList = document.getElementById('nav-list');
+            const viewsEl = document.getElementById('views');
+            let firstKey = null;
+
+            RESOURCES.forEach(res => {
+                // Voce di navigazione solo se il ruolo puo' almeno leggere la risorsa.
+                if (!ZTA.roleCan(role, res.path, 'GET')) return;
+                if (!firstKey) firstKey = res.key;
+
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#';
+                a.className = 'nav-link';
+                a.textContent = res.label;
+                a.dataset.view = res.key;
+                a.addEventListener('click', (e) => { e.preventDefault(); showView(res.key); });
+                li.appendChild(a);
+                navList.appendChild(li);
+
+                viewsEl.appendChild(buildView(res, role));
+            });
+
+            if (firstKey) {
+                showView(firstKey);
+            } else {
+                viewsEl.innerHTML = '<div class="landing-card"><h2>Nessuna risorsa</h2>' +
+                    '<p>Il tuo ruolo non ha accesso in lettura a nessuna risorsa operativa esposta.</p></div>';
+                document.getElementById('view-title').textContent = 'Dashboard';
             }
         }
 
-        function logout() {
-            localStorage.removeItem('access_token');
-            window.location.href = '/login';
+        function buildView(res, role) {
+            const section = document.createElement('section');
+            section.className = 'view';
+            section.dataset.view = res.key;
+
+            // --- Barra azioni (gated per ruolo) ---
+            const bar = document.createElement('div');
+            bar.className = 'action-bar';
+
+            const refresh = mkBtn('Aggiorna Dati', 'btn btn-primary');
+            refresh.addEventListener('click', () => loadList(res));
+            bar.appendChild(refresh);
+
+            const canCreate = ZTA.roleCan(role, res.path, 'POST');
+            if (canCreate) {
+                const createToggle = mkBtn('Nuovo (POST)', 'btn btn-green');
+                createToggle.addEventListener('click', () => {
+                    section.querySelector('.resource-form').classList.toggle('open');
+                });
+                bar.appendChild(createToggle);
+            }
+            section.appendChild(bar);
+
+            // --- Form di creazione (JSON) ---
+            if (canCreate) {
+                const form = document.createElement('div');
+                form.className = 'resource-form';
+                form.innerHTML =
+                    '<label>Corpo richiesta (JSON)</label>' +
+                    '<textarea rows="5" style="width:100%;background:var(--bg-input);border:1px solid var(--border);' +
+                    'color:var(--text);border-radius:4px;font-family:monospace;padding:0.5rem;">' +
+                    JSON.stringify(res.sample, null, 2) + '</textarea>';
+                const sendBtn = mkBtn('Invia POST', 'btn btn-green');
+                sendBtn.style.marginTop = '0.75rem';
+                sendBtn.addEventListener('click', () => doCreate(res, form.querySelector('textarea').value));
+                form.appendChild(sendBtn);
+                section.appendChild(form);
+            }
+
+            // --- DELETE per id (gated) ---
+            if (res.hasDelete && ZTA.roleCan(role, res.path, 'DELETE')) {
+                const del = document.createElement('div');
+                del.className = 'action-bar';
+                const idInput = mkInput('ID da eliminare');
+                const delBtn = mkBtn('Elimina (DELETE)', 'btn btn-red');
+                delBtn.addEventListener('click', () => {
+                    const id = idInput.value.trim();
+                    if (!id) { renderResult(res, { error: 'Inserisci un ID' }); return; }
+                    doDelete(res, id);
+                });
+                del.appendChild(idInput);
+                del.appendChild(delBtn);
+                section.appendChild(del);
+            }
+
+            // --- Trusted-Guard sanitized-delete (admin, annotato) ---
+            if (res.trustedGuard && ZTA.roleCan(role, TRUSTED_GUARD_PATH, 'POST')) {
+                const tg = document.createElement('div');
+                tg.className = 'action-bar';
+                const idInput = mkInput('ID personale (sanitized-delete)');
+                const tgBtn = mkBtn('Trusted-Guard Delete', 'btn btn-red');
+                tgBtn.innerHTML += '<span class="badge-locked">tier 2 richiesto</span>';
+                tgBtn.addEventListener('click', () => {
+                    const id = idInput.value.trim();
+                    if (!id) { renderResult(res, { error: 'Inserisci un ID' }); return; }
+                    doTrustedGuard(res, id);
+                });
+                tg.appendChild(idInput);
+                tg.appendChild(tgBtn);
+                section.appendChild(tg);
+                const note = document.createElement('p');
+                note.className = 'action-note';
+                note.textContent = 'Nota: la rotta trusted-guard richiede tier 2 (mTLS + TPM/WebAuthn), ' +
+                    'ruolo plant_manager e clearance SECRET. L\'esito reale e\' mostrato qui sotto.';
+                section.appendChild(note);
+            }
+
+            // --- Tabella dati ---
+            const tableWrap = document.createElement('div');
+            tableWrap.className = 'table-wrapper';
+            tableWrap.style.display = 'none';
+            tableWrap.innerHTML = '<table><thead></thead><tbody></tbody></table>';
+            section.appendChild(tableWrap);
+
+            // --- Pannello esito (console policy) ---
+            const result = document.createElement('div');
+            result.className = 'result-panel';
+            result.textContent = 'Seleziona "Aggiorna Dati" per interrogare la rotta protetta...';
+            section.appendChild(result);
+
+            return section;
         }
 
-        // ============================================
-        // WEBAUTHN ENROLLMENT (Richiede JWT e mTLS)
-        // ============================================
+        // === Navigazione tra viste ===============================================
+        function showView(key) {
+            document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === key));
+            document.querySelectorAll('#nav-list .nav-link').forEach(a =>
+                a.classList.toggle('active', a.dataset.view === key));
+            const res = RESOURCES.find(r => r.key === key);
+            document.getElementById('view-title').textContent = res ? res.label : 'Dashboard';
+            if (res) loadList(res);
+        }
+
+        // === Operazioni API ======================================================
+        async function loadList(res) {
+            renderResultText(res, 'GET ' + res.path + ' ...');
+            try {
+                const r = await ZTA.apiFetch('GET', res.path);
+                renderResponse(res, 'GET', res.path, r);
+                if (r.ok) renderTable(res, r.text);
+                else hideTable(res);
+            } catch (e) {
+                renderResultText(res, 'Errore di rete: ' + e.message, true);
+            }
+        }
+
+        async function doCreate(res, raw) {
+            let body;
+            try { body = JSON.parse(raw); }
+            catch (e) { renderResultText(res, 'JSON non valido: ' + e.message, true); return; }
+            renderResultText(res, 'POST ' + res.path + ' ...');
+            try {
+                const r = await ZTA.apiFetch('POST', res.path, body);
+                renderResponse(res, 'POST', res.path, r);
+                if (r.ok) loadList(res);
+            } catch (e) {
+                renderResultText(res, 'Errore di rete: ' + e.message, true);
+            }
+        }
+
+        async function doDelete(res, id) {
+            const path = res.path + '/' + encodeURIComponent(id);
+            renderResultText(res, 'DELETE ' + path + ' ...');
+            try {
+                const r = await ZTA.apiFetch('DELETE', path);
+                renderResponse(res, 'DELETE', path, r);
+                if (r.ok) loadList(res);
+            } catch (e) {
+                renderResultText(res, 'Errore di rete: ' + e.message, true);
+            }
+        }
+
+        async function doTrustedGuard(res, id) {
+            const path = TRUSTED_GUARD_PATH + '/' + encodeURIComponent(id);
+            renderResultText(res, 'POST ' + path + ' ...');
+            try {
+                const r = await ZTA.apiFetch('POST', path);
+                renderResponse(res, 'POST', path, r);
+            } catch (e) {
+                renderResultText(res, 'Errore di rete: ' + e.message, true);
+            }
+        }
+
+        // === Rendering ===========================================================
+        function viewEl(res) { return document.querySelector('.view[data-view="' + res.key + '"]'); }
+
+        function renderResponse(res, method, path, r) {
+            const auth401 = (r.status === 401);
+            let head = method + ' ' + path + '\nStatus: ' + r.status + ' ' + r.statusText + '\n\n';
+            let body;
+            if (!r.ok) {
+                head += 'La catena ZTA (Envoy / OPA / AI / Service) ha risposto:\n';
+                body = r.text;
+            } else {
+                try { body = JSON.stringify(JSON.parse(r.text), null, 2); }
+                catch { body = r.text; }
+            }
+            renderResultText(res, head + body, !r.ok);
+            if (auth401) handleExpired();
+        }
+
+        function renderResultText(res, text, isError) {
+            const el = viewEl(res).querySelector('.result-panel');
+            el.textContent = text;
+            el.classList.toggle('error', !!isError);
+        }
+
+        function renderResult(res, obj) {
+            renderResultText(res, JSON.stringify(obj, null, 2), !!obj.error);
+        }
+
+        function hideTable(res) {
+            viewEl(res).querySelector('.table-wrapper').style.display = 'none';
+        }
+
+        function renderTable(res, text) {
+            let data;
+            try { data = JSON.parse(text); } catch { hideTable(res); return; }
+            const rows = Array.isArray(data) ? data : (data && data.data ? data.data : (data ? [data] : []));
+            const wrap = viewEl(res).querySelector('.table-wrapper');
+            const thead = wrap.querySelector('thead');
+            const tbody = wrap.querySelector('tbody');
+
+            if (!rows.length) {
+                thead.innerHTML = '';
+                tbody.innerHTML = '<tr><td class="empty-hint">Nessun record restituito.</td></tr>';
+                wrap.style.display = 'block';
+                return;
+            }
+
+            // Colonne: quelle configurate presenti nei dati, altrimenti dedotte.
+            let cols = res.columns.filter(c => rows.some(r => r[c] !== undefined));
+            if (!cols.length) {
+                cols = Object.keys(rows[0]).slice(0, 8);
+            }
+
+            thead.innerHTML = '<tr>' + cols.map(c => '<th>' + escapeHtml(c) + '</th>').join('') + '</tr>';
+            tbody.innerHTML = rows.map(row =>
+                '<tr>' + cols.map(c => '<td>' + formatCell(c, row[c]) + '</td>').join('') + '</tr>'
+            ).join('');
+            wrap.style.display = 'block';
+        }
+
+        function formatCell(col, val) {
+            if (val === undefined || val === null) return 'N/A';
+            if (col === 'status') {
+                const s = String(val).toLowerCase();
+                let cls = 'status-warning';
+                if (['active', 'in_use', 'operational', 'stored'].includes(s)) cls = 'status-active';
+                if (['inactive', 'depleted', 'storage', 'archived'].includes(s)) cls = 'status-inactive';
+                return '<span class="status-badge ' + cls + '">' + escapeHtml(String(val)) + '</span>';
+            }
+            if (col === 'id' || col === 'material_id' || col === 'reactor_id') {
+                return '<span class="cell-id">' + escapeHtml(String(val)) + '</span>';
+            }
+            if (col === 'classification_level' || col === 'clearance_level') {
+                return '<span class="cell-chip">' + escapeHtml(String(val)) + '</span>';
+            }
+            if (typeof val === 'object') return escapeHtml(JSON.stringify(val));
+            return escapeHtml(String(val));
+        }
+
+        function handleExpired() {
+            if (ZTA.isExpired()) {
+                setTimeout(ZTA.logout, 1500);
+            }
+        }
+
+        // === Utilita' DOM ========================================================
+        function mkBtn(label, cls) { const b = document.createElement('button'); b.className = cls; b.textContent = label; return b; }
+        function mkInput(ph) {
+            const i = document.createElement('input');
+            i.type = 'text'; i.placeholder = ph;
+            i.style.cssText = 'padding:0.5rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:inherit;';
+            return i;
+        }
+        function escapeHtml(s) {
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // =========================================================================
+        // WEBAUTHN ENROLLMENT (richiede JWT + mTLS) - flusso invariato
+        // =========================================================================
         function bufferToBase64url(buffer) {
             const bytes = new Uint8Array(buffer);
             let str = '';
             for (let charCode of bytes) str += String.fromCharCode(charCode);
             return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         }
-
         function base64urlToBuffer(base64url) {
             const padding = '='.repeat((4 - base64url.length % 4) % 4);
             const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -153,72 +390,41 @@
         }
 
         document.getElementById('enroll-tpm-btn').addEventListener('click', async () => {
-            const jwt = localStorage.getItem('access_token');
-            out.textContent = "Chiedendo l'avvio della cerimonia WebAuthn...\n\n(Se ricevi 'policy denied' assicurati di avere il certificato mTLS attivo nel browser).";
-            
+            const jwt = ZTA.getToken();
+            alert("Avvio cerimonia WebAuthn.\nSe ricevi 'policy denied' assicurati di avere il certificato mTLS attivo nel browser.");
             try {
-                // 1. Chiedi al backend di iniziare la registrazione HW inviando il JWT
                 const rBegin = await fetch('/api/v1/auth/register/begin', {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + jwt
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
                     body: JSON.stringify({ device_name: "My Hardware Key" })
                 });
-
-                if (!rBegin.ok) {
-                    out.textContent = "Errore: " + await rBegin.text();
-                    return;
-                }
+                if (!rBegin.ok) { alert("Errore: " + await rBegin.text()); return; }
 
                 const options = await rBegin.json();
-                
-                // Conversione formati Base64URL -> Buffer
                 options.publicKey.challenge = base64urlToBuffer(options.publicKey.challenge);
                 options.publicKey.user.id = base64urlToBuffer(options.publicKey.user.id);
-                
-                out.textContent = "Interagisci con il token hardware di Windows / YubiKey...";
 
-                // 2. Apri il popup hardware nativo del browser
                 const credential = await navigator.credentials.create({ publicKey: options.publicKey });
 
-                const attestationResp = {
-                    id: credential.id,
-                    rawId: bufferToBase64url(credential.rawId),
-                    type: credential.type,
-                    response: {
-                        attestationObject: bufferToBase64url(credential.response.attestationObject),
-                        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
-                    }
-                };
-
-                out.textContent = "Hardware letto con successo, invio attestazione al server...";
-
-                // 3. Manda l'attestazione hardware al backend in /register/finish
                 const rFinish = await fetch('/api/v1/auth/register/finish', {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + jwt 
-                    },
-                    body: JSON.stringify({ 
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+                    body: JSON.stringify({
                         session_id: options.SessionID || options.session_id,
                         credential_id: credential.id,
-                        public_key: "ZHVtbXk=", // Dummy in base64 per simulazione lab
+                        public_key: "ZHVtbXk=",
                         attestation_type: "none",
                         aaguid: "00000000-0000-0000-0000-000000000000"
                     })
                 });
 
                 if (rFinish.ok) {
-                     out.textContent = "Security Key Registrata con successo!\n\nOra il tuo account e' Tier 2 (WebAuthn). Riprova il login se necessario.";
+                    alert("Security Key registrata! Account ora Tier 2 (WebAuthn). Riesegui il login per aggiornare il token.");
                 } else {
-                     out.textContent = "Registrazione Fallita!\n\n" + await rFinish.text();
+                    alert("Registrazione fallita:\n" + await rFinish.text());
                 }
-
             } catch (err) {
-                 out.textContent = "Annullato o errore: " + err.message;
+                alert("Annullato o errore: " + err.message);
             }
         });
     </script>

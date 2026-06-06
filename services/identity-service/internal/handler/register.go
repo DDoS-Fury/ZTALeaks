@@ -27,12 +27,12 @@ func (api *IdentityAPI) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, "richiesta non valida", http.StatusBadRequest)
-		slog.Error("failed to decode register request", "error", err, "src_ip", r.RemoteAddr)
+		slog.Error("failed to decode register request", "error", err, "src_ip", r.Header.Get("x-envoy-external-address"))
 		return
 	}
 	if req.Username == "" || req.Password == "" || req.Email == "" {
 		respondError(w, "campi mancanti (username, email, password)", http.StatusBadRequest)
-		slog.Warn("register fallito: campi mancanti", "src_ip", r.RemoteAddr)
+		slog.Warn("register fallito: campi mancanti", "src_ip", r.Header.Get("x-envoy-external-address"))
 		return
 	}
 	if req.Role == "" {
@@ -41,7 +41,7 @@ func (api *IdentityAPI) Register(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := crypto.GenerateFromPassword(req.Password)
 	if err != nil {
-		slog.Error("register: hash password", "error", err, "src_ip", r.RemoteAddr)
+		slog.Error("register: hash password", "error", err, "src_ip", r.Header.Get("x-envoy-external-address"))
 		respondError(w, "errore interno", http.StatusInternalServerError)
 		return
 	}

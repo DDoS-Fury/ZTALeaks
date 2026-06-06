@@ -53,6 +53,6 @@ func ReservedHandler(w http.ResponseWriter, r *http.Request) {
 
 // NotFoundHandler gestisce le richieste a percorsi non esistenti
 func NotFoundHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("404 - Percorso non trovato: %s %s [Remote: %s]", r.Method, r.URL.Path, r.RemoteAddr)
+	log.Printf("404 - Percorso non trovato: %s %s [Remote: %s]", r.Method, r.URL.Path, r.Header.Get("x-envoy-external-address"))
 	http.Error(w, "404 page not found - ZTALeaks Debug", http.StatusNotFound)
 }

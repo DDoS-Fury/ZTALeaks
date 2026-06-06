@@ -63,7 +63,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			slog.String("ja3_fingerprint", ja3),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
-			slog.String("remote_addr", r.RemoteAddr),
+			slog.String("remote_addr", r.Header.Get("x-envoy-external-address")),
 			slog.Int("status_code", rw.statusCode),
 			slog.String("duration", duration.String()),
 		)

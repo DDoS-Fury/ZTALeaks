@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"ztaleaks/identity-service/internal/crypto"
@@ -38,16 +39,19 @@ func (h *Handler) BeginLogin(w http.ResponseWriter, r *http.Request) {
 	var req beginLoginReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		slog.Error("failed to decode begin login request", "user_id", r.Header.Get("X-Current-User"), "error", err)
 		return
 	}
 	user, err := h.users.FindByUsername(r.Context(), req.Username)
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
+		slog.Error("user not found", "username", req.Username)
 		return
 	}
 	creds, err := h.devices.ListByUser(r.Context(), user.ID)
 	if err != nil || len(creds) == 0 {
 		http.Error(w, "no enrolled devices for user", http.StatusNotFound)
+		slog.Error("no enrolled devices for user", "user_id", user.ID)
 		return
 	}
 
@@ -60,6 +64,7 @@ func (h *Handler) BeginLogin(w http.ResponseWriter, r *http.Request) {
 		CeremonyType: "authentication",
 	}); err != nil {
 		http.Error(w, "failed to store challenge", http.StatusInternalServerError)
+		slog.Error("failed to store challenge", "user_id", user.ID, "error", err)
 		return
 	}
 
@@ -99,25 +104,30 @@ func (h *Handler) FinishLogin(w http.ResponseWriter, r *http.Request) {
 	var req finishLoginReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		slog.Error("failed to decode finish login request", "user_id", r.Header.Get("X-Current-User"), "error", err)
 		return
 	}
 	challenge, err := h.challenges.FindBySessionID(r.Context(), req.SessionID)
 	if err != nil {
 		http.Error(w, "challenge not found or expired", http.StatusUnauthorized)
+		slog.Error("challenge not found or expired", "user_id", r.Header.Get("X-Current-User"), "session_id", req.SessionID)
 		return
 	}
 	if challenge.CeremonyType != "authentication" {
 		http.Error(w, "wrong ceremony type", http.StatusBadRequest)
+		slog.Error("wrong ceremony type", "user_id", r.Header.Get("X-Current-User"), "ceremony_type", challenge.CeremonyType)
 		return
 	}
 
 	dev, err := h.devices.FindByCredentialID(r.Context(), req.CredentialID)
 	if err != nil || dev == nil {
 		http.Error(w, "device not registered", http.StatusUnauthorized)
+		slog.Error("device not registered", "user_id", r.Header.Get("X-Current-User"), "credential_id", req.CredentialID)
 		return
 	}
 	if dev.UserID != challenge.UserID {
 		http.Error(w, "credential does not match challenge user", http.StatusUnauthorized)
+		slog.Error("credential does not match challenge user", "user_id", r.Header.Get("X-Current-User"), "credential_id", req.CredentialID, "challenge_user_id", challenge.UserID)
 		return
 	}
 

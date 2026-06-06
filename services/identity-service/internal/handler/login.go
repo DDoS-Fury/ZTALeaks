@@ -25,10 +25,11 @@ type loginResponse struct {
 // genera un OTP a 6 cifre, lo salva hashato in DB con TTL 5 min e lo
 // invia via email. Il client poi chiama /verify-otp con session_token + otp.
 func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
-	slog.Info("login richiesto", "remote", r.RemoteAddr)
+	slog.Info("login richiesto", "src_ip", r.RemoteAddr, "cert_present", r.Header.Get("X-Forwarded-Client-Cert") != "")
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, "richiesta non valida", http.StatusBadRequest)
+		slog.Error("failed to decode login request", "error", err, "src_ip", r.RemoteAddr)
 		return
 	}
 	if req.Username == "" || req.Password == "" {
@@ -84,6 +85,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	otp, err := generateOTP()
 	if err != nil {
 		respondError(w, "errore generazione OTP", http.StatusInternalServerError)
+		slog.Error("login: generate OTP", "error", err, "src_ip", r.RemoteAddr)
 
 		return
 	}

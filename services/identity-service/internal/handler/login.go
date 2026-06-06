@@ -25,13 +25,14 @@ type loginResponse struct {
 // genera un OTP a 6 cifre, lo salva hashato in DB con TTL 5 min e lo
 // invia via email. Il client poi chiama /verify-otp con session_token + otp.
 func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
-	slog.Info("login richiesto", "src_ip", r.RemoteAddr, "cert_present", r.Header.Get("X-Forwarded-Client-Cert") != "")
+
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, "richiesta non valida", http.StatusBadRequest)
 		slog.Error("failed to decode login request", "error", err, "src_ip", r.RemoteAddr)
 		return
 	}
+	slog.Info("login richiesto", "src_ip", r.RemoteAddr, "cert_present", r.Header.Get("X-Forwarded-Client-Cert") != "", "username", req.Username)
 	if req.Username == "" || req.Password == "" {
 		respondError(w, "credenziali mancanti", http.StatusBadRequest)
 		slog.Warn("login fallito: credenziali mancanti", "username", req.Username, "role", "guest", "src_ip", r.RemoteAddr)
@@ -44,7 +45,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		dummy, _ := crypto.GenerateFromPassword("dummy")
 		_, _ = crypto.ComparePasswordAndHash(req.Password, dummy)
 		respondError(w, "credenziali non valide", http.StatusUnauthorized)
-		slog.Warn("login fallito: password errata", "username", user.Username, "role", user.Role, "src_ip", r.RemoteAddr)
+		slog.Warn("login fallito: utente non trovato", "username", req.Username, "src_ip", r.RemoteAddr)
 		return
 	}
 

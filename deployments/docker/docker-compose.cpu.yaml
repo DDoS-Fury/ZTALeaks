@@ -139,8 +139,6 @@ services:
         condition: service_healthy
       identity-service:
         condition: service_started  # JWKS endpoint deve essere up
-      ai-inference:
-        condition: service_healthy
     env_file:
       - ../../.env
     restart: unless-stopped

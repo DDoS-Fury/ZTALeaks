@@ -99,12 +99,12 @@ func (c *Client) post(ctx context.Context, path string, in any, out any) error {
 // Infer chiama il microservizio in modalita' sola lettura (/infer) per ottenere lo score.
 func (c *Client) Infer(ctx context.Context, event Event) Score {
 	if c.url == "" {
-		return Score{Score: 0, Confidence: ConfidenceLow}
+		return Score{Score: 0.99, Confidence: ConfidenceLow}
 	}
 	var s ScoreResp
 	if err := c.post(ctx, "/infer", event, &s); err != nil {
 		slog.Warn("ai-scorer: infer fallito (timeout o rete)", "error", err)
-		return Score{Score: 0, Confidence: ConfidenceLow}
+		return Score{Score: 0.99, Confidence: ConfidenceLow}
 	}
 	return Score{Score: s.AnomalyScore, Confidence: ConfidenceHigh}
 }

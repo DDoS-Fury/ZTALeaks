@@ -11,7 +11,8 @@ type User struct {
 	Email        string `json:"email" bson:"email"`
 	PasswordHash string `json:"-" bson:"password_hash"` // Argon2id MCF
 
-	Role string `json:"role" bson:"role"`
+	Role           string `json:"role" bson:"role"`
+	ClearanceLevel string `json:"clearance_level" bson:"clearance_level"`
 
 	// 2FA via OTP email
 	TwoFAEnabled bool   `json:"two_fa_enabled" bson:"two_fa_enabled"`

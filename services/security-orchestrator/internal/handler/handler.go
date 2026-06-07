@@ -107,7 +107,7 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 				}()
 			}
 
-			respondAllow(w, ok, "")
+			respondAllow(w, ok, "", clientIP)
 			return
 		}
 
@@ -161,7 +161,7 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 			"session_age_s", sessionAge, "hour", ctxInput.HourOfDay,
 			"allow", allow,
 		)
-		respondAllow(w, allow, claims.UserID)
+		respondAllow(w, allow, claims.UserID, clientIP)
 	}
 }
 
@@ -360,11 +360,14 @@ func evalOPA(ctx context.Context, c *opa.Client, in opa.Input) bool {
 	return allow
 }
 
-func respondAllow(w http.ResponseWriter, allow bool, userID string) {
+func respondAllow(w http.ResponseWriter, allow bool, userID string, clientIP string) {
 	w.Header().Set("Content-Type", "application/json")
 	if allow {
 		if userID != "" {
 			w.Header().Set("x-current-user", userID)
+		}
+		if clientIP != "" {
+			w.Header().Set("x-envoy-external-address", clientIP)
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"allowed":true}`))

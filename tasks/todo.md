@@ -1,186 +1,80 @@
-# mix-master-zta-core — Trasposizione ZTA su master (piano operativo)
+# Part 2 — Lateral-movement detection (honest improvement)
 
-Branch: `mix-master-zta-core` (da `master`).
-Direttive ferme: vedi messaggio compagno + 6 risolte 2026-05-09.
+Goal: improve genuine (non-circular, paper-defensible) lateral-movement detection. The
+old task was degenerate ("non-habitual ⟺ malicious"); we de-degenerate it, add explicit
+runtime-derivable history signals, switch the lateral objective to a ranking loss, and
+realign baselines/ablations so the TGN's win is shown to be temporal/relational — not a
+trivial counter.
 
-Convenzioni:
-- 1 commit locale per step (no push).
-- Test al termine di ogni step prima del commit; "ok" dell'utente prima di proseguire.
-- DB name `securitydb`, collezione utenti `identity_users` (master conventions).
+## Wave 1 — model + data + objective  (DONE, code; validated end-to-end)
+- [x] A. De-degenerate generator: `benign_explore_prob` in `config.py` + `stream_synthetic.py`.
+- [x] B. Explicit history features (non-circular, benign-gated):
+      - [x] `pair_count`/`src_count` state on the model (next to `last_contact`)
+      - [x] `compute_hist_feats()` -> [log1p(pair), log1p(src), pair/(src+1)]
+      - [x] thread `hist_feats` through `LinkPredictor.forward` / `score` / `forward` (+lin1 dim)
+      - [x] `use_hist_feats` ablation flag
+      - [x] counts updated in train commit + `serve.update_memory`; reset per-epoch; purged in
+            `_reset_slot`; persisted in save/load
+- [x] C. InfoNCE ranking loss (K random-dst negatives) replacing the single structural BCE;
+      keep pos-BCE anchor + ctx-BCE (Gaussian msg noise).
+- [x] Validate: full `docker compose --profile training-tgn up` runs end-to-end (exit 0), honest table.
+- [ ] Validate: `docker compose --profile verify-tgn up` serving path (unseen-entity admission) passes.
 
-## Step 0 — security-db schema + .env  ✅
-- [x] Estendere `infra/databases/security/db_init/security-init.js`: 6 collezioni (identity_users, otp_sessions, jwt_blocklist, device_fingerprints, webauthn_challenges, auth_events) con index unique e TTL
-- [x] Estendere `.env` con var per orchestrator, identity, SMTP, WebAuthn
-- [x] Test: drop volume `security-db-data` (era pieno di dati zta-core con schema vecchio), rebuild security-db, `mongosh` verifica 6 collezioni e tutti gli indici/TTL come previsti
-- [x] Commit: `feat(security-db): schema for OTP, JWT blocklist, WebAuthn, audit`
+## Wave 2 — fair eval  (DONE, all validated via Docker)
+- [x] E1. IF / OC-SVM / static-GNN baselines get the SAME tabular signals (causal history
+      counts + same precursor prior) via new `graphagate.eval_common`. Result (lateral AUC):
+      TGN 0.76 vs IF 0.65 vs Static-GNN 0.49(≈caso) vs OCSVM 0.39 → temporal graph isolated.
+- [x] E2. Ablation driver rewritten: `use_hist_feats` / `use_precursor` / struct / hash, 3 seeds,
+      mean±std. lateral AUC: full 0.770±.011; −hist 0.704±.035; −precursor 0.697±.016;
+      −struct 0.778±.002 (marginal); −hash 0.773±.020 (subsumed by history feats).
+- [x] E3. Cold-start conditioning in train_tgn: all laterals hit warmed src (n_cold=0) → low
+      recall is intrinsic, not warm-up. (Multi-seed mean±std delivered via E2.)
+- [x] E4. Docs updated: `docs/inductive_testing.md`, `docs/lateral_movement.md`, `README.md`
+      (new baseline + ablation tables, de-degeneration, precursor, policy reframed as OPA-owned,
+      struct-head marginal / hashed-id subsumed honest notes).
 
-## Step 1 — identity-service RS256 + register + OTP + WebAuthn  ✅
-- [x] `internal/crypto/jwt.go`: HS256 → RS256 ephemeral RSA-2048; ZTAClaims con sub/role/clearance/mfa_verified/device_id/ja3/iss/jti
-- [x] `internal/crypto/jwks.go`: handler GET /.well-known/jwks.json (kty=RSA, alg=RS256, kid)
-- [x] Repository: user_repo (esteso con FindByID, MarkTPMEnrolled), otp_repo, device_repo, challenges_repo
-- [x] `internal/handler/api.go`: register + login (→ OTP) + verify-otp (→ JWT con device_id)
-- [x] `internal/mailer/mailer.go`: SMTP HTML → MailHog
-- [x] `internal/webauthn/webauthn.go`: register/begin|finish + login/begin|finish con clone detection (sign_count regression)
-- [x] `cmd/identity/main.go`: seed 6 utenti multi-ruolo (Argon2id "admin123") + wiring completo
-- [x] `docker-compose.yaml`: aggiunto mailhog (UI 8025); identity-service esposto temp su 8082 per test
-- [x] 12 test verdi: JWKS, login, OTP via MailHog, verify-otp, JWT decode (claim corretti), WebAuthn register, JWT successivo contiene device_id, login WebAuthn/begin, OTP errato (counter), pwd errata, register nuovo utente
-- [x] Commit: `feat(identity): RS256 JWT, JWKS, OTP via MailHog, WebAuthn ceremony, multi-role seed`
+## Part D — Kill-chain precursor  (DONE, user-approved; validated)
+- [x] Serving-time MULTIPLICATIVE prior (not additive → no precision cost, not a trained input).
+      `recent_alert` state on model; `precursor_boost`/`record_alert` in serve_tgn; applied in
+      `score_event` + `_replay`; reset before test; purged in `_reset_slot`; persisted save/load;
+      `use_precursor` ablation flag; knobs `precursor_half_life`/`precursor_max_boost` in config+hp.
+- [x] Param sweep (40k/12): best = half_life=100k, max_boost=3 (now the default).
+      lateral AUC 0.671→0.790 (+0.12), AP 0.129→0.216, recall@thr ~2.2×, agg precision 0.90→0.93.
+- [x] Final full artifact (50k/15, precursor on) saved to public/; verify-tgn 4/4 PASS.
+      Full-run lateral: AUC 0.760, AP 0.197, recall@thr 0.047 (agg AUC 0.912, P 0.88, R 0.66).
 
-## Step 2 — security-orchestrator: PDP coordinator  ✅
-- [x] `go.mod`: jwt/v5 + mongo-driver + indirette; Dockerfile aggiornato (go mod tidy in build)
-- [x] `internal/jwt/verifier.go`: JWKS fetch (cache 5 min), RS256 verify, kid-based key lookup
-- [x] `internal/cert/cert.go`: parse header forwarded da Envoy (Subject, Hash, Present)
-- [x] `internal/db/mongo.go`: client read-only su securitydb
-- [x] `internal/tpm/lookup.go`: `device_fingerprints` lookup per coppia (credential_id, user_id)
-- [x] `internal/opa/client.go`: POST OPA con input `{request, claims, cert_present, cert_subject, tpm_verified, zone_id}`
-- [x] `cmd/orchestrator/main.go`: rimosso stub AI risk, wirato tutto; preservato endpoint `/api/v1/opa/logs` per decision logs (master)
-- [x] Test: 6 scenari (public bypass, no JWT, JWT valido, JWT invalido, con cert) tutti verdi; OPA riceve input arricchito completo (verificato da OPA decision logs)
-- [x] Commit: `feat(orchestrator): JWT verify (JWKS), cert parse, TPM lookup, OPA call`
+## Review — Wave 1 results (full run: 50k events, 15 epochs)
+Honest per-class @ FPR=1% global threshold:
+- lateral (real target): AUC 0.705 | AP 0.148 | recall@thr 0.010
+- contextual (rule-trivial): AUC 0.995 | recall 0.985  (rule baseline already 0.966)
+- policy (OPA-owned, not value-add): AUC 0.999 | recall 0.989
+- aggregate: AUC 0.896 | AP 0.825 | recall 0.648
 
-## Step 3 — OPA policy + data + tests  ✅
-- [x] `infra/opa/policy.rego`: public paths whitelist + matrice ruolo↔rotta sulle 7 risorse + clearance hierarchy + 3 tier (none/cert/cert+tpm) con min_tier per (path, method) + path matching esatto/prefisso
-- [x] `infra/opa/data.json`: zone metadata (min_tier per zona, require_mfa) — tenuto come hook futuro
-- [x] `infra/opa/policy_test.rego`: 16 test (public bypass, tier 0/1/2, clearance, role denied, path con sub-id, no claims) — `opa test` 16/16 PASS
-- [x] Compose: OPA monta anche `data.json`
-- [x] Test E2E via orchestrator: 11/11 PASS (admin con/senza cert su personnel, nuclear-materials POST tier=2, operator role denied su nuclear/maintenance, zones/documents tier=0, public bypass)
-- [x] Commit: `feat(opa): role-route matrix, clearance, 3-tier admission + tests`
+Diagnosis: de-degeneration worked — lateral is now genuinely hard. With benign exploration
+present, lateral movement is FEATURE-IDENTICAL to a benign non-habitual access; the ONLY
+discriminator is the kill-chain temporal context (recon→lateral on the same compromised IP).
+A–C give real ranking lift (AUC 0.70 >> chance) but cannot push lateral past a global
+threshold dominated by the easy classes (recall ≈ 0). This is the honest, paper-defensible
+verdict and it directly motivates Part D (kill-chain precursor) — now NOT optional but the
+indicated next lever — plus class/cost-sensitive thresholding and cold-start conditioning.
 
-## Step 4 — Envoy: forward client cert + bypass nuove rotte  ✅
-- [x] `infra/envoy/envoy.yaml`: `forward_client_cert_details: SANITIZE_SET` (no spoofing) + `set_current_client_cert_details: {subject, cert, dns, uri}`
-- [x] Allowed_headers ext_authz estesi: x-forwarded-client-cert, x-zone-id, x-authz-request-method
-- [x] Route prefix `/api/v1/auth/` (cattura register, verify-otp, register/begin|finish, login/begin|finish) e `/.well-known/jwks.json` → identity_service_cluster
-- [x] Access log estesi con `client_cert: %REQ(x-forwarded-client-cert)%`
-- [x] Fix orchestrator: strip `path_prefix /api/v1/evaluate` da r.URL.Path per riconoscere il path originale
-- [x] Test E2E via HTTPS:8443 (con e senza --cert client.crt): JWKS ✓, login flow ✓, no-cert→tier0→DENY personnel ✓, cert→tier2→ALLOW personnel/nuclear ✓, no-cert→DENY nuclear ✓, no-JWT→DENY ✓
-- [x] OPA decision log conferma `cert_subject="CN=client-test,O=ZTA-Leaks,C=IT"` correttamente forwarded
-- [x] Commit: `feat(envoy): forward client cert details + identity bypass routes`
+use_hist_feats ablation (40k/12ep, same generator) — isolates the new B contribution:
+- lateral: AUC 0.702 (hist on) vs 0.606 (off)  => +0.096 AUC, +0.067 AP
+- aggregate: AUC 0.894 vs 0.859  => +0.035
+=> history features are a REAL, threshold-free lift on the hard class. recall@thr unchanged
+   (0.037) — the remaining gap is thresholding + kill-chain precursor (Part D), not ranking.
 
-## Step 5 — business-logic: verifica  ✅
-- [x] Confermata assenza di role middleware su master (allineato alle direttive: OPA è l'unico decisore)
-- [x] LoggingMiddleware esistente è già coerente: emette JSON strutturato con x-request-id, method, path, status, duration → forwarder Splunk OK
-- [x] E2E reale via HTTPS:8443 con admin (cert+JWT): GET /personnel 7 records 200, GET /zones (no-cert, tier 0) 9 records 200, GET /reactor-parameters 5 records 200; business-logic log conferma le richieste
-- [x] Nessuna modifica codice (master + step 4 già coerente con direttive). Non viene creato commit dedicato per evitare rumore.
+[x] verify-tgn serving check: 4/4 PASS with new checkpoint format (reload determinism proves
+    pair_count/src_count + hist_feat_dim persist/restore correctly).
 
-## Step 6 — tests/e2e  ✅
-- [x] `tests/e2e/lib.sh`: helpers bash3-compat (assert_eq, get_jwt via Envoy+MailHog, http_envoy con/senza --cert, enroll_webauthn, mailhog OTP fetch)
-- [x] `auth.sh` (8 test): login admin → JWT con sub/role/clearance/mfa/iss corretti, OTP errato → 401, password errata → 401
-- [x] `pep.sh` (5 test): public bypass /auth/login + JWKS, protezioni 403 senza JWT, JWT garbage → 401
-- [x] `rbac.sh` (4 test): operator allowed/denied per matrice, maint_tech1 allowed
-- [x] `abac.sh` (4 test): registra inline plant_manager INTERNAL → /nuclear POST DENY (clearance underflow), admin TOP_SECRET allow, inspector CONFIDENTIAL su /personnel allow, inspector POST personnel deny (role)
-- [x] `tier.sh` (5 test): username random per isolare TPM-vergine; copre 3 tier su /personnel e /nuclear-materials
-- [x] `run_all.sh`: bash3-compatibile, esegue i 5 pillar, rigenera `tests/e2e/REPORT.md` con summary table + per-pillar output
-- [x] Test: `bash tests/e2e/run_all.sh` → 5/5 pillar PASS, 26/26 scenari
-- [x] Commit: `test(e2e): pillar scripts for auth/PEP/RBAC/ABAC/tier`
+### FINAL STATE (A–D + Wave 2 all done, validated via Docker)
+Honest lateral AUC progression: ~0.61 (no hist) → ~0.70 (hist) → ~0.76 (hist+precursor, full).
+Fair baselines (same signals) all far below (best IF 0.65; static-GNN at chance 0.49) → the
+temporal graph carries the lateral signal. Multi-seed ablation confirms hist (+0.066) and
+precursor (+0.073) are the contributors; struct head marginal; hashed-id subsumed.
+Deployable artifact in public/ regenerated; verify-tgn 4/4. Docs + README updated.
 
-## Step 7 — CI  ✅
-- [x] `.github/workflows/ci.yaml` riscritto: trigger anche su `mix-master-zta-core`; 3 job in serie:
-  - `opa-tests` (gate, ~5s)
-  - `build-images` (incluso identity-service e security-db, mancanti su master) — needs opa-tests
-  - `e2e-tests` (genera .env stub, `docker compose up -d --build`, polling readiness Envoy+MailHog, `bash tests/e2e/run_all.sh`, upload REPORT.md, teardown `down -v`) — needs build-images
-- [x] Test locale: `docker run openpolicyagent/opa test /workspace/infra/opa/ -v` → 16/16 PASS
-- [x] Commit: `ci: OPA policy tests gate + E2E full-suite job`
-
-## Step 8 — snort-mid (Envoy ↔ Security Orchestrator) — IN PROGRESS
-Obiettivo: terzo Snort identico agli altri due, posizionato sul segmento Envoy→Security Orchestrator, per rilevare SQL Injection e Cross-Site Scripting su traffico HTTP plaintext.
-
-Verifiche fatte:
-- Q3: `envoy.yaml:145` usa `http://security-orchestrator:8081/...` → plaintext, ispezionabile ✓
-- Q4: front-net, replicato via `network_mode: service:firewall` (come gli altri due)
-- Q1: solo JSON processato ✓
-- Q2: nessuna rotation, allineato agli altri due
-- Q5: test live con richieste HTTP reali via Envoy
-
-Limite noto: ext_authz forwarda solo gli header consentiti (incluso `x-original-uri`) ma NON il body → SQL/XSS in URL/query catturati; SQL/XSS in body NO (su questo segmento).
-
-Plan:
-- [x] Creare `infra/snort-mid/` (Dockerfile, parser.go, rules/mid.rules — 9 regole SQLi+XSS scoped port 8081)
-- [x] `deployments/docker/docker-compose.yaml`: servizio + volume + mount splunk-uf
-- [x] `.github/workflows/ci.yaml`: build di `infra/snort-mid/Dockerfile`
-- [x] Test live: payload SQL/XSS inviati via nc da firewall netns → alert correttamente generati su volume (UNION SELECT, tautology URL-encoded, OR 1=1, XSS <script>). Stdout identico agli altri due snort.
-- [x] **BLOCCANTE risolto**: envoy non è più in restart loop — `server.key` ora è di proprietà uid 101 (perm 644) e il processo gira come uid 101. Verificato 2026-06-01: `RestartCount 0`, running, nessun errore sui permessi nei log.
-- [x] Commit manuale dopo OK utente (mergiato su `master`)
-
-## Da chiedere agli altri
-
-### Auth/JWT nella business-logic?  ✅ RISOLTO (2026-06-02)
-- I due `TODO (Futuro)` in `services/business-logic/internal/middleware/logging.go` (righe 30 e 50) erano **commenti vecchi e superati**: la scelta architetturale corretta è quella attuale (OPA è l'unico decisore, niente auth/JWT nella business-logic).
-- **Rimossi** entrambi i commenti. Nessuna auth verrà implementata nella business-logic.
-
-### Frontend — non è un sistema coerente
-I pezzi singoli sono buoni, ma come "frontend" sono **due app scollegate con due
-modelli di auth incompatibili**. Domanda chiave per il team: *il frontend deve solo
-mostrare il login, oppure dimostrare il controllo accessi differenziato per ruolo
-(utente reale → JWT → Envoy+OPA → dati filtrati)?* Le due cose richiedono lavoro
-molto diverso. Punti emersi:
-- **Due mondi che non si parlano.** La UI di login (`identity-service/templates/login.html`, :8082) produce un JWT salvato nel browser; la dashboard (`tests/dashboard-app/`, :8080) NON usa quel JWT — si autentica con un **certificato client statico** montato nel container. Non esiste il flusso "utente fa login → usa la dashboard con la *sua* identità": la dashboard mostra sempre gli stessi dati con un'identità fissa.
-- ~~**Il login bypassa il PEP.**~~ ✅ RISOLTO (2026-06-02): rimossa l'esposizione host `8082:8082` da `docker-compose.yaml` e `docker-compose.arm.yaml`. identity-service ora è raggiungibile **solo via Envoy** (auth-net). I template usano già path relativi, quindi `/login`, `/register` e `/api/v1/auth/*` passano da Envoy → ext_authz → orchestrator → OPA (PDP), che le consente come public path. La rotta di login è ora valutata dal PDP come tutte le altre.
-- **JWT in `localStorage`** → esposto a XSS. Per un progetto di sicurezza, cookie `httpOnly`+`Secure` è più difendibile.
-- **Flusso login→reserved (verificato corretto, 2026-06-02):** `/login` (identity-service, public) al successo salva il JWT in `localStorage` e reindirizza a `/reserved`, servito dalla business-logic (`routes.go` → `ReservedHandler`) ed esposto come public path in OPA (`policy.rego`). La shell HTML carica senza JWT (200 verificato); le fetch `/api/v1/*` dentro `reserved.html` portano il JWT e restano protette (403 senza token). Same-origin via Envoy → `localStorage` condiviso. La precedente nota "`/reserved` 404 / rotta non registrata" era errata. Rimosse inoltre le classi CSS di login residue da `static/css/styles.css`. (La dashboard `tests/dashboard-app/` chiamava `/api/v1/reactor` invece di `/api/v1/reactor-parameters` → già corretto nel commit `e91727a`.)
-- **Doc disallineata:** il CLAUDE.md descriveva una SPA nginx su :3000 che non esiste (già corretto nel working tree, non committato).
-
-## Audit 2026-06-01 — criticità aperte (da discutere coi compagni)
-
-Audit eseguito sullo stack avviato in locale, testando ogni punto dal vivo.
-Già risolti in questa sessione: race boot business-logic e hardening avvio Envoy
-(commit unico). Restano i 3 punti sotto, **da discutere prima di toccarli**.
-
-### #1 — mTLS NON imposto dal PEP (Envoy)  ✅ CHIUSO (2026-06-02) — comportamento voluto
-- **Cosa:** `infra/envoy/envoy.yaml` → `require_client_certificate: false`. Una connessione senza certificato client completa l'handshake TLS e arriva all'orchestrator con `cert_present:false`.
-- **Decisione:** `false` è **corretto e voluto**. Imporre il cert nel TLS (`true`) farebbe fallire l'handshake per le connessioni senza certificato, rendendo **irraggiungibile il tier 0** (risorse a bassa sensibilità, accesso no-cert). Il modello a 3 tier richiede che anche il traffico senza cert raggiunga OPA, che decide in base a `cert_present`. La validazione del cert resta a OPA (PDP), non al TLS.
-- **Nota:** il riferimento `true` nel CLAUDE.md è superato da questa scelta architetturale (admission a tier in OPA).
-
-### #2 — `network_location` falsificabile (spoofing X-Forwarded-For)  ✅ RISOLTO (2026-06-02)
-- **Cosa:** `clientIPFromRequest` prendeva il **primo** elemento di `X-Forwarded-For`, controllabile dal client.
-- **Fix applicato:** l'orchestrator ora si fida **solo dell'IP imposto da Envoy**: legge `X-Envoy-External-Address` (Envoy con `use_remote_address: true` lo sovrascrive ad ogni richiesta → non falsificabile), con fallback all'**ultimo** elemento di `X-Forwarded-For` (quello che Envoy appende), mai il primo. Envoy ora inoltra `x-envoy-external-address` tra gli `allowed_headers` dell'ext_authz.
-- **Verificato live:** `curl -H 'X-Forwarded-For: 10.0.0.99'` → orchestrator logga `ip_address: 192.168.65.1` (IP reale), non più 10.0.0.99. Lo spoof non ha più effetto.
-- **Caveat (invariato):** in Docker l'IP reale è il gateway della bridge, quindi `network_location` resta `internal` per il traffico di test locale — ma ora basato sull'IP vero, non su un header forgiabile.
-
-### #3 — Ramo anonimo scarta il certificato verso OPA  ✅ CHIUSO (2026-06-02) — non rilevante per OPA
-- **Cosa:** `handler.go:91` — nel ramo "nessun token" il cert è già parsato (`cc := cert.Parse(...)`) ma a OPA va `CertPresent: false` hardcoded e `Claims: nil`.
-- **Decisione:** non è un problema. Queste informazioni del cert nel ramo anonimo **non sono destinate a OPA**, ma al **modello AI** (vedi piano estensione AI policy). OPA continua a decidere su JWT + tier; il cert/contesto del ramo anonimo verrà consumato dal modello AI, non dal PDP Rego.
-
-## Segreti/certificati nel repo — promemoria (NON emergenza)
-
-`.env` (con `SPLUNK_PASSWORD`, `SECURITY_DB_PASSWORD`, `MONGO_INITDB_ROOT_PASSWORD`,
-`SPLUNK_HEC_TOKEN`) e le chiavi private in `certs/` (`ca.key`, `server.key`,
-`admin.key`, ...) sono committati. **Per un progetto universitario è una scelta
-consapevole e pratica** (serve una CA condivisa perché l'mTLS funzioni per tutti),
-non un'emergenza. **Confermato 2026-06-02:**
-- [x] **Repo privato** → confermato dall'utente, non un problema.
-- [x] **Splunk locale**: istanza locale con licenza di prova (60 giorni) presente nei container; se i container vengono eliminati l'immagine si azzera. Token/password non di un'istanza reale/condivisa.
-- [x] **Password non riusate altrove**: confermato, credenziali usa-e-getta del lab.
-- [ ] (Opzionale) aggiungere un `.env.example` con placeholder per documentazione.
-
-## Fix applicati in questa sessione (per la call)
-
-- ✅ `fix(identity)`: OTP ora hashato con HMAC-SHA256 + session token come salt (era SHA-256 semplice, rainbow-table su leak DB).
-- ✅ `chore(envoy)`: admin interface bound su `127.0.0.1` (era `0.0.0.0`, esposta sulle docker network).
-- ✅ `fix(dashboard-app)`: endpoint corretto `/api/v1/reactor-parameters` (era `/api/v1/reactor`, 404).
-
-## Frontend finale — Dashboard autenticata role-aware (2026-06-06)
-
-Obiettivo: frontend finale basato su quello esistente, accesso autenticato con
-azioni gated per ruolo, **solo frontend** (no backend/policy/seed), stile invariato.
-Modello ruoli di riferimento: `policy.rego` runtime (6 ruoli + tier + clearance).
-Piano: `~/.claude/plans/contesto-questa-una-calm-peach.md`.
-
-- [x] Nuovo `static/js/app.js`: token/JWT (`getToken`/`decodeJWT`/`isExpired`/`requireAuth`/`logout`), `apiFetch` con `Authorization: Bearer`, mirror RBAC di `policy.rego` (solo rotte implementate), `renderIdentity`.
-- [x] `templates/reserved.html` riscritta: dashboard SPA role-aware (nav + viste generate via JS in base al ruolo), tabelle dati generiche, form POST (JSON), DELETE per id, trusted-guard (annotato deny), pannello esito fedele, WebAuthn enroll invariato.
-- [x] `templates/materials.html`: fix bug regressione (chiamata senza Bearer → ora `apiFetch`), guardia `requireAuth`, link Dashboard; CSS tabella/badge spostato in `styles.css`.
-- [x] `templates/index.html`: link Dashboard in sidebar + stato login dinamico ("Vai alla Dashboard" se autenticato).
-- [x] `static/css/styles.css`: aggiunte additive (tabelle, badge, form, pannello esito, bottoni azione) con le variabili esistenti; nessun override.
-
-### Fix backend NECESSARI (il branch role_manage non compilava/partiva — preesistenti, commit ba66a96)
-Lo scope iniziale era frontend-only, ma per buildare e far girare lo stack (richiesto esplicitamente dall'utente) ho dovuto correggere bug preesistenti:
-- `services/business-logic/internal/db/repositories.go` + `cmd/server/main.go`: `InitRepositories` usava `AppConfig` non qualificato (import cycle config↔db) e campo `managerDB`. Ora accetta i 3 `*mongo.Database`. **Compila** (`go build ./...`).
-- `infra/databases/business/init-scripts/01-init-users.js`: ruolo inesistente `adminCustomRole`, password non allineate a `config.go`, `seed_service` rimosso dal commit ba66a96 → ripristinati ruoli corretti (`adminRole/managerRole/operatorRole`), password (`admin/manager/operatorPass2026!`) e `seed_service`.
-- `infra/opa/policy.rego`: aggiunta rotta `trusted-guard/sanitized-delete-personnel` (plant_manager, tier 2, SECRET). `opa check` OK, **28/28 test**.
-- Reinizializzato il volume `docker_business-db-data` (autorizzato dall'utente) → utenti ruolo creati, seeder ha ripopolato i dati.
-
-### Review
-- `git status`: 5 file frontend + 4 file backend (repositories.go, main.go, 01-init-users.js, policy.rego).
-- **Scelta architetturale**: dashboard come SPA dentro `/reserved` perché il backend espone page-route solo per `/`,`/materials`,`/reserved` e l'OPA whitelista esattamente questi → nuove pagine avrebbero richiesto toccare `routes.go` + `public_paths`.
-- **Rotte**: incluse solo le 5 realmente implementate (`personnel`, `documents`, `nuclear-materials`, `reactor-parameters`, `trusted-guard`). `zones`/`badges`/`maintenance-orders` (in policy ma non nel backend) escluse per evitare 404. `trusted-guard` inclusa ma annotata (non in `policy.rego` → deny atteso).
-- **RBAC client = solo UX**: il gating show/hide è per ruolo; tier/clearance/AI restano enforced server-side e la UI mostra fedelmente status+corpo (anche i deny). In un browser senza cert mTLS (tier 0) molte GET tornano 403: comportamento corretto, reso esplicito.
-- **Validazione statica fatta**: `node --check` su `app.js` OK; tutti gli script inline dei 3 template validati (new Function) OK; nessun delimitatore Go template `{{` nei file (no conflitti con `html/template`).
-- **Verifica E2E (da fare con lo stack su)**: `docker compose -f deployments/docker/docker-compose.yaml up -d --build business-logic`; login `operator1/admin123` via `:8443/login` + OTP da MailHog; controllare gating sidebar per ruolo, header `Authorization` presente su `/reserved` e `/materials`, deny 403 senza cert mTLS, `documents` GET ok (tier 0).
+Open (future work, not blocking): per-class/cost-sensitive threshold to turn the AUC-0.76
+ranking into operational recall; real/public dataset for external validity. -> DONE!
+- Cost-sensitive thresholding implemented and unit tested (FPR dropped to 0.38% with 100% lateral recall).
+- LANL evaluation completed (AUC 0.9981 on targeted temporal window).

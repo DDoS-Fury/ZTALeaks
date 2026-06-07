@@ -10,11 +10,9 @@ import (
 )
 
 type registerRequest struct {
-	Username       string `json:"username"`
-	Email          string `json:"email"`
-	Password       string `json:"password"`
-	Role           string `json:"role"`
-	ClearanceLevel string `json:"clearance_level"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type registerResponse struct {
@@ -25,6 +23,9 @@ type registerResponse struct {
 // Register crea un nuovo utente con password Argon2id e 2FA email abilitato di default.
 func (api *IdentityAPI) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
+
+	var defaultRole = "guest"
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, "richiesta non valida", http.StatusBadRequest)
 		slog.Error("failed to decode register request", "error", err, "src_ip", r.Header.Get("x-envoy-external-address"))
@@ -35,9 +36,6 @@ func (api *IdentityAPI) Register(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("register fallito: campi mancanti", "src_ip", r.Header.Get("x-envoy-external-address"))
 		return
 	}
-	if req.Role == "" {
-		req.Role = "guest" // Ruolo di default se non specificato
-	}
 
 	hash, err := crypto.GenerateFromPassword(req.Password)
 	if err != nil {
@@ -47,13 +45,12 @@ func (api *IdentityAPI) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u := &models.User{
-		Username:       req.Username,
-		Email:          req.Email,
-		PasswordHash:   hash,
-		Role:           req.Role,
-		ClearanceLevel: req.ClearanceLevel,
-		TwoFAEnabled:   true, // OTP via email è il default — direttiva mantenuta
-		Status:         "active",
+		Username:     req.Username,
+		Email:        req.Email,
+		PasswordHash: hash,
+		Role:         defaultRole,
+		TwoFAEnabled: true, // OTP via email è il default — direttiva mantenuta
+		Status:       "active",
 	}
 	if err := api.Users.Create(r.Context(), u); err != nil {
 		respondError(w, err.Error(), http.StatusConflict)

@@ -2,11 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"ztaleaks/identity-service/internal/crypto"
+	"ztaleaks/identity-service/internal/db"
 	"ztaleaks/identity-service/internal/models"
 )
 
@@ -25,7 +27,25 @@ type loginResponse struct {
 // genera un OTP a 6 cifre, lo salva hashato in DB con TTL 5 min e lo
 // invia via email. Il client poi chiama /verify-otp con session_token + otp.
 func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
+	ip := r.Header.Get("x-envoy-external-address")
+	if ip == "" {
+		slog.Warn("login fallito: ip non trovato")
+		respondError(w, "ip non trovato", http.StatusBadRequest)
+		return
+	}
 
+	if err := api.RateLimits.CheckRateLimit(r.Context(), ip); err != nil {
+		if errors.Is(err, db.ErrRateLimitExceeded) {
+			slog.Warn("login fallito: rate limit superato", "ip", ip)
+			respondError(w, "troppi tentativi falliti, riprova più tardi", http.StatusTooManyRequests)
+			return
+		}
+		slog.Error("errore controllo rate limit", "error", err)
+		respondError(w, "errore interno", http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("login richiesto", "remote", r.RemoteAddr, "ip", ip)
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, "richiesta non valida", http.StatusBadRequest)
@@ -36,6 +56,9 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	if req.Username == "" || req.Password == "" {
 		respondError(w, "credenziali mancanti", http.StatusBadRequest)
 		slog.Warn("login fallito: credenziali mancanti", "username", req.Username, "role", "guest", "src_ip", r.Header.Get("x-envoy-external-address"))
+		if err := api.RateLimits.RecordFailure(r.Context(), ip); err != nil {
+			slog.Error("errore recording rate limit", "error", err)
+		}
 		return
 	}
 
@@ -46,6 +69,9 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		_, _ = crypto.ComparePasswordAndHash(req.Password, dummy)
 		respondError(w, "credenziali non valide", http.StatusUnauthorized)
 		slog.Warn("login fallito: utente non trovato", "username", req.Username, "src_ip", r.Header.Get("x-envoy-external-address"))
+		if err := api.RateLimits.RecordFailure(r.Context(), ip); err != nil {
+			slog.Error("errore recording rate limit", "error", err)
+		}
 		return
 	}
 
@@ -57,6 +83,9 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		// 1. Se il certificato non è presente, l'utente DEVE avere il ruolo guest
 		if !strings.EqualFold(user.Role, "guest") {
 			slog.Warn("login fallito: certificato mancante per non-guest", "username", user.Username, "role", user.Role, "src_ip", r.Header.Get("x-envoy-external-address"))
+			if err := api.RateLimits.RecordFailure(r.Context(), ip); err != nil {
+				slog.Error("errore recording rate limit", "error", err)
+			}
 			respondError(w, "accesso negato: certificato mTLS richiesto per questo ruolo", http.StatusForbidden)
 			return
 		}
@@ -64,12 +93,18 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 		// 2. Controllo CN == username (case-insensitive)
 		if !strings.EqualFold(cn, req.Username) {
 			slog.Warn("login fallito: mismatch CN-Username", "cn", cn, "username", user.Username, "role", user.Role, "src_ip", r.Header.Get("x-envoy-external-address"))
+			if err := api.RateLimits.RecordFailure(r.Context(), ip); err != nil {
+				slog.Error("errore recording rate limit", "error", err)
+			}
 			respondError(w, "accesso negato: certificato non corrisponde all'utente", http.StatusForbidden)
 			return
 		}
 		// 3. Controllo OU (nel certificato) == Role (nel database) (case-insensitive)
 		if !strings.EqualFold(ou, user.Role) {
 			slog.Warn("login fallito: mismatch OU-Role", "ou", ou, "username", user.Username, "role", user.Role, "src_ip", r.Header.Get("x-envoy-external-address"))
+			if err := api.RateLimits.RecordFailure(r.Context(), ip); err != nil {
+				slog.Error("errore recording rate limit", "error", err)
+			}
 			respondError(w, "accesso negato: ruolo certificato non valido", http.StatusForbidden)
 			return
 		}
@@ -79,6 +114,9 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !ok {
 		respondError(w, "credenziali non valide", http.StatusUnauthorized)
 		slog.Warn("login fallito: password errata", "username", user.Username, "role", user.Role, "src_ip", r.Header.Get("x-envoy-external-address"))
+		if err := api.RateLimits.RecordFailure(r.Context(), ip); err != nil {
+			slog.Error("errore recording rate limit", "error", err)
+		}
 		return
 	}
 
@@ -90,6 +128,9 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	_ = api.RateLimits.ResetLimit(r.Context(), ip)
+
 	sessionToken := newSessionToken()
 	otpHash := hashOTP(otp, sessionToken)
 

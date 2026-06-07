@@ -42,13 +42,12 @@ func Users(repo *db.UserRepository) {
 	}
 	for _, s := range defaultUsers {
 		u := &models.User{
-			Username:       s.username,
-			Email:          s.email,
-			PasswordHash:   hash,
-			Role:           s.role,
-			ClearanceLevel: s.clearance,
-			TwoFAEnabled:   true,
-			Status:         "active",
+			Username:     s.username,
+			Email:        s.email,
+			PasswordHash: hash,
+			Role:         s.role,
+			TwoFAEnabled: true,
+			Status:       "active",
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		err := repo.Create(ctx, u)

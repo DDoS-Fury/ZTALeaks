@@ -16,7 +16,6 @@ import (
 	"ztaleaks/identity-service/internal/handler"
 	"ztaleaks/identity-service/internal/logger"
 	"ztaleaks/identity-service/internal/mailer"
-	"ztaleaks/identity-service/internal/seed"
 	wa "ztaleaks/identity-service/internal/webauthn"
 )
 
@@ -44,15 +43,16 @@ func main() {
 	slog.Info("JWT manager pronto", "kid", jwtMgr.KeyID(), "alg", "RS256")
 
 	mail := mailer.New()
-	seed.Users(repos.Users)
+	//seed.Users(repos.Users)
 
 	router := &handler.Router{
 		API: &handler.IdentityAPI{
-			Users:   repos.Users,
-			OTP:     repos.OTP,
-			Devices: repos.Devices,
-			JWT:     jwtMgr,
-			Mail:    mail,
+			Users:      repos.Users,
+			OTP:        repos.OTP,
+			Devices:    repos.Devices,
+			RateLimits: repos.RateLimits,
+			JWT:        jwtMgr,
+			Mail:       mail,
 		},
 		WebAuthn: wa.NewHandler(repos.Users, repos.Devices, repos.Challenges, repos.OTP, mail),
 		JWT:      jwtMgr,
@@ -68,6 +68,16 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := repos.RateLimits.CleanupExpired(context.Background()); err != nil {
+				slog.Error("rate_limits cleanup err", "error", err)
+			}
+		}
+	}()
 
 	go func() {
 		slog.Info("Identity service in ascolto", "port", cfg.Port)

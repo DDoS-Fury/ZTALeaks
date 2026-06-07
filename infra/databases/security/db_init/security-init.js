@@ -12,6 +12,7 @@
 //   device_fingerprints    WebAuthn/FIDO2 credentials (TPM enrollments)
 //   webauthn_challenges    in-flight ceremony state, TTL 5 min
 //   auth_events            immutable audit log of authentication events
+//   rate_limits            tracks failed attempts for rate limiting
 // =============================================================================
 
 db = db.getSiblingDB('securitydb');
@@ -59,4 +60,11 @@ db.auth_events.createIndex({ "timestamp": -1 });
 db.auth_events.createIndex({ "user_id": 1, "timestamp": -1 });
 db.auth_events.createIndex({ "event_type": 1 });
 
-print("[INIT] Security database initialized: 6 collections, indexes ready.");
+// ---------------------------------------------------------------------------
+// rate_limits — tracks failed attempts for rate limiting
+// ---------------------------------------------------------------------------
+db.createCollection("rate_limits");
+// MongoDB automatically creates a unique index on _id (which is used for the IP)
+db.rate_limits.createIndex({ "expires_at": 1 }, { expireAfterSeconds: 0 });
+
+print("[INIT] Security database initialized: 7 collections, indexes ready.");

@@ -8,6 +8,7 @@ type Repositories struct {
 	OTP        *OTPRepository
 	Devices    *DeviceRepository
 	Challenges *ChallengeRepository
+	RateLimits *RateLimitRepository
 }
 
 // InitRepositories costruisce tutti i repository sopra la connessione Mongo.
@@ -17,5 +18,6 @@ func InitRepositories(m *MongoDB) *Repositories {
 		OTP:        NewOTPRepository(m),
 		Devices:    NewDeviceRepository(m),
 		Challenges: NewChallengeRepository(m),
+		RateLimits: NewRateLimitRepository(m),
 	}
 }

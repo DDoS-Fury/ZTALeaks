@@ -28,11 +28,12 @@ import (
 
 // IdentityAPI raccoglie tutte le dipendenze degli handler.
 type IdentityAPI struct {
-	Users   *db.UserRepository
-	OTP     *db.OTPRepository
-	Devices *db.DeviceRepository
-	JWT     *crypto.JWTManager
-	Mail    *mailer.SMTPMailer
+	Users      *db.UserRepository
+	OTP        *db.OTPRepository
+	Devices    *db.DeviceRepository
+	RateLimits *db.RateLimitRepository
+	JWT        *crypto.JWTManager
+	Mail       *mailer.SMTPMailer
 }
 
 // generateOTP — 6 cifre random crittograficamente sicure.

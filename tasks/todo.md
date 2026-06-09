@@ -78,3 +78,30 @@ Open (future work, not blocking): per-class/cost-sensitive threshold to turn the
 ranking into operational recall; real/public dataset for external validity. -> DONE!
 - Cost-sensitive thresholding implemented and unit tested (FPR dropped to 0.38% with 100% lateral recall).
 - LANL evaluation completed (AUC 0.9981 on targeted temporal window).
+
+## Doc audit + LaTeX architecture update (2026-06-07)
+Task: read code for data leaks; verify docs; update `docs/latex/report.tex` architecture + add a NN-layer schematic.
+- [x] Data-leak audit of code: CLEAN. Chronological 70/10/20 split; benign-only training; threshold
+      calibrated on val (never test); trust + recent_alert reset before test replay; uniform-random
+      structural negatives (×10 hard-negative removed); LANL maps labels only to y/types, alarm cols
+      held clean (rule baseline blind to lateral) → no label→feature path.
+- [x] Doc verification: found `report.tex` was STALE — documented the removed ×10 leak as current,
+      wrong loss (BCE sum vs InfoNCE+anchors), struct head overclaimed as lateral detector (ablation
+      marginal), unsupported "≈50%" lateral recall (validated 22.6%), no precursor/history features.
+- [x] Fixed report.tex: corrected loss → InfoNCE+pos-BCE+Gaussian-ctx; added de-circularization
+      paragraph (no leak); struct head reframed as marginal; lateral recall 4.7%→22.6% (routed);
+      added cost-sensitive routing to calibration section; added precursor + history-feature
+      components; LANL caveat (small red-team test n, clean mapping = no leak).
+- [x] Added NN-layer schematic figure (fig:layers): GRU memory, 3× TransformerConv stack,
+      both heads with exact dims (649→256→256→1 feature head; 256→512→256 struct proj), merge +
+      sigmoid + precursor boost. Added `\usepackage{amsmath}`.
+- [x] Fixed `docs/lateral_movement.md`: clean_fpr_cap is implemented (was listed as future work).
+- [!] LaTeX NOT compiled (no local TeX engine / no texlive Docker image). Syntax manually audited
+      (amsmath added for \text/\|; brace/math balance checked). Needs a compile pass to confirm.
+
+## Fix user login and move identity seeder (2026-06-09)
+- [x] Moved `seed.Users` from `identity-service` to `tools/seeder/` as requested.
+- [x] Created `tools/seeder/crypto/password.go` to handle Argon2id hashing natively without depending on identity-service.
+- [x] Implemented `SeedUsers` in `tools/seeder/seeders/users.go` pointing to `securitydb`.
+- [x] Refactored `tools/seeder/cmd/seeder/main.go` to connect to `securitydb` reading `SECURITY_DB_URI` and `SECURITY_DB_NAME` from `.env`.
+- [x] Added `auth-net` network to the `seeder` container in `deployments/docker/docker-compose*.yaml` so it can reach the security-db.

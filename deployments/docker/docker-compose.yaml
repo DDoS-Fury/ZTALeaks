@@ -265,6 +265,7 @@ services:
     restart: "no"
     networks:
       - back-net
+      - auth-net
 
   splunk:
     image: splunk/splunk:latest

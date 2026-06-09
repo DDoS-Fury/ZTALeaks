@@ -43,7 +43,6 @@ func main() {
 	slog.Info("JWT manager pronto", "kid", jwtMgr.KeyID(), "alg", "RS256")
 
 	mail := mailer.New()
-	//seed.Users(repos.Users)
 
 	router := &handler.Router{
 		API: &handler.IdentityAPI{

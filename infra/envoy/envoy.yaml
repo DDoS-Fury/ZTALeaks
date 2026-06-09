@@ -240,7 +240,7 @@ static_resources:
                         server_uri:
                           uri:     http://security-orchestrator:8081/api/v1/evaluate
                           cluster: security_orchestrator_cluster
-                          timeout: 2s
+                          timeout: 5s
                         path_prefix: "/api/v1/evaluate"
 
                         authorization_request:

@@ -69,7 +69,7 @@ func main() {
 
 	db := client.Database(dbName)
 
-	// Execute seeders in dependency order
+	// Execute seeders in dependency order for business_db
 	log.Println("[SEED] Beginning database population...")
 
 	seeders.SeedZones(ctx, db)
@@ -79,6 +79,38 @@ func main() {
 	seeders.SeedMaintenanceOrders(ctx, db)
 	seeders.SeedDocuments(ctx, db)
 	seeders.SeedNuclearMaterials(ctx, db)
+
+	log.Println("[SEED] Business database population completed successfully")
+
+	// Now connect to Security DB and seed users
+	securityMongoURI := os.Getenv("SECURITY_DB_URI")
+	if securityMongoURI == "" {
+		securityMongoURI = "mongodb://ztadmin:ztpassword@localhost:27017/securitydb?authSource=admin"
+	}
+
+	secDBName := os.Getenv("SECURITY_DB_NAME")
+	if secDBName == "" {
+		secDBName = "securitydb"
+	}
+
+	log.Println("[SEED] Connecting to Security MongoDB...")
+	secClient, err := mongo.Connect(ctx, options.Client().ApplyURI(securityMongoURI))
+	if err != nil {
+		log.Fatalf("[SEED] Failed to connect to Security MongoDB: %v", err)
+	}
+	defer func() {
+		if err := secClient.Disconnect(ctx); err != nil {
+			log.Printf("[SEED] Warning: error during security db disconnect: %v", err)
+		}
+	}()
+
+	if err = secClient.Ping(ctx, nil); err != nil {
+		log.Fatalf("[SEED] Failed to ping Security MongoDB: %v", err)
+	}
+	log.Println("[SEED] Successfully connected to Security MongoDB")
+
+	secDB := secClient.Database(secDBName)
+	seeders.SeedUsers(ctx, secDB)
 
 	log.Println("[SEED] Database population completed successfully")
 }

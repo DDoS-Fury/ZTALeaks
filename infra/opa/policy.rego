@@ -114,6 +114,21 @@ matrice_sicurezza := {
             "ruoli_ammessi": ["admin"],
             "rischio_accettato": 0.2
         }
+    },
+    # Enrollment WebAuthn: richiede utente autenticato (qualsiasi ruolo non-guest)
+    "/api/v1/auth/register/begin": {
+        "POST": {
+            "impatto": 0.2,
+            "ruoli_ammessi": ["operator", "manager", "admin"],
+            "rischio_accettato": 0.5
+        }
+    },
+    "/api/v1/auth/register/finish": {
+        "POST": {
+            "impatto": 0.2,
+            "ruoli_ammessi": ["operator", "manager", "admin"],
+            "rischio_accettato": 0.5
+        }
     }
 
 }

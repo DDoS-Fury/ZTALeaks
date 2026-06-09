@@ -38,18 +38,19 @@ The system is deployed using Docker Compose, which sets up the necessary service
 
 To build and start all the services in detached mode, run:
 ```bash
-docker-compose -f deployments/docker-compose/docker-compose.yaml up -d --build
+docker compose -f deployments/docker/docker-compose.yaml up -d --build
 ```
 
-### Seeding the Database (First Run)
-The database structure is created automatically on the first start, but it remains empty. To populate the Business DB with realistic test data (personnel, zones, access badges, reactor parameters), you must explicitly run the `seeder` profile:
+### Seeding the Database
+The database structure is created automatically on the first start, but it remains empty. The `seeder` service populates both the Business DB (personnel, documents, nuclear materials, reactor parameters) and the Security DB (default users `admin`/`manager1`/`operator1`, password `admin123`). It starts together with the stack, but you can (re-)run it explicitly at any time:
 ```bash
-docker-compose -f deployments/docker-compose/docker-compose.yaml --profile seed up -d seeder
+docker compose -f deployments/docker/docker-compose.yaml up --build seeder
 ```
+Re-running it is required after changing the default users (e.g., the role migration to `operator`/`manager`/`admin`): the seeder upserts roles and clearances onto existing users.
 
 To stop the environment:
 ```bash
-docker-compose -f deployments/docker-compose/docker-compose.yaml down
+docker compose -f deployments/docker/docker-compose.yaml down
 ```
 
 
@@ -64,7 +65,7 @@ To thoroughly test the architecture, you need to simulate both legitimate traffi
    There is a dedicated testing docker-compose file available for isolated test runs or specific mock setups:
    
    ```bash
-   docker-compose -f deployments/docker-compose/docker-compose.test.yaml up -d --build
+   docker compose -f deployments/docker/docker-compose.test.yaml up -d --build
    ```
 
 2. **Attack Scenarios**:

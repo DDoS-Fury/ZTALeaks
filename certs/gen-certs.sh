@@ -55,49 +55,33 @@ openssl x509 -req \
   -extfile "$EXT"
 
 # ---------------------------------------------------------
-# 3. CERTIFICATO CLIENT ADMIN (Se Envoy richiede mTLS)
+# 3. CERTIFICATI CLIENT mTLS (CN=username, OU=ruolo)
 # ---------------------------------------------------------
-echo "==> Generazione Certificato Client..."
-openssl genrsa -out "$OUT/admin.key" 2048
+gen_client_cert() {
+  local username="$1" role="$2"
+  echo "==> Generazione Certificato Client ${username} (OU=${role})..."
+  openssl genrsa -out "$OUT/${username}.key" 2048
 
-openssl req -new \
-  -key "$OUT/admin.key" \
-  -out "$OUT/admin.csr" \
-  -subj "/C=IT/O=ZTA-Leaks/CN=admin/OU=plant_manager"
+  openssl req -new \
+    -key "$OUT/${username}.key" \
+    -out "$OUT/${username}.csr" \
+    -subj "/C=IT/O=ZTA-Leaks/CN=${username}/OU=${role}"
 
-printf "keyUsage=digitalSignature\nextendedKeyUsage=clientAuth\n" > "$EXT"
+  printf "keyUsage=digitalSignature\nextendedKeyUsage=clientAuth\n" > "$EXT"
 
-openssl x509 -req \
-  -in "$OUT/admin.csr" \
-  -CA "$OUT/ca.crt" \
-  -CAkey "$OUT/ca.key" \
-  -CAcreateserial \
-  -out "$OUT/admin.crt" \
-  -days "$DAYS" -sha256 \
-  -extfile "$EXT"
+  openssl x509 -req \
+    -in "$OUT/${username}.csr" \
+    -CA "$OUT/ca.crt" \
+    -CAkey "$OUT/ca.key" \
+    -CAcreateserial \
+    -out "$OUT/${username}.crt" \
+    -days "$DAYS" -sha256 \
+    -extfile "$EXT"
+}
 
-echo "==> Fatto! I file generati sono nella cartella $OUT"
-
-# ---------------------------------------------------------
-# 4. CERTIFICATO CLIENT USER (Se Envoy richiede mTLS)
-# ---------------------------------------------------------
-echo "==> Generazione Certificato Client..."
-openssl genrsa -out "$OUT/operator1.key" 2048
-
-openssl req -new \
-  -key "$OUT/operator1.key" \
-  -out "$OUT/operator1.csr" \
-  -subj "/C=IT/O=ZTA-Leaks/CN=operator1/OU=operator"
-
-printf "keyUsage=digitalSignature\nextendedKeyUsage=clientAuth\n" > "$EXT"
-
-openssl x509 -req \
-  -in "$OUT/operator1.csr" \
-  -CA "$OUT/ca.crt" \
-  -CAkey "$OUT/ca.key" \
-  -CAcreateserial \
-  -out "$OUT/operator1.crt" \
-  -days "$DAYS" -sha256 \
-  -extfile "$EXT"
+# Allineati a tools/seeder/seeders/users.go e infra/opa/policy.rego
+gen_client_cert "admin" "admin"
+gen_client_cert "manager1" "manager"
+gen_client_cert "operator1" "operator"
 
 echo "==> Fatto! I file generati sono nella cartella $OUT"

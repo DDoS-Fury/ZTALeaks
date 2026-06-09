@@ -18,12 +18,9 @@ type userSeed struct {
 }
 
 var defaultUsers = []userSeed{
-	{"admin", "admin@ztaleaks.local", "plant_manager", "TOP_SECRET"},
+	{"admin", "admin@ztaleaks.local", "admin", "TOP_SECRET"},
+	{"manager1", "manager1@ztaleaks.local", "manager", "SECRET"},
 	{"operator1", "operator1@ztaleaks.local", "operator", "CONFIDENTIAL"},
-	{"maint_tech1", "maint_tech1@ztaleaks.local", "maintenance_technician", "INTERNAL"},
-	{"rad_officer1", "rad_officer1@ztaleaks.local", "radiation_protection_officer", "SECRET"},
-	{"sec_officer1", "sec_officer1@ztaleaks.local", "security_officer", "SECRET"},
-	{"inspector1", "inspector1@ztaleaks.local", "inspector", "SECRET"},
 }
 
 const defaultPassword = "admin123"
@@ -55,16 +52,22 @@ func SeedUsers(ctx context.Context, db *mongo.Database) {
 			"username":      s.username,
 			"email":         s.email,
 			"password_hash": hash,
-			"role":          s.role,
-			"clearance":     s.clearance,
 			"two_fa_enabled": true,
 			"status":        "active",
 			"created_at":    now,
-			"updated_at":    now,
 		}
 
 		filter := bson.M{"username": s.username}
-		update := bson.M{"$setOnInsert": u}
+		// role/clearance in $set: re-running the seeder realigns existing
+		// users to the current role model (e.g. plant_manager -> admin)
+		update := bson.M{
+			"$setOnInsert": u,
+			"$set": bson.M{
+				"role":       s.role,
+				"clearance":  s.clearance,
+				"updated_at": now,
+			},
+		}
 		opts := options.Update().SetUpsert(true)
 
 		res, err := coll.UpdateOne(ctx, filter, update, opts)

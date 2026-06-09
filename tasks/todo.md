@@ -105,3 +105,57 @@ Task: read code for data leaks; verify docs; update `docs/latex/report.tex` arch
 - [x] Implemented `SeedUsers` in `tools/seeder/seeders/users.go` pointing to `securitydb`.
 - [x] Refactored `tools/seeder/cmd/seeder/main.go` to connect to `securitydb` reading `SECURITY_DB_URI` and `SECURITY_DB_NAME` from `.env`.
 - [x] Added `auth-net` network to the `seeder` container in `deployments/docker/docker-compose*.yaml` so it can reach the security-db.
+
+## Allineamento rotte AI + fix score=1.0 + migrazione ruoli + frontend (2026-06-09)
+Piano completo: ~/.claude/plans/obiettivo-necessario-progettare-zippy-sketch.md
+
+### Task A — Migrazione ruoli → guest/operator/manager/admin
+- [x] A1 seeder: `tools/seeder/seeders/users.go` → admin/admin, manager1/manager, operator1/operator
+      (role/clearance ora in `$set`: ri-eseguire il seeder riallinea anche gli utenti gia' presenti)
+- [x] A2 certs: `gen-certs.sh` rifattorizzato con `gen_client_cert()` → admin (OU=admin), manager1
+      (OU=manager), operator1 (OU=operator); `create_browser_cert.py` ora parametrico (`python create_browser_cert.py manager1`)
+- [x] A3 (extra) `policy.rego`: aggiunte `/api/v1/auth/register/begin|finish` alla matrice
+      (POST, operator/manager/admin) — l'enrollment WebAuthn era negato a TUTTI con la nuova policy
+- [x] A4 (extra) `policy_test.rego` riscritto per la nuova policy: 26/26 PASS (prima 15/28 FAIL)
+
+### Task B — Rotte AI + retrain
+- [x] B1 orchestratore: `normalizeAIPath` (sottorotte /{id} → rotta base, /static/* → /static)
+      per KeyDst + ruoli {guest,operator,manager,admin} con divisore len-1 in `buildAIEvent`
+- [x] B2/B3 submodule: RESOURCE_URIS = 19 rotte reali esatte, ROLES nuovi, assert
+      num_resources==len(URIS) (eliminato il bug del suffisso /0), feature risorsa scalare,
+      precursor_half_life 100000→600s, max_boost 3→2; `tests/generator.py` allineato
+- [x] B4 retrain (2 iterazioni): la prima ha rivelato che vincoli tier/clearance stretti
+      affamavano reactor-parameters/trusted-guard di traffico benigno (score saturi 1.0 per
+      TUTTI gli IP) → rilassati a (1,2). Finale: AUC 0.96, verify-tgn 4/4 PASS
+- [x] B5 commit submodule (5bcb890) — puntatore aggiornato nel working tree del repo principale
+
+### Task C — Frontend
+- [x] C1 `app.js`: ROUTE_RULES = mirror esatto della nuova matrice OPA; `friendlyError(status)`
+- [x] C2 `reserved.html`: colonne/idField dai json tag dei modelli Go, form a campi strutturati
+      (select per enum, dot-notation per contact.email/location.zone_id), esito leggibile +
+      dettaglio raw in `<details>`, WebAuthn finish con public key reale (getPublicKey, base64 std)
+      e AAGUID estratto dall'authenticatorData
+- [x] C3 `index.html` (link protetti nascosti per non autenticati / non autorizzati),
+      `materials.html` (friendlyError), `styles.css` (form-grid, raw-response — solo additive)
+
+### Verifica
+- [x] go build: business-logic, security-orchestrator, seeder OK; node --check su app.js e
+      su tutti gli script inline dei template OK
+- [x] AI: smoke su tutte le 19 rotte (warm+cold) → score 0.002–0.15, nessun 1.0 su traffico
+      benigno; flusso reale orchestratore (infer→OPA→update) per un admin nuovo: tutto ALLOW,
+      primo contatto documents 0.43 (entro banda), poi stabilizzato a ~0.03–0.06
+- [x] opa test: 26/26 PASS
+- [ ] E2E nel browser (richiede rigenerare i cert: `bash certs/gen-certs.sh` + reimport .p12,
+      ricreare il volume del security-db o rilanciare il seeder, `docker compose up --build`)
+
+### Review
+- Causa radice degli score 1.0: (1) le chiavi risorsa del training avevano suffissi sintetici
+  (`/api/v1/personnel/0`) quindi OGNI richiesta reale era cold-start sopra soglia; (2) l'alert
+  cold-start armava il precursor boost (×4, half-life ~28h reali) che clampava a 1.0 ogni
+  richiesta successiva; (3) al secondo training: rotte privilegiate senza traffico benigno
+  (vincoli comportamentali troppo stretti) → "qualsiasi accesso = anomalia".
+- La migrazione ruoli era il blocco nascosto: con la nuova policy l'admin seedato
+  (plant_manager) era negato ovunque — ora seeder/cert/frontend/AI parlano tutti
+  guest/operator/manager/admin.
+- NOTA per il riavvio: i .p12 nel repo sono generati dai VECCHI cert (OU=plant_manager) →
+  rigenerare ed eseguire di nuovo l'import nel browser, altrimenti il login mTLS fallisce.

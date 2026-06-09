@@ -67,7 +67,7 @@
                 // (la versione precedente lo ometteva -> sempre negato da OPA/Envoy).
                 const response = await ZTA.apiFetch('GET', '/api/v1/nuclear-materials');
                 if (!response.ok) {
-                    throw new Error(`Errore di Accesso: ${response.status} ${response.statusText}`);
+                    throw new Error(ZTA.friendlyError(response.status));
                 }
                 const responseJson = JSON.parse(response.text);
 
@@ -100,9 +100,9 @@
             } catch (error) {
                 console.error("Errore di caricamento materiali:", error);
                 document.getElementById('loading-card').innerHTML = `
-                    <h2 style="color: var(--danger);">Autorizzazione Negata o Errore API</h2>
-                    <p>Impossibile recuperare i materiali nucleari. Accertati di essere autenticato all'interno del perimetro ZTA.</p>
-                    <p><code>${error.message}</code></p>
+                    <h2 style="color: var(--danger);">Accesso non riuscito</h2>
+                    <p>${error.message}</p>
+                    <p>La lista materiali e' riservata ai ruoli manager e admin.</p>
                     <button class="btn btn-secondary" onclick="window.location.href='/login'" style="margin-top: 1rem;">Effettua Login</button>
                 `;
             }

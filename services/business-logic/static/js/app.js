@@ -86,10 +86,9 @@
     }
 
     // -------------------------------------------------------------------------
-    // Mirror RBAC (da infra/opa/policy.rego) - SOLO rotte implementate nel
-    // backend (services/business-logic/internal/handler/routes.go).
-    // zones/badges/maintenance-orders sono nella policy ma non nel backend
-    // (404) quindi sono volutamente esclusi.
+    // Mirror RBAC (da infra/opa/policy.rego, matrice_sicurezza) - SOLO rotte
+    // implementate nel backend (services/business-logic/internal/handler/routes.go).
+    // Modello ruoli: guest / operator / manager / admin.
     // -------------------------------------------------------------------------
 
     const CLEARANCE_ORDER = {
@@ -100,35 +99,30 @@
         "TOP_SECRET": 4,
     };
 
-    const ALL_ROLES = [
-        "plant_manager", "operator", "inspector",
-        "maintenance_technician", "radiation_protection_officer", "security_officer",
-    ];
-
     const ROUTE_RULES = {
         "/api/v1/personnel": {
-            "GET": { roles: ["security_officer", "plant_manager", "inspector"], min_tier: 1, min_clearance: "INTERNAL" },
-            "POST": { roles: ["plant_manager"], min_tier: 2, min_clearance: "SECRET" },
+            "GET": { roles: ["operator", "manager", "admin"] },
+            "POST": { roles: ["operator", "manager", "admin"] },
         },
         "/api/v1/documents": {
-            "GET": { roles: ALL_ROLES, min_tier: 0, min_clearance: "PUBLIC" },
-            "POST": { roles: ["plant_manager"], min_tier: 2, min_clearance: "CONFIDENTIAL" },
-            "DELETE": { roles: ["plant_manager"], min_tier: 2, min_clearance: "CONFIDENTIAL" },
-        },
-        "/api/v1/reactor-parameters": {
-            "GET": { roles: ["operator", "plant_manager", "inspector"], min_tier: 1, min_clearance: "CONFIDENTIAL" },
-            "POST": { roles: ["plant_manager"], min_tier: 2, min_clearance: "SECRET" },
-            "DELETE": { roles: ["plant_manager"], min_tier: 2, min_clearance: "SECRET" },
+            "GET": { roles: ["manager", "admin"] },
+            "POST": { roles: ["manager", "admin"] },
+            "DELETE": { roles: ["manager", "admin"] },
         },
         "/api/v1/nuclear-materials": {
-            "GET": { roles: ["plant_manager", "inspector", "radiation_protection_officer"], min_tier: 2, min_clearance: "SECRET" },
-            "POST": { roles: ["plant_manager"], min_tier: 2, min_clearance: "TOP_SECRET" },
-            "DELETE": { roles: ["plant_manager"], min_tier: 2, min_clearance: "TOP_SECRET" },
+            "GET": { roles: ["manager", "admin"] },
+            "POST": { roles: ["manager", "admin"] },
+            "DELETE": { roles: ["manager", "admin"] },
         },
-        // Gateway di sanitizzazione (admin): cancellazione controllata e
-        // tracciata di personale. Richiede tier 2 + clearance SECRET.
+        "/api/v1/reactor-parameters": {
+            "GET": { roles: ["admin"] },
+            "POST": { roles: ["admin"] },
+            "DELETE": { roles: ["admin"] },
+        },
+        // Gateway di sanitizzazione: cancellazione controllata e tracciata
+        // di personale (solo admin).
         "/api/v1/trusted-guard/sanitized-delete-personnel": {
-            "POST": { roles: ["plant_manager"], min_tier: 2, min_clearance: "SECRET" },
+            "POST": { roles: ["admin"] },
         },
     };
 
@@ -144,14 +138,17 @@
         return rule.roles.indexOf(role) !== -1;
     }
 
-    // La clearance soddisfa il minimo richiesto da (path, method)?
-    function clearanceMeets(level, path, method) {
-        const rule = ruleFor(path, method);
-        if (!rule) return false;
-        const have = CLEARANCE_ORDER[level];
-        const need = CLEARANCE_ORDER[rule.min_clearance];
-        if (have === undefined || need === undefined) return false;
-        return have >= need;
+    // -------------------------------------------------------------------------
+    // Errori leggibili: traduce gli status HTTP della catena Zero Trust in
+    // messaggi comprensibili (il corpo raw resta consultabile a parte).
+    // -------------------------------------------------------------------------
+
+    function friendlyError(status) {
+        if (status === 401) return "Sessione scaduta o token non valido: effettua di nuovo il login.";
+        if (status === 403) return "Non autorizzato: la policy Zero Trust ha negato l'operazione (ruolo non ammesso o risk-score troppo alto).";
+        if (status === 404) return "Risorsa non trovata.";
+        if (status >= 500) return "Errore del servizio: riprova piu' tardi.";
+        return "Richiesta non riuscita (HTTP " + status + ").";
     }
 
     // -------------------------------------------------------------------------
@@ -184,7 +181,7 @@
         logout: logout,
         apiFetch: apiFetch,
         roleCan: roleCan,
-        clearanceMeets: clearanceMeets,
+        friendlyError: friendlyError,
         ruleFor: ruleFor,
         renderIdentity: renderIdentity,
         ROUTE_RULES: ROUTE_RULES,

@@ -48,8 +48,8 @@
             </div>
             <ul class="nav-list">
                 <li><a href="/" class="nav-link active">Home</a></li>
-                <li><a href="/reserved" class="nav-link">Dashboard Operativa</a></li>
-                <li><a href="/materials" class="nav-link">Materiali Nucleari</a></li>
+                <li id="nav-reserved" style="display:none"><a href="/reserved" class="nav-link">Dashboard Operativa</a></li>
+                <li id="nav-materials" style="display:none"><a href="/materials" class="nav-link">Materiali Nucleari</a></li>
             </ul>
         </nav>
 
@@ -72,11 +72,17 @@
 
     <script src="/static/js/app.js"></script>
     <script>
-        // Se gia' autenticati, offri l'accesso diretto alla dashboard.
+        // Se gia' autenticati, mostra i link protetti e l'accesso diretto alla dashboard.
         (function () {
             const token = ZTA.getToken();
             if (!token || ZTA.isExpired(token)) return;
             const claims = ZTA.decodeJWT(token);
+
+            document.getElementById('nav-reserved').style.display = '';
+            // La lista materiali interroga /api/v1/nuclear-materials (manager/admin).
+            if (claims && ZTA.roleCan(claims.role, '/api/v1/nuclear-materials', 'GET')) {
+                document.getElementById('nav-materials').style.display = '';
+            }
 
             document.getElementById('header-actions').innerHTML =
                 '<button class="btn btn-primary" onclick="window.location.href=\'/reserved\'">Vai alla Dashboard</button>' +

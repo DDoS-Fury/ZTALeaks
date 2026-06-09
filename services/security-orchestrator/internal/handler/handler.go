@@ -455,7 +455,8 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 	}
 
 	srcFeat := make([]float64, 16)
-	roles := []string{"plant_manager", "operator", "maintenance_technician", "radiation_protection_officer", "security_officer", "inspector"}
+	// Deve restare allineato a ROLES in ai-inference/src/data/stream_synthetic.py
+	roles := []string{"guest", "operator", "manager", "admin"}
 
 	if claims != nil {
 		roleIdx := -1
@@ -466,7 +467,7 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 			}
 		}
 		if roleIdx != -1 {
-			srcFeat[0] = float64(roleIdx) / 6.0
+			srcFeat[0] = float64(roleIdx) / float64(len(roles)-1)
 		}
 		
 		clearances := []string{"PUBLIC", "INTERNAL", "CONFIDENTIAL", "SECRET", "TOP_SECRET"}
@@ -497,9 +498,33 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 
 	return aiscorer.Event{
 		KeySrc:    keySrc,
-		KeyDst:    origPath,
+		KeyDst:    normalizeAIPath(origPath),
 		Timestamp: now.Unix(),
 		Features:  []float64{ja3Float, snortFloat, alertEdge, alertMid, alertInt, methodFloat},
 		SrcFeat:   srcFeat,
 	}
+}
+
+// aiResourceBases: rotte base note al modello AI; le sottorotte con
+// path-parameter (es. /api/v1/personnel/123) vengono ricondotte alla base,
+// rispecchiando la risoluzione "rotta_base" di infra/opa/policy.rego.
+// Deve restare allineato a RESOURCE_URIS in ai-inference/src/data/stream_synthetic.py
+var aiResourceBases = []string{
+	"/api/v1/trusted-guard/sanitized-delete-personnel",
+	"/api/v1/personnel",
+	"/api/v1/documents",
+	"/api/v1/nuclear-materials",
+	"/api/v1/reactor-parameters",
+}
+
+func normalizeAIPath(path string) string {
+	for _, base := range aiResourceBases {
+		if path == base || strings.HasPrefix(path, base+"/") {
+			return base
+		}
+	}
+	if strings.HasPrefix(path, "/static/") {
+		return "/static"
+	}
+	return path
 }

@@ -11,12 +11,14 @@ except ImportError:
     sys.exit(1)
 
 def main():
+    # Username passato come argomento (default: admin). Es: python create_browser_cert.py manager1
+    username = sys.argv[1] if len(sys.argv) > 1 else "admin"
     # Definiamo i path relativi dalla cartella in cui eseguirai lo script
     base_dir = os.path.abspath(os.path.dirname(__file__))
-    cert_path = os.path.join(base_dir, "admin.crt")
-    key_path = os.path.join(base_dir, "admin.key")
-    p12_path = os.path.join(base_dir, "admin.p12")
-    pfx_path = os.path.join(base_dir, "admin-apple.pfx")
+    cert_path = os.path.join(base_dir, f"{username}.crt")
+    key_path = os.path.join(base_dir, f"{username}.key")
+    p12_path = os.path.join(base_dir, f"{username}.p12")
+    pfx_path = os.path.join(base_dir, f"{username}-apple.pfx")
 
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         print(f"Non ho trovato i certificati in {base_dir}.")
@@ -36,7 +38,7 @@ def main():
     
     print("Generando il file PKCS#12 (.p12)...")
     p12_data = pkcs12.serialize_key_and_certificates(
-        name=b"ZTALeaks Client Certificate",
+        name=f"ZTALeaks {username}".encode(),
         key=key,
         cert=cert,
         cas=None,

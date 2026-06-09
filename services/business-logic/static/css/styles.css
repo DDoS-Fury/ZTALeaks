@@ -93,3 +93,14 @@ tr:hover { background-color: rgba(255, 255, 255, 0.02); }
 /* Stato vuoto / messaggi */
 .empty-hint { color: var(--text-muted); padding: 1rem 0; }
 .badge-locked { font-size: 0.7rem; color: var(--danger); border: 1px solid var(--danger); border-radius: 4px; padding: 1px 5px; margin-left: 0.5rem; }
+
+/* Griglia campi del form di creazione */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; }
+.form-grid .form-field label { margin-top: 0; }
+
+/* Esito leggibile + dettaglio tecnico collassabile */
+.result-summary { font-family: inherit; margin-bottom: 0.5rem; }
+.result-panel .result-summary { color: inherit; }
+details.raw-response { margin-top: 0.5rem; }
+details.raw-response summary { cursor: pointer; color: var(--text-muted); font-size: 0.75rem; }
+details.raw-response pre { margin-top: 0.5rem; white-space: pre-wrap; word-break: break-word; color: var(--text-muted); font-size: 0.8rem; }

@@ -57,30 +57,70 @@
         // === Configurazione risorse ==============================================
         // Solo rotte realmente implementate nel backend. Le capacita' (GET/POST/
         // DELETE) vengono filtrate per ruolo tramite il mirror RBAC (ZTA.roleCan).
+        // columns/fields/idField rispecchiano i json tag dei modelli Go
+        // (services/business-logic/internal/models/types.go).
+        const CLASSIFICATIONS = ['PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 'SECRET', 'TOP_SECRET'];
         const RESOURCES = [
             {
                 key: 'personnel', label: 'Personnel', path: '/api/v1/personnel',
-                columns: ['id', 'name', 'role', 'department', 'clearance_level', 'status'],
-                sample: { name: 'Mario Rossi', role: 'operator', department: 'OPS' },
+                idField: 'employee_id',
+                columns: ['employee_id', 'first_name', 'last_name', 'role', 'department', 'clearance_level', 'status'],
+                fields: [
+                    { name: 'employee_id', label: 'Employee ID', placeholder: 'EMP-100' },
+                    { name: 'first_name', label: 'Nome', placeholder: 'Mario' },
+                    { name: 'last_name', label: 'Cognome', placeholder: 'Rossi' },
+                    { name: 'role', label: 'Ruolo', type: 'select', options: ['operator', 'manager', 'admin'] },
+                    { name: 'department', label: 'Dipartimento', placeholder: 'OPS' },
+                    { name: 'clearance_level', label: 'Clearance', type: 'select', options: CLASSIFICATIONS },
+                    { name: 'classification_level', label: 'Classificazione record', type: 'select', options: CLASSIFICATIONS },
+                    { name: 'status', label: 'Stato', type: 'select', options: ['active', 'inactive'] },
+                    { name: 'contact.email', label: 'Email', placeholder: 'mario.rossi@ztaleaks.local' },
+                ],
                 hasDelete: false,
                 trustedGuard: true, // POST sanitized-delete (admin, annotato)
             },
             {
                 key: 'reactor', label: 'Reactor Parameters', path: '/api/v1/reactor-parameters',
-                columns: ['id', 'reactor_id', 'parameter', 'value', 'unit', 'status'],
-                sample: { reactor_id: 'RX-1', parameter: 'core_temp', value: 320.5, unit: 'C' },
+                idField: 'reactor_id',
+                columns: ['reactor_id', 'thermal_power_mw', 'electrical_power_mw', 'coolant_pressure_mpa', 'reactor_status', 'timestamp'],
+                fields: [
+                    { name: 'reactor_id', label: 'Reactor ID', placeholder: 'RX-1' },
+                    { name: 'thermal_power_mw', label: 'Potenza termica (MW)', type: 'number', placeholder: '3000' },
+                    { name: 'electrical_power_mw', label: 'Potenza elettrica (MW)', type: 'number', placeholder: '1000' },
+                    { name: 'coolant_pressure_mpa', label: 'Pressione refrigerante (MPa)', type: 'number', placeholder: '15.5' },
+                    { name: 'reactor_status', label: 'Stato reattore', type: 'select', options: ['operational', 'shutdown', 'maintenance', 'scram'] },
+                    { name: 'classification_level', label: 'Classificazione', type: 'select', options: CLASSIFICATIONS },
+                    { name: 'recorded_by', label: 'Registrato da', placeholder: 'EMP-100' },
+                ],
                 hasDelete: true,
             },
             {
                 key: 'documents', label: 'Documents', path: '/api/v1/documents',
-                columns: ['id', 'title', 'classification_level', 'author', 'status'],
-                sample: { title: 'Procedura Operativa', classification_level: 'INTERNAL', author: 'ops' },
+                idField: 'document_id',
+                columns: ['document_id', 'title', 'type', 'category', 'classification_level', 'status'],
+                fields: [
+                    { name: 'document_id', label: 'Document ID', placeholder: 'DOC-100' },
+                    { name: 'title', label: 'Titolo', placeholder: 'Procedura Operativa' },
+                    { name: 'type', label: 'Tipo', type: 'select', options: ['procedure', 'manual', 'drawing', 'report', 'analysis'] },
+                    { name: 'category', label: 'Categoria', placeholder: 'operations' },
+                    { name: 'classification_level', label: 'Classificazione', type: 'select', options: CLASSIFICATIONS },
+                    { name: 'status', label: 'Stato', type: 'select', options: ['active', 'archived', 'draft'] },
+                ],
                 hasDelete: true,
             },
             {
                 key: 'materials', label: 'Nuclear Materials', path: '/api/v1/nuclear-materials',
+                idField: 'material_id',
                 columns: ['material_id', 'type', 'description', 'mass_kg', 'classification_level', 'status'],
-                sample: { material_type: 'URANIUM', quantity_kg: 1.5, status: 'STORED' },
+                fields: [
+                    { name: 'material_id', label: 'Material ID', placeholder: 'NM-100' },
+                    { name: 'type', label: 'Tipo', type: 'select', options: ['fuel_assembly', 'spent_fuel', 'waste', 'source'] },
+                    { name: 'description', label: 'Descrizione', placeholder: 'Elemento di combustibile' },
+                    { name: 'mass_kg', label: 'Massa (kg)', type: 'number', placeholder: '1.5' },
+                    { name: 'classification_level', label: 'Classificazione', type: 'select', options: CLASSIFICATIONS },
+                    { name: 'status', label: 'Stato', type: 'select', options: ['stored', 'in_use', 'depleted'] },
+                    { name: 'location.zone_id', label: 'Zona di stoccaggio', placeholder: 'ZONE-SF-01' },
+                ],
                 hasDelete: true,
             },
         ];
@@ -143,18 +183,41 @@
             }
             section.appendChild(bar);
 
-            // --- Form di creazione (JSON) ---
+            // --- Form di creazione (campi strutturati) ---
             if (canCreate) {
                 const form = document.createElement('div');
                 form.className = 'resource-form';
-                form.innerHTML =
-                    '<label>Corpo richiesta (JSON)</label>' +
-                    '<textarea rows="5" style="width:100%;background:var(--bg-input);border:1px solid var(--border);' +
-                    'color:var(--text);border-radius:4px;font-family:monospace;padding:0.5rem;">' +
-                    JSON.stringify(res.sample, null, 2) + '</textarea>';
-                const sendBtn = mkBtn('Invia POST', 'btn btn-green');
+                const grid = document.createElement('div');
+                grid.className = 'form-grid';
+                res.fields.forEach(f => {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'form-field';
+                    const lbl = document.createElement('label');
+                    lbl.textContent = f.label;
+                    wrap.appendChild(lbl);
+                    let input;
+                    if (f.type === 'select') {
+                        input = document.createElement('select');
+                        f.options.forEach(o => {
+                            const opt = document.createElement('option');
+                            opt.value = o; opt.textContent = o;
+                            input.appendChild(opt);
+                        });
+                    } else {
+                        input = document.createElement('input');
+                        input.type = f.type === 'number' ? 'number' : 'text';
+                        if (f.type === 'number') input.step = 'any';
+                        if (f.placeholder) input.placeholder = f.placeholder;
+                    }
+                    input.dataset.field = f.name;
+                    input.dataset.kind = f.type || 'text';
+                    wrap.appendChild(input);
+                    grid.appendChild(wrap);
+                });
+                form.appendChild(grid);
+                const sendBtn = mkBtn('Crea record (POST)', 'btn btn-green');
                 sendBtn.style.marginTop = '0.75rem';
-                sendBtn.addEventListener('click', () => doCreate(res, form.querySelector('textarea').value));
+                sendBtn.addEventListener('click', () => doCreate(res, collectForm(form)));
                 form.appendChild(sendBtn);
                 section.appendChild(form);
             }
@@ -163,11 +226,11 @@
             if (res.hasDelete && ZTA.roleCan(role, res.path, 'DELETE')) {
                 const del = document.createElement('div');
                 del.className = 'action-bar';
-                const idInput = mkInput('ID da eliminare');
+                const idInput = mkInput(res.idField + ' da eliminare');
                 const delBtn = mkBtn('Elimina (DELETE)', 'btn btn-red');
                 delBtn.addEventListener('click', () => {
                     const id = idInput.value.trim();
-                    if (!id) { renderResult(res, { error: 'Inserisci un ID' }); return; }
+                    if (!id) { renderResultText(res, 'Inserisci il campo ' + res.idField + ' del record da eliminare.', true); return; }
                     doDelete(res, id);
                 });
                 del.appendChild(idInput);
@@ -179,12 +242,12 @@
             if (res.trustedGuard && ZTA.roleCan(role, TRUSTED_GUARD_PATH, 'POST')) {
                 const tg = document.createElement('div');
                 tg.className = 'action-bar';
-                const idInput = mkInput('ID personale (sanitized-delete)');
+                const idInput = mkInput('employee_id (sanitized-delete)');
                 const tgBtn = mkBtn('Trusted-Guard Delete', 'btn btn-red');
-                tgBtn.innerHTML += '<span class="badge-locked">tier 2 richiesto</span>';
+                tgBtn.innerHTML += '<span class="badge-locked">solo admin</span>';
                 tgBtn.addEventListener('click', () => {
                     const id = idInput.value.trim();
-                    if (!id) { renderResult(res, { error: 'Inserisci un ID' }); return; }
+                    if (!id) { renderResultText(res, 'Inserisci l\'employee_id del personale da eliminare.', true); return; }
                     doTrustedGuard(res, id);
                 });
                 tg.appendChild(idInput);
@@ -192,8 +255,8 @@
                 section.appendChild(tg);
                 const note = document.createElement('p');
                 note.className = 'action-note';
-                note.textContent = 'Nota: la rotta trusted-guard richiede tier 2 (mTLS + TPM/WebAuthn), ' +
-                    'ruolo plant_manager e clearance SECRET. L\'esito reale e\' mostrato qui sotto.';
+                note.textContent = 'Nota: la rotta trusted-guard richiede ruolo admin e certificato mTLS. ' +
+                    'La cancellazione e\' asincrona e tracciata; l\'esito reale e\' mostrato qui sotto.';
                 section.appendChild(note);
             }
 
@@ -236,10 +299,30 @@
             }
         }
 
-        async function doCreate(res, raw) {
-            let body;
-            try { body = JSON.parse(raw); }
-            catch (e) { renderResultText(res, 'JSON non valido: ' + e.message, true); return; }
+        // Raccoglie i campi del form in un oggetto; supporta un livello di
+        // nesting con la dot-notation (es. "contact.email", "location.zone_id").
+        function collectForm(form) {
+            const body = {};
+            form.querySelectorAll('[data-field]').forEach(input => {
+                const raw = input.value.trim();
+                if (!raw) return; // campi vuoti omessi
+                const value = input.dataset.kind === 'number' ? Number(raw) : raw;
+                const parts = input.dataset.field.split('.');
+                if (parts.length === 2) {
+                    body[parts[0]] = body[parts[0]] || {};
+                    body[parts[0]][parts[1]] = value;
+                } else {
+                    body[parts[0]] = value;
+                }
+            });
+            return body;
+        }
+
+        async function doCreate(res, body) {
+            if (!Object.keys(body).length) {
+                renderResultText(res, 'Compila almeno un campo prima di inviare.', true);
+                return;
+            }
             renderResultText(res, 'POST ' + res.path + ' ...');
             try {
                 const r = await ZTA.apiFetch('POST', res.path, body);
@@ -277,28 +360,47 @@
         function viewEl(res) { return document.querySelector('.view[data-view="' + res.key + '"]'); }
 
         function renderResponse(res, method, path, r) {
-            const auth401 = (r.status === 401);
-            let head = method + ' ' + path + '\nStatus: ' + r.status + ' ' + r.statusText + '\n\n';
-            let body;
-            if (!r.ok) {
-                head += 'La catena ZTA (Envoy / OPA / AI / Service) ha risposto:\n';
-                body = r.text;
+            const el = viewEl(res).querySelector('.result-panel');
+            el.classList.toggle('error', !r.ok);
+            el.textContent = '';
+
+            const summary = document.createElement('p');
+            summary.className = 'result-summary';
+            if (r.ok) {
+                if (r.status === 202) {
+                    summary.textContent = 'Richiesta accettata: eliminazione sanitizzata pianificata in modo asincrono.';
+                } else if (method === 'GET') {
+                    summary.textContent = 'Dati aggiornati (' + r.status + ' ' + r.statusText + ').';
+                } else if (method === 'POST') {
+                    summary.textContent = 'Record creato (' + r.status + ' ' + r.statusText + ').';
+                } else {
+                    summary.textContent = 'Operazione completata (' + r.status + ' ' + r.statusText + ').';
+                }
             } else {
-                try { body = JSON.stringify(JSON.parse(r.text), null, 2); }
-                catch { body = r.text; }
+                summary.textContent = ZTA.friendlyError(r.status);
             }
-            renderResultText(res, head + body, !r.ok);
-            if (auth401) handleExpired();
+            el.appendChild(summary);
+
+            // Dettaglio tecnico sempre consultabile, ma collassato.
+            const details = document.createElement('details');
+            details.className = 'raw-response';
+            const sum = document.createElement('summary');
+            sum.textContent = 'Dettaglio risposta (' + method + ' ' + path + ' -> ' + r.status + ')';
+            details.appendChild(sum);
+            const pre = document.createElement('pre');
+            let body = r.text;
+            try { body = JSON.stringify(JSON.parse(r.text), null, 2); } catch { /* testo non-JSON */ }
+            pre.textContent = body || '(corpo vuoto)';
+            details.appendChild(pre);
+            el.appendChild(details);
+
+            if (r.status === 401) handleExpired();
         }
 
         function renderResultText(res, text, isError) {
             const el = viewEl(res).querySelector('.result-panel');
             el.textContent = text;
             el.classList.toggle('error', !!isError);
-        }
-
-        function renderResult(res, obj) {
-            renderResultText(res, JSON.stringify(obj, null, 2), !!obj.error);
         }
 
         function hideTable(res) {
@@ -342,7 +444,7 @@
                 if (['inactive', 'depleted', 'storage', 'archived'].includes(s)) cls = 'status-inactive';
                 return '<span class="status-badge ' + cls + '">' + escapeHtml(String(val)) + '</span>';
             }
-            if (col === 'id' || col === 'material_id' || col === 'reactor_id') {
+            if (['id', 'employee_id', 'document_id', 'material_id', 'reactor_id'].includes(col)) {
                 return '<span class="cell-id">' + escapeHtml(String(val)) + '</span>';
             }
             if (col === 'classification_level' || col === 'clearance_level') {
@@ -380,6 +482,26 @@
             for (let charCode of bytes) str += String.fromCharCode(charCode);
             return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         }
+        // Base64 STANDARD (con padding): il backend decodifica la public key
+        // con base64.StdEncoding (identity-service/internal/webauthn/register.go).
+        function bufferToBase64Std(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let str = '';
+            for (let charCode of bytes) str += String.fromCharCode(charCode);
+            return btoa(str);
+        }
+        // AAGUID = byte 37..52 dell'authenticatorData (dopo rpIdHash[32] + flags[1] + counter[4]).
+        function extractAaguid(authData) {
+            try {
+                const b = new Uint8Array(authData).slice(37, 53);
+                if (b.length !== 16) return '00000000-0000-0000-0000-000000000000';
+                const hex = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+                return hex.slice(0,8) + '-' + hex.slice(8,12) + '-' + hex.slice(12,16) + '-' +
+                       hex.slice(16,20) + '-' + hex.slice(20);
+            } catch {
+                return '00000000-0000-0000-0000-000000000000';
+            }
+        }
         function base64urlToBuffer(base64url) {
             const padding = '='.repeat((4 - base64url.length % 4) % 4);
             const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -406,15 +528,26 @@
 
                 const credential = await navigator.credentials.create({ publicKey: options.publicKey });
 
+                // Chiave pubblica reale dell'authenticator (DER/SPKI) e AAGUID
+                // estratto dall'authenticatorData; niente piu' valori fittizi.
+                const pubKeyBuf = credential.response.getPublicKey
+                    ? credential.response.getPublicKey() : null;
+                if (!pubKeyBuf) {
+                    alert("Il browser non espone la chiave pubblica della credenziale (getPublicKey non supportato).");
+                    return;
+                }
+                const authData = credential.response.getAuthenticatorData
+                    ? credential.response.getAuthenticatorData() : null;
+
                 const rFinish = await fetch('/api/v1/auth/register/finish', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
                     body: JSON.stringify({
                         session_id: options.SessionID || options.session_id,
                         credential_id: credential.id,
-                        public_key: "ZHVtbXk=",
-                        attestation_type: "none",
-                        aaguid: "00000000-0000-0000-0000-000000000000"
+                        public_key: bufferToBase64Std(pubKeyBuf),
+                        attestation_type: credential.response.attestationObject ? "packed" : "none",
+                        aaguid: authData ? extractAaguid(authData) : "00000000-0000-0000-0000-000000000000"
                     })
                 });
 

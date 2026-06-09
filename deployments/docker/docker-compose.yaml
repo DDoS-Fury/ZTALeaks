@@ -262,6 +262,8 @@ services:
     depends_on:
       business-db:
         condition: service_healthy
+      security-db:
+        condition: service_healthy
     restart: "no"
     networks:
       - back-net

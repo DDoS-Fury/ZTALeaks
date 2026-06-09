@@ -1,23 +1,16 @@
 # =============================================================================
-# OPA Policy Test Suite - ZTALeaks
-# Package: envoy.authz_test
+# OPA Policy Test Suite - ZTALeaks (modello ruoli: guest/operator/manager/admin)
 #
-# Covers the following test categories:
-#   1. Public paths (no authentication required)
-#   2. Tier admission (cert/TPM combinations)
-#   3. Clearance enforcement
-#   4. Role enforcement
-#   5. Path matching (exact and sub-resource prefix)
-#   6. Maintenance technician tier rules
-#   7. Tier-0 accessible routes
-#   8. Negative / anomaly cases
-#   9. AI risk scoring (high-confidence score bands)
-#  10. AI low-confidence deterministic fallback
-#  11. Backward compatibility (no "ai" or "context" fields in input)
+# Copre:
+#   1. Rotte tecniche e public paths (con gate sull'AI score)
+#   2. Asset statici
+#   3. Matrice RBAC per rotta/metodo
+#   4. Risoluzione sottorotte (longest-prefix)
+#   5. Rischio vs impatto (soglie AI per rotta)
+#   6. Enrollment WebAuthn (register/begin|finish)
 #
-# Run with:
-#   docker run --rm -v $PWD:/workspace openpolicyagent/opa \
-#       test /workspace/infra/opa -v
+# Run:
+#   docker run --rm -v $PWD/infra/opa:/policy openpolicyagent/opa test /policy -v
 # =============================================================================
 
 package envoy.authz_test
@@ -25,478 +18,144 @@ package envoy.authz_test
 import rego.v1
 import data.envoy.authz
 
-# =============================================================================
-# Test fixtures - reusable identity claim sets
-# =============================================================================
-
-plant_manager_top_secret := {
-    "sub":             "EMP-001",
-    "role":            "plant_manager",
-    "clearance_level": "TOP_SECRET",
-    "mfa_verified":    true,
-    "device_id":       "dev-1",
+# Helper: input minimo con score AI
+req(path, method, role, score) := {
+    "request": {"path": path, "method": method},
+    "role": role,
+    "ai": {"score": score},
 }
 
-plant_manager_internal := {
-    "sub":             "EMP-001",
-    "role":            "plant_manager",
-    "clearance_level": "INTERNAL",
-    "mfa_verified":    true,
+# -----------------------------------------------------------------------------
+# 1. Rotte tecniche e public paths
+# -----------------------------------------------------------------------------
+
+test_allow_health_always if {
+    authz.allow with input as {"request": {"path": "/health", "method": "GET"}}
 }
 
-operator_confidential := {
-    "sub":             "EMP-002",
-    "role":            "operator",
-    "clearance_level": "CONFIDENTIAL",
-    "mfa_verified":    true,
+test_allow_jwks_always if {
+    authz.allow with input as {"request": {"path": "/.well-known/jwks.json", "method": "GET"}}
 }
 
-inspector_secret := {
-    "sub":             "EMP-006",
-    "role":            "inspector",
-    "clearance_level": "SECRET",
-    "mfa_verified":    true,
+test_allow_public_root_low_score if {
+    authz.allow with input as req("/", "GET", "guest", 0.1)
 }
 
-maint_internal := {
-    "sub":             "EMP-003",
-    "role":            "maintenance_technician",
-    "clearance_level": "INTERNAL",
-    "mfa_verified":    true,
-}
-
-# =============================================================================
-# Section 1: Public path tests
-# =============================================================================
-
-# The login endpoint must be accessible without any credentials.
-test_public_login_no_auth if {
+test_allow_public_login_no_role if {
     authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/auth/login"},
-        "claims":       null,
-        "cert_present": false,
-        "tpm_verified": false,
+        "request": {"path": "/api/v1/auth/login", "method": "POST"},
+        "ai": {"score": 0.1},
     }
 }
 
-# The JWKS discovery endpoint must be publicly accessible.
-test_public_jwks_no_auth if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/.well-known/jwks.json"},
-        "claims":       null,
-        "cert_present": false,
-        "tpm_verified": false,
-    }
+test_deny_public_path_extreme_score if {
+    not authz.allow with input as req("/materials", "GET", "guest", 0.9)
 }
 
-# Static assets must be accessible without authentication.
-test_public_static_asset if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/static/css/styles.css"},
-        "claims":       null,
-        "cert_present": false,
-        "tpm_verified": false,
-    }
+# -----------------------------------------------------------------------------
+# 2. Asset statici
+# -----------------------------------------------------------------------------
+
+test_allow_static_assets if {
+    authz.allow with input as {"request": {"path": "/static/css/styles.css", "method": "GET"}}
 }
 
-# =============================================================================
-# Section 2: Tier admission tests
-# =============================================================================
+# -----------------------------------------------------------------------------
+# 3. Matrice RBAC
+# -----------------------------------------------------------------------------
 
-# Tier 2 (cert + TPM): plant_manager with TOP_SECRET clearance may create
-# nuclear material records.
-test_allow_tier2_plant_manager_nuclear_create if {
-    authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/nuclear-materials"},
-        "claims":       plant_manager_top_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+test_allow_operator_get_personnel if {
+    authz.allow with input as req("/api/v1/personnel", "GET", "operator", 0.0)
 }
 
-# Same user without a certificate -> tier 0 < min_tier 2 -> DENY.
-test_deny_no_cert_blocks_nuclear_write if {
-    not authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/nuclear-materials"},
-        "claims":       plant_manager_top_secret,
-        "cert_present": false,
-        "tpm_verified": false,
-    }
+test_deny_guest_get_personnel if {
+    not authz.allow with input as req("/api/v1/personnel", "GET", "guest", 0.0)
 }
 
-# Certificate present but no TPM -> tier 1 < min_tier 2 -> DENY.
-test_deny_cert_only_blocks_nuclear_write if {
-    not authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/nuclear-materials"},
-        "claims":       plant_manager_top_secret,
-        "cert_present": true,
-        "tpm_verified": false,
-    }
+test_deny_operator_get_documents if {
+    not authz.allow with input as req("/api/v1/documents", "GET", "operator", 0.0)
 }
 
-# =============================================================================
-# Section 3: Clearance tests
-# =============================================================================
-
-# plant_manager with INTERNAL clearance attempts to create a nuclear material
-# record that requires TOP_SECRET -> DENY.
-test_deny_insufficient_clearance if {
-    not authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/nuclear-materials"},
-        "claims":       plant_manager_internal,
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+test_allow_manager_delete_documents if {
+    authz.allow with input as req("/api/v1/documents/DOC-1", "DELETE", "manager", 0.0)
 }
 
-# =============================================================================
-# Section 4: Role tests
-# =============================================================================
-
-# operator with CONFIDENTIAL clearance reading reactor parameters -> ALLOW.
-# Route requires tier 1 (cert only) and CONFIDENTIAL clearance.
-test_allow_operator_reactor_get if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/reactor-parameters"},
-        "claims":       operator_confidential,
-        "cert_present": true,
-        "tpm_verified": false,
-    }
+test_deny_manager_get_reactor_parameters if {
+    not authz.allow with input as req("/api/v1/reactor-parameters", "GET", "manager", 0.0)
 }
 
-# operator role is not in the allowed set for nuclear-materials -> DENY.
-test_deny_operator_nuclear_get if {
-    not authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/nuclear-materials"},
-        "claims":       operator_confidential,
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+test_allow_admin_get_reactor_parameters if {
+    authz.allow with input as req("/api/v1/reactor-parameters", "GET", "admin", 0.0)
 }
 
-# =============================================================================
-# Section 5: Path matching tests
-# =============================================================================
-
-# inspector with SECRET clearance reads /api/v1/personnel/EMP-001
-# (sub-resource path with a suffix) -> ALLOW via prefix matching.
-test_allow_path_with_subresource if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel/EMP-001"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+test_allow_manager_get_nuclear_materials if {
+    authz.allow with input as req("/api/v1/nuclear-materials", "GET", "manager", 0.0)
 }
 
-# =============================================================================
-# Section 6: Maintenance technician tier-1 tests
-# =============================================================================
-
-# maintenance_technician creates a work order with a certificate -> ALLOW
-# (route requires tier 1).
-test_allow_maint_creates_order_with_cert if {
-    authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/maintenance-orders"},
-        "claims":       maint_internal,
-        "cert_present": true,
-        "tpm_verified": false,
-    }
+test_deny_operator_post_nuclear_materials if {
+    not authz.allow with input as req("/api/v1/nuclear-materials", "POST", "operator", 0.0)
 }
 
-# Same operation without a certificate -> DENY (tier 0 < min_tier 1).
-test_deny_maint_creates_order_without_cert if {
-    not authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/maintenance-orders"},
-        "claims":       maint_internal,
-        "cert_present": false,
-        "tpm_verified": false,
-    }
+test_allow_admin_trusted_guard if {
+    authz.allow with input as req("/api/v1/trusted-guard/sanitized-delete-personnel/EMP-7", "POST", "admin", 0.0)
 }
 
-# DELETE on maintenance-orders requires tier 2 even for maintenance_technician.
-test_deny_maint_delete_without_tpm if {
-    not authz.allow with input as {
-        "request":      {"method": "DELETE", "path": "/api/v1/maintenance-orders/MO-123"},
-        "claims":       maint_internal,
-        "cert_present": true,
-        "tpm_verified": false,
-    }
+test_deny_manager_trusted_guard if {
+    not authz.allow with input as req("/api/v1/trusted-guard/sanitized-delete-personnel/EMP-7", "POST", "manager", 0.0)
 }
 
-# =============================================================================
-# Section 7: Tier-0 accessible route tests
-# =============================================================================
+# -----------------------------------------------------------------------------
+# 4. Risoluzione sottorotte (longest-prefix)
+# -----------------------------------------------------------------------------
 
-# GET /api/v1/zones requires tier 0; any authenticated user may access it
-# without a certificate.
-test_allow_zones_get_tier0 if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/zones"},
-        "claims":       operator_confidential,
-        "cert_present": false,
-        "tpm_verified": false,
-    }
+test_allow_subroute_personnel_id if {
+    authz.allow with input as req("/api/v1/personnel/EMP-001", "GET", "operator", 0.0)
 }
 
-# GET /api/v1/documents is open to all roles at tier 0.
-test_allow_documents_get_no_cert if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/documents"},
-        "claims":       maint_internal,
-        "cert_present": false,
-        "tpm_verified": false,
-    }
+test_trusted_guard_wins_longest_prefix if {
+    # /api/v1/trusted-guard/... NON deve risolversi su una rotta più corta
+    not authz.allow with input as req("/api/v1/trusted-guard/sanitized-delete-personnel/EMP-7", "POST", "operator", 0.0)
 }
 
-# =============================================================================
-# Section 8: Negative / anomaly tests
-# =============================================================================
+# -----------------------------------------------------------------------------
+# 5. Rischio vs impatto
+# -----------------------------------------------------------------------------
 
-# No JWT claims on a protected route -> DENY.
-test_deny_no_claims_protected_path if {
-    not authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       null,
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+# personnel GET: impatto 0.4, rischio 0.5 → allow se score < 0.9
+test_allow_personnel_score_under_band if {
+    authz.allow with input as req("/api/v1/personnel", "GET", "operator", 0.89)
 }
 
-# operator role is not authorized for nuclear-materials -> DENY.
-test_deny_unauthorized_role_nuclear_materials if {
-    not authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/nuclear-materials"},
-        "claims":       operator_confidential,
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+test_deny_personnel_score_over_band if {
+    not authz.allow with input as req("/api/v1/personnel", "GET", "operator", 0.91)
 }
 
-# plant_manager with CONFIDENTIAL clearance attempts to read nuclear-materials
-# (requires SECRET) -> DENY.
-test_deny_insufficient_clearance_nuclear if {
-    not authz.allow with input as {
-        "request": {"method": "GET", "path": "/api/v1/nuclear-materials"},
-        "claims": {
-            "sub":             "EMP-999",
-            "role":            "plant_manager",
-            "clearance_level": "CONFIDENTIAL",
-            "mfa_verified":    true,
-        },
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+# reactor-parameters GET: impatto 0.15, rischio 0.2 → allow se score < 0.35
+test_deny_reactor_parameters_moderate_score if {
+    not authz.allow with input as req("/api/v1/reactor-parameters", "GET", "admin", 0.4)
 }
 
-# Insufficient tier (no cert/TPM) on a route that requires tier 2 -> DENY.
-test_deny_low_tier_on_tier2_route if {
-    not authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/nuclear-materials"},
-        "claims":       plant_manager_top_secret,
-        "cert_present": false,
-        "tpm_verified": false,
-    }
+test_allow_reactor_parameters_low_score if {
+    authz.allow with input as req("/api/v1/reactor-parameters", "GET", "admin", 0.3)
 }
 
-# =============================================================================
-# Section 9: AI risk scoring tests (high-confidence score bands)
-# =============================================================================
+# -----------------------------------------------------------------------------
+# 6. Enrollment WebAuthn
+# -----------------------------------------------------------------------------
 
-# Low score (< 0.3) -> bucket "low"; otherwise authorized request -> ALLOW.
-test_allow_low_ai_score if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0.1, "confidence": "high"},
-    }
-    authz.risk_bucket == "low" with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0.1, "confidence": "high"},
-    }
+test_allow_operator_webauthn_begin if {
+    authz.allow with input as req("/api/v1/auth/register/begin", "POST", "operator", 0.0)
 }
 
-# Medium score (0.3 <= score < 0.7) -> bucket "medium"; request is allowed
-# but flagged for audit logging.
-test_allow_medium_ai_score_with_audit if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0.5, "confidence": "high"},
-    }
-    authz.risk_bucket == "medium" with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0.5, "confidence": "high"},
-    }
+test_allow_admin_webauthn_finish if {
+    authz.allow with input as req("/api/v1/auth/register/finish", "POST", "admin", 0.0)
 }
 
-# High score (>= 0.7) -> bucket "high" -> DENY override even if role/tier/
-# clearance would otherwise permit the request.
-test_deny_high_ai_score_override if {
-    not authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0.85, "confidence": "high"},
-    }
-    authz.risk_bucket == "high" with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0.85, "confidence": "high"},
-    }
+test_deny_guest_webauthn_begin if {
+    not authz.allow with input as req("/api/v1/auth/register/begin", "POST", "guest", 0.0)
 }
 
-# Public paths must remain open even when the AI score is very high.
-test_public_path_not_blocked_by_high_ai if {
-    authz.allow with input as {
-        "request":      {"method": "POST", "path": "/api/v1/auth/login"},
-        "claims":       null,
-        "cert_present": false,
-        "tpm_verified": false,
-        "ai":           {"score": 0.95, "confidence": "high"},
-    }
-}
-
-# =============================================================================
-# Section 10: AI low-confidence deterministic fallback tests
-# =============================================================================
-
-# Off-hours (02:00) + no certificate + stale session (>8h) -> combined score
-# exceeds 50 -> bucket "high" -> DENY.
-# Score breakdown: off_hours(25) + missing_cert(20) + stale_session(15) = 60.
-test_deny_fallback_offhours_no_cert_stale if {
-    not authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": false,
-        "tpm_verified": false,
-        "ai":           {"score": 0, "confidence": "low"},
-        "context": {
-            "hour_of_day":         2,
-            "day_of_week":         3,
-            "session_age_seconds": 30000,
-            "client_ip":           "10.0.0.1",
-        },
-    }
-}
-
-# Off-hours alone (score = 25) -> bucket "medium" -> ALLOW (cert present,
-# request is otherwise legitimate).
-test_allow_fallback_offhours_only_medium_bucket if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0, "confidence": "low"},
-        "context": {
-            "hour_of_day":         23,
-            "day_of_week":         5,
-            "session_age_seconds": 100,
-            "client_ip":           "10.0.0.1",
-        },
-    }
-    authz.risk_bucket == "medium" with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0, "confidence": "low"},
-        "context": {
-            "hour_of_day":         23,
-            "day_of_week":         5,
-            "session_age_seconds": 100,
-            "client_ip":           "10.0.0.1",
-        },
-    }
-}
-
-# Benign context (business hours, fresh session, cert present) -> score 0
-# -> bucket "low" -> ALLOW.
-test_allow_fallback_benign_context if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0, "confidence": "low"},
-        "context": {
-            "hour_of_day":         10,
-            "day_of_week":         2,
-            "session_age_seconds": 600,
-            "client_ip":           "10.0.0.1",
-        },
-    }
-    authz.risk_bucket == "low" with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-        "ai":           {"score": 0, "confidence": "low"},
-        "context": {
-            "hour_of_day":         10,
-            "day_of_week":         2,
-            "session_age_seconds": 600,
-            "client_ip":           "10.0.0.1",
-        },
-    }
-}
-
-# Operator role at off-hours is exempt from the off_hours_score penalty
-# (operators work rotating shifts). Score = 0 -> bucket "low" -> ALLOW.
-test_allow_fallback_operator_offhours_exempt if {
-    authz.allow with input as {
-        "request":      {"method": "GET", "path": "/api/v1/reactor-parameters"},
-        "claims":       operator_confidential,
-        "cert_present": true,
-        "tpm_verified": false,
-        "ai":           {"score": 0, "confidence": "low"},
-        "context": {
-            "hour_of_day":         3,
-            "day_of_week":         1,
-            "session_age_seconds": 200,
-            "client_ip":           "10.0.0.5",
-        },
-    }
-    authz.risk_bucket == "low" with input as {
-        "request":      {"method": "GET", "path": "/api/v1/reactor-parameters"},
-        "claims":       operator_confidential,
-        "cert_present": true,
-        "tpm_verified": false,
-        "ai":           {"score": 0, "confidence": "low"},
-        "context": {
-            "hour_of_day":         3,
-            "day_of_week":         1,
-            "session_age_seconds": 200,
-            "client_ip":           "10.0.0.5",
-        },
-    }
-}
-
-# =============================================================================
-# Section 11: Backward compatibility
-# =============================================================================
-
-# Input without "ai" or "context" fields (legacy test format) must produce
-# the default risk bucket "low" and not cause evaluation errors.
-test_backward_compat_no_ai_no_context if {
-    authz.risk_bucket == "low" with input as {
-        "request":      {"method": "GET", "path": "/api/v1/personnel"},
-        "claims":       inspector_secret,
-        "cert_present": true,
-        "tpm_verified": true,
-    }
+# Default deny: rotta sconosciuta
+test_deny_unknown_route if {
+    not authz.allow with input as req("/api/v1/unknown", "GET", "admin", 0.0)
 }

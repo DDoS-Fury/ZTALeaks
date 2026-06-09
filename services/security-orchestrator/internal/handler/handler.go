@@ -437,10 +437,6 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 		}
 	}
 
-	snortFloat := 0.0
-	if alertEdge == 1.0 || alertMid == 1.0 || alertInt == 1.0 {
-		snortFloat = 1.0
-	}
 
 	methodFloat := 0.0
 	switch method {
@@ -500,7 +496,7 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 		KeySrc:    keySrc,
 		KeyDst:    normalizeAIPath(origPath),
 		Timestamp: now.Unix(),
-		Features:  []float64{ja3Float, snortFloat, alertEdge, alertMid, alertInt, methodFloat},
+		Features:  []float64{ja3Float, alertEdge, alertMid, alertInt, methodFloat},
 		SrcFeat:   srcFeat,
 	}
 }

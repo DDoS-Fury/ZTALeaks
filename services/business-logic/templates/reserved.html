@@ -45,14 +45,7 @@
 
     <script src="/static/js/app.js"></script>
     <script>
-        // === Guardia di autenticazione ===========================================
-        const claims = ZTA.requireAuth();
-        if (claims) {
-            ZTA.renderIdentity(document.getElementById('identity'));
-            buildDashboard(claims.role);
-        }
 
-        document.getElementById('logout-btn').addEventListener('click', ZTA.logout);
 
         // === Configurazione risorse ==============================================
         // Solo rotte realmente implementate nel backend. Le capacita' (GET/POST/
@@ -560,6 +553,14 @@
                 alert("Annullato o errore: " + err.message);
             }
         });
+
+        // === Guardia di autenticazione ed Event Listeners globali =================
+        const claims = ZTA.requireAuth();
+        if (claims) {
+            ZTA.renderIdentity(document.getElementById('identity'));
+            buildDashboard(claims.role);
+        }
+        document.getElementById('logout-btn').addEventListener('click', ZTA.logout);
     </script>
 </body>
 </html>

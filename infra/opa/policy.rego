@@ -168,7 +168,7 @@ allow if {
     config_rotta := matrice_sicurezza[rotta_base][input.request.method]
     
     # --- CONTROLLO 1: RUOLO (RBAC) ---
-    input.role == config_rotta.ruoli_ammessi[_]
+    input.claims.role == config_rotta.ruoli_ammessi[_]
     
     # --- CONTROLLO 2: RISCHIO VS IMPATTO ---
     (input.ai.score - config_rotta.impatto) < config_rotta.rischio_accettato

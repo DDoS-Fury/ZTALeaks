@@ -41,7 +41,7 @@
 
 ZTALeaks is a microservices-based platform that implements a Zero Trust Architecture (ZTA) compliant with NIST SP 800-207 principles, applied to the management and monitoring of a simulated nuclear power plant. The project serves as both a functional management system and a reference implementation for adaptive, risk-based access control in critical infrastructure contexts.
 
-The system manages seven categories of sensitive operational data: personnel records, physical access badges, plant zones, reactor telemetry parameters, maintenance work orders, technical documents, and nuclear material inventories. Every resource carries a classification level and is subject to continuous policy evaluation before access is granted.
+The system exposes four categories of sensitive operational data through its REST API: personnel records, technical documents, nuclear material inventories, and reactor telemetry parameters. Every resource carries a classification level and is subject to continuous policy evaluation before access is granted, combining role-based rules with a real-time AI anomaly score produced by a Temporal Graph Network.
 
 The architecture enforces a strict separation between the Policy Enforcement Point (PEP) and the Policy Decision Point (PDP), implemented through distinct containerized services that communicate over isolated network segments. No single component has unrestricted access to another; every inter-service communication is subject to defined trust boundaries.
 
@@ -63,21 +63,25 @@ The system is composed of the following containerized components:
 
 ### Policy Decision Point (PDP)
 
-**Security Orchestrator (Go):** The central policy coordination service. Receives metadata from Envoy, computes a simulated AI risk score for the requesting identity, assembles an input document for the OPA policy engine, and returns an allow or deny verdict. When OPA is unreachable, the orchestrator applies a fail-safe deny. Exposes a health endpoint and a catch-all evaluation endpoint to which Envoy forwards all requests for authorization.
+**Security Orchestrator (Go):** The central policy coordination service. Receives metadata from Envoy, obtains a real-time AI anomaly score for the requesting identity from the AI Inference service, assembles an input document for the OPA policy engine, and returns an allow or deny verdict. When OPA is unreachable, the orchestrator applies a fail-safe deny; when the AI Inference service is unreachable, a fail-secure anomaly score of 0.99 is assumed. Exposes a health endpoint and a catch-all evaluation endpoint to which Envoy forwards all requests for authorization.
 
-**Open Policy Agent (OPA):** Evaluates Rego policies against the input provided by the Security Orchestrator. The policy package `envoy.authz` implements path-based access logic distinguishing public paths (login, registration) from business API paths, applying a risk score threshold to each category. The default policy is deny.
+**AI Inference Service (Graphagate):** A Python/PyTorch microservice (maintained as a git submodule at `infra/ai-inference`) that performs unsupervised anomaly detection over the continuous stream of Zero Trust access events using a Temporal Graph Network (TGN). Each access (IP/device → resource) is modeled as a temporal edge carrying Zero Trust signals; the model maintains a recurrent memory of each entity's behavior and scores every event sequentially (`anomaly score = 1 − P(benign)`). It detects three anomaly classes: contextual (compromised TLS trust, IDS alerts), policy (entity acting outside its role/clearance/tier), and lateral movement (authorized but unusual access patterns). Served as a FastAPI REST/JSON service queried by the Security Orchestrator via the `/infer` endpoint.
+
+**Open Policy Agent (OPA):** Evaluates Rego policies against the input provided by the Security Orchestrator. The policy package `envoy.authz` implements a risk-impact security matrix: each (route, method) pair declares an operation impact, the set of admitted roles, and an accepted risk threshold. A request is allowed only if the user's role is admitted and `ai_score − impact < accepted_risk`. The default policy is deny.
 
 ### Business Layer
 
-**Business Logic Service (Go):** Provides a RESTful JSON API over seven domain collections. Implements the repository pattern with full CRUD operations for each resource type. Computes SHA-256 data integrity hashes for all records before persistence, enabling tamper detection. Serves a minimal HTML frontend for browser-based interaction. Logs all HTTP requests in structured JSON format including the `X-Request-ID` propagated by Envoy for end-to-end traceability.
+**Business Logic Service (Go):** Provides a RESTful JSON API over four domain collections (personnel, documents, nuclear materials, reactor parameters). Implements the repository pattern, with each repository bound to a role-scoped MongoDB connection (operator, manager, or admin database account) so that least privilege is enforced at the data layer as well. Computes SHA-256 data integrity hashes for all records before persistence, enabling tamper detection. Serves a minimal HTML frontend for browser-based interaction. Logs all HTTP requests in structured JSON format including the `X-Request-ID` propagated by Envoy for end-to-end traceability.
 
-**Identity Service (Go):** Handles user authentication. Stores user records in the dedicated Security Database, separate from business data. Verifies credentials using Argon2id password hashing with constant-time comparison to prevent timing attacks. On successful authentication, generates a JWT signed with RS256, valid for 15 minutes, containing user identity, role, MFA status, secure enclave validity, and the JA3 fingerprint of the authenticating client. Sets the token as an HttpOnly, Secure, SameSite=Strict cookie.
+**Identity Service (Go):** Handles user registration and authentication. Stores user records in the dedicated Security Database, separate from business data. New users self-register with the default `guest` role and email-based OTP enabled. Verifies credentials using Argon2id password hashing with constant-time comparison to prevent timing attacks, and applies per-IP rate limiting on failed logins. On successful authentication, generates a JWT signed with RS256, valid for 15 minutes, containing user identity, role, MFA status, secure enclave validity, and the JA3 fingerprint of the authenticating client. Sets the token as an HttpOnly, Secure, SameSite=Strict cookie.
+
+**MailHog:** A development SMTP sink used by the Identity Service to deliver OTP emails. Its web UI (port 8025) allows manual inspection of one-time passwords during testing.
 
 ### Data Layer
 
-**Business Database (MongoDB 7):** Stores all operational plant data across seven collections with JSON Schema validators enforcing required fields, enumeration constraints, and identifier format patterns. Role-based database users follow least-privilege: the Envoy service account has read-write access, the Splunk reader and PDP reader accounts have read-only access, and the seed service account is intended for initial data population only.
+**Business Database (MongoDB 7):** Stores all operational plant data across seven collections with JSON Schema validators enforcing required fields, enumeration constraints, and identifier format patterns. Database accounts follow least-privilege through custom MongoDB roles: `operator_client` can access only `personnel`; `manager_client` adds `documents` and `nuclear_materials`; `admin_client` additionally accesses `reactor_parameters`. The Splunk reader and PDP reader accounts have read-only access, and the seed service account is intended for initial data population only.
 
-**Security Database (MongoDB 7):** Stores user identity records in the `identity_users` collection. Physically and logically separate from the Business Database. Accessible only from the Auth-Net segment, reachable by the Identity Service and Security Orchestrator, but not by the Business Logic service or any external component.
+**Security Database (MongoDB 7):** Stores user identity records in the `identity_users` collection, along with the per-IP `rate_limits` collection used for brute-force protection. Physically and logically separate from the Business Database. Accessible only from the Auth-Net segment, reachable by the Identity Service, the Security Orchestrator, and the Seeder (for default user provisioning), but not by the Business Logic service or any external component.
 
 ### Observability
 
@@ -92,7 +96,7 @@ The system is composed of the following containerized components:
 Three isolated Docker networks enforce traffic boundaries:
 
 - **front-net:** Connects the Firewall (with Envoy and Snort co-located via `network_mode: service:firewall`) and the Security Orchestrator. External traffic enters exclusively through this segment.
-- **auth-net:** Connects the Security Orchestrator, the Identity Service, OPA, and the Security Database. The Business Logic service also connects to this segment to receive authorization decisions.
+- **auth-net:** Connects the Security Orchestrator, the Identity Service, OPA, the AI Inference service, MailHog, and the Security Database. The Business Logic service also connects to this segment to receive authorization decisions, and the Seeder reaches the Security Database through it for default user provisioning.
 - **back-net:** Connects the Business Logic service, the Business Database, the Seeder, and Splunk. The Business Database is reachable only from this segment, making it inaccessible to the Security Orchestrator and all external parties.
 
 ### Classification Levels
@@ -104,6 +108,35 @@ PUBLIC < INTERNAL < CONFIDENTIAL < SECRET < TOP_SECRET
 ```
 
 Classification levels drive access control decisions at the OPA policy layer. Reactor telemetry is classified SECRET. Nuclear material inventory is classified TOP_SECRET.
+
+### Identity Roles and Access Domains
+
+Identity-level roles form a strict hierarchy with associated default clearances:
+
+| Role | Clearance | Accessible API domains |
+|---|---|---|
+| `guest` | — | Public paths only (default role assigned at self-registration) |
+| `operator` | CONFIDENTIAL | Personnel |
+| `manager` | SECRET | Personnel, Documents, Nuclear Materials |
+| `admin` | TOP_SECRET | All of the above plus Reactor Parameters and the Trusted Guard |
+
+The API surface is organized into three domains:
+
+1. **Business & management (hierarchical RBAC):** Personnel, documents, and nuclear materials follow standard hierarchical role-based access where higher roles inherit lower-level access.
+2. **Reactor core (strict Bell–LaPadula):** Reactor parameters are accessible exclusively by `admin`; lower roles cannot read up.
+3. **Trusted Guard (sanitization gateway):** A dedicated endpoint (`POST /api/v1/trusted-guard/sanitized-delete-personnel/{id}`) allows `admin` to delete personnel records — a formal Bell–LaPadula write-down violation — by routing the operation through an explicit sanitization process.
+
+The role separation is mirrored at the database layer: each Business Logic repository uses a MongoDB account whose custom role grants access only to the collections its domain requires.
+
+### Risk-Based Authorization
+
+Every authorization decision combines RBAC with a real-time AI anomaly score. The OPA policy defines a security matrix assigning to each (route, method) pair an operation impact, an admitted role set, and an accepted risk threshold. Access is granted only if:
+
+```
+role ∈ admitted_roles  AND  (ai_score − impact) < accepted_risk
+```
+
+The anomaly score is produced by the Graphagate Temporal Graph Network from the event stream of access requests (TLS fingerprint, IDS alerts, role/clearance posture, request method and path). Sub-routes with path parameters (e.g. `/api/v1/personnel/{id}`) are dynamically resolved to their base route by the policy. Public paths (login, registration, static assets) also undergo a lighter AI-score check before being admitted. If the AI Inference service is unreachable, the orchestrator assumes a fail-secure score of 0.99, effectively denying all risk-gated operations.
 
 ### Identity Trust Model
 
@@ -121,6 +154,8 @@ All repository implementations compute a SHA-256 hash of critical record fields 
 
 ### Authentication Security Measures
 
+- **Self-registration:** New users register via `POST /api/v1/auth/register` and are assigned the minimal `guest` role with email-based OTP (2FA) enabled by default; privilege elevation requires administrative intervention.
+- **Brute-force protection:** Per-IP rate limiting on failed logins (5 attempts, 5-minute block) backed by the `rate_limits` collection in the Security Database. The counter resets on successful authentication. The client IP used is the one validated by Envoy (`x-envoy-external-address`), not the spoofable `X-Forwarded-For`.
 - **Password hashing:** Uses Argon2id with 64 MB memory, 3 iterations, and 4-degree parallelism, ensuring resistance to both GPU and ASIC-based attacks.
 - **Timing attack resistance:** Employs constant-time comparison (`crypto/subtle.ConstantTimeCompare`) for credential verification. When a username is not found, a dummy Argon2id computation is performed to equalize response timing and prevent username enumeration.
 - **JWT signing:** RS256 algorithm with asymmetric key pairs. Private key held exclusively by Identity Service; public key published at `/.well-known/jwks.json` for verification by downstream services.
@@ -143,6 +178,7 @@ ZTALeaks/
 │   ├── docker/
 │   │   ├── docker-compose.yaml     # Primary deployment composition
 │   │   ├── docker-compose.test.yaml # Automated test execution
+│   │   ├── docker-compose.cpu.yaml # CPU-only configuration (no GPU for AI inference)
 │   │   └── docker-compose.arm.yaml # ARM64 platform configuration
 │   └── kubernetes/                 # Kubernetes manifests with Kustomize
 │       ├── 01-configs.yaml         # ConfigMaps for infrastructure services
@@ -155,6 +191,7 @@ ZTALeaks/
 │       ├── 08-network-policies.yaml # Zero Trust network segmentation
 │       └── kustomization.yaml      # Kustomize entry point
 ├── infra/
+│   ├── ai-inference/               # Graphagate TGN anomaly scorer (git submodule)
 │   ├── databases/
 │   │   ├── business/               # Business Database initialization
 │   │   │   ├── Dockerfile
@@ -174,9 +211,9 @@ ZTALeaks/
 │   │   ├── ulogd.conf              # Netfilter logging configuration
 │   │   └── parser.go               # JSON parser for ulogd LOGEMU output
 │   ├── opa/
-│   │   ├── policy.rego             # Multi-dimensional authorization engine
+│   │   ├── policy.rego             # Risk-impact security matrix authorization engine
 │   │   ├── policy_test.rego        # OPA policy unit tests
-│   │   └── data.json               # Static policy data for role/path matrices
+│   │   └── data.json               # Static policy data
 │   ├── snort/
 │   │   ├── Dockerfile
 │   │   ├── parser.go               # Alert parser with rate limiting
@@ -203,7 +240,7 @@ ZTALeaks/
 │   │   │   ├── handler/            # HTTP handlers with route registration
 │   │   │   ├── middleware/         # Request logging and correlation
 │   │   │   └── models/             # Domain models and enumerations
-│   │   ├── static/css/             # Stylesheet assets
+│   │   ├── static/                 # Stylesheet and JavaScript assets
 │   │   └── templates/              # HTML templates for browser UI
 │   ├── identity-service/           # Authentication and credential management
 │   │   ├── Dockerfile
@@ -269,9 +306,11 @@ ZTALeaks/
 │       ├── Dockerfile
 │       ├── go.mod
 │       ├── cmd/
+│       ├── crypto/                 # Argon2id hashing for default user passwords
 │       ├── models/                 # Seed data structures
-│       └── seeders/                # Per-collection seed logic
+│       └── seeders/                # Per-collection seed logic (incl. identity users)
 ├── .env                            # Environment configuration
+├── install_operator_certs.sh       # Client certificate installer (CA + per-role certs)
 ├── .github/
 │   ├── copilot-instructions.md     # Workspace guidelines
 │   ├── instructions/
@@ -288,9 +327,13 @@ ZTALeaks/
 
 ### Business Logic Service
 
-Written in Go. Exposes a JSON REST API on port 8080 (configurable via `BUSINESS_LOGIC_PORT`). Implements the repository pattern with full CRUD operations across seven MongoDB collections: personnel, zones, access badges, reactor parameters, maintenance orders, documents, and nuclear materials. Each collection is backed by a MongoDB repository implementation enforcing JSON Schema validation at the database layer.
+Written in Go. Exposes a JSON REST API on port 8080 (configurable via `BUSINESS_LOGIC_PORT`). Implements the repository pattern across four MongoDB collections: personnel, documents, nuclear materials, and reactor parameters. Each collection is backed by a MongoDB repository implementation enforcing JSON Schema validation at the database layer.
 
-Connects to the Business Database via role-based credentials (configurable via `MONGO_URI` and `MONGO_DB`). All records are persisted with SHA-256 data integrity hashes computed from critical fields, enabling tamper detection during data retrieval. Serves HTML templates for browser-based interaction and logs all HTTP requests in structured JSON format to both stdout and `/var/log/ztaleaks/business-logic/app.jsonl` for Splunk ingestion.
+**Role-scoped database connections:** Maintains three separate MongoDB connections (configurable via `MONGO_ADMIN_URI`, `MONGO_MANAGER_URI`, `MONGO_OPERATOR_URI`), each authenticated with a least-privilege database account. The personnel repository uses the operator account, the reactor parameters repository uses the admin account, and the documents and nuclear materials repositories use the manager account, mirroring the API-level role hierarchy at the data layer.
+
+**Trusted Guard:** Exposes `POST /api/v1/trusted-guard/sanitized-delete-personnel/{id}`, an admin-only sanitization gateway that mediates write-down operations (admin deleting low-classification personnel records) which would otherwise violate the Bell–LaPadula model.
+
+All records are persisted with SHA-256 data integrity hashes computed from critical fields, enabling tamper detection during data retrieval. Serves HTML templates for browser-based interaction and logs all HTTP requests in structured JSON format to both stdout and `/var/log/ztaleaks/business-logic/app.jsonl` for Splunk ingestion.
 
 **Request traceability:** Propagates the `X-Request-ID` header throughout the request lifecycle, enabling end-to-end correlation of events across all system components.
 
@@ -298,15 +341,19 @@ Connects to the Business Database via role-based credentials (configurable via `
 
 ### Identity Service
 
-Written in Go. Exposes authentication endpoints on port 8082 (configurable via `PORT`). Manages user credentials, device enrollment, and token lifecycle. Connects to the Security Database at the address specified by `SECURITY_DB_URI`, maintaining complete isolation from the Business Database.
+Written in Go. Exposes authentication endpoints on port 8082 (configurable via `PORT`). Manages user registration, credentials, device enrollment, and token lifecycle. Connects to the Security Database at the address specified by `SECURITY_DB_URI`, maintaining complete isolation from the Business Database.
+
+**Registration:** Accepts new users via `POST /api/v1/auth/register` (username, email, password). New accounts are created with the minimal `guest` role and email-based OTP enabled by default.
 
 **Authentication flow:** Accepts credentials via `POST /api/v1/auth/login`, verifies against Argon2id hashed passwords using constant-time comparison, and issues RS256-signed JSON Web Tokens valid for 15 minutes. Each token contains the user identity, assigned role, MFA enrollment status, and the JA3 fingerprint of the authenticating TLS connection for subsequent device continuity verification.
 
-**Multi-factor authentication:** Supports one-time password generation and verification via `POST /api/v1/auth/verify-otp`.
+**Rate limiting:** Tracks failed login attempts per client IP in the `rate_limits` collection: after 5 failures, the IP is blocked for 5 minutes. The counter is reset on successful login, and the IP is taken from the Envoy-validated `x-envoy-external-address` header rather than spoofable client-supplied headers.
 
-**WebAuthn enrollment:** Implements FIDO2 credential registration and assertion via `/api/v1/auth/webauthn/register/*` and `/api/v1/auth/webauthn/authenticate/*` endpoints, enabling passwordless authentication.
+**Multi-factor authentication:** Generates one-time passwords delivered by email (via the MailHog SMTP sink in development) and verifies them via `POST /api/v1/auth/verify-otp`.
 
-**Session management:** Issues JWT tokens as HttpOnly, Secure, SameSite=Strict cookies. On startup, seeds a default administrative user if the `identity_users` collection is empty. Logs authentication events in structured JSON to `/var/log/ztaleaks/identity/identity_events.json`. Implements graceful shutdown with a 10-second timeout.
+**WebAuthn enrollment:** Implements FIDO2 credential registration and assertion via `/api/v1/auth/register/begin|finish` and `/api/v1/auth/login/begin|finish` endpoints, enabling passwordless authentication. Credential enrollment requires an authenticated, non-guest user.
+
+**Session management:** Issues JWT tokens as HttpOnly, Secure, SameSite=Strict cookies. Default users are provisioned by the Seeder, not by the service itself. Logs authentication and registration events in structured JSON (including the validated client IP) to `/var/log/ztaleaks/identity/identity_events.json`. Implements graceful shutdown with a 10-second timeout.
 
 **JWKS publication:** Exposes its public key set at `/.well-known/jwks.json` for JWT verification by downstream services.
 

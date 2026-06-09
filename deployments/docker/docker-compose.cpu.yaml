@@ -229,13 +229,6 @@ services:
       dockerfile: docker/Dockerfile
     container_name: ztaleaks_ai_inference
     image: graphagate
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
     volumes:
       - ../../infra/ai-inference/public:/app/public
       - ../../infra/ai-inference/src:/app/src
@@ -261,6 +254,8 @@ services:
       - ../../.env
     depends_on:
       business-db:
+        condition: service_healthy
+      security-db:
         condition: service_healthy
     restart: "no"
     networks:

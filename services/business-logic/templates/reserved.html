@@ -371,6 +371,12 @@
                 }
             } else {
                 summary.textContent = ZTA.friendlyError(r.status);
+                const img = document.createElement('img');
+                img.src = '/static/images/helo.gif';
+                img.style.display = 'block';
+                img.style.marginTop = '10px';
+                img.style.maxWidth = '100%';
+                summary.appendChild(img);
             }
             el.appendChild(summary);
 
@@ -394,6 +400,14 @@
             const el = viewEl(res).querySelector('.result-panel');
             el.textContent = text;
             el.classList.toggle('error', !!isError);
+            if (isError) {
+                const img = document.createElement('img');
+                img.src = '/static/images/helo.gif';
+                img.style.display = 'block';
+                img.style.marginTop = '10px';
+                img.style.maxWidth = '100%';
+                el.appendChild(img);
+            }
         }
 
         function hideTable(res) {

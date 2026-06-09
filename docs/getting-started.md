@@ -48,6 +48,14 @@ docker compose -f deployments/docker/docker-compose.yaml up --build seeder
 ```
 Re-running it is required after changing the default users (e.g., the role migration to `operator`/`manager`/`admin`): the seeder upserts roles and clearances onto existing users.
 
+### Resetting the Databases
+To wipe both databases and reseed from scratch (e.g., after a bad seeding run), remove their data volumes — the stack must be down first, since mounted volumes cannot be deleted:
+```bash
+docker compose -f deployments/docker/docker-compose.yaml down
+docker volume rm docker_business-db-data docker_security-db-data
+docker compose -f deployments/docker/docker-compose.yaml up --build seeder
+```
+
 To stop the environment:
 ```bash
 docker compose -f deployments/docker/docker-compose.yaml down

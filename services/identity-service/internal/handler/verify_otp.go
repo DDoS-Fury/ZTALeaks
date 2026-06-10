@@ -58,7 +58,7 @@ func (api *IdentityAPI) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !compareOTP(req.OTP, req.SessionToken, session.OTPHash) {
+	if !crypto.CompareOTP(req.OTP, req.SessionToken, session.OTPHash) {
 		// session.Attempts e' gia' incrementato dall'op atomica.
 		remaining := maxOTPAttempts - session.Attempts
 		if remaining < 0 {

@@ -1,9 +1,7 @@
 package webauthn
 
 import (
-	"crypto/rand"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -140,10 +138,8 @@ func (h *Handler) FinishLogin(w http.ResponseWriter, r *http.Request) {
 	user, _ := h.users.FindByID(r.Context(), dev.UserID)
 
 	// === INIEZIONE LOGICA OTP ===
-	b := make([]byte, 3)
-	rand.Read(b)
-	otp := fmt.Sprintf("%06d", int(b[0])<<16|int(b[1])<<8|int(b[2]))[:6]
-	otpHash, _ := crypto.GenerateFromPassword(otp)
+	otp, _ := crypto.GenerateOTP()
+	otpHash := crypto.HashOTP(otp, req.SessionID)
 
 	// Utilizziamo lo stesso sessionID crittografico
 	sessionToken := req.SessionID

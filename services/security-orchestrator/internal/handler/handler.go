@@ -85,7 +85,7 @@ func BuildEvaluateHandler(verifier *jwtpkg.Verifier, tpmLookup *tpm.Lookup, user
 			evaluateStrictDeviceFingerprinting(r.Context(), cc, nil, false, nil, usersColl, r, reqID, snortCache)
 
 			ctxInput := buildContext(now, 0, clientIP)
-			
+
 			// Valutazione AI per Guest
 			aiEvent := buildAIEvent(r, origPath, method, now, clientIP, ja3, nil, cc, false, snortCache)
 			ai := aiClient.Infer(r.Context(), aiEvent)
@@ -437,7 +437,6 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 		}
 	}
 
-
 	methodFloat := 0.0
 	switch method {
 	case "POST":
@@ -451,7 +450,15 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 	}
 
 	srcFeat := make([]float64, 16)
-	// Deve restare allineato a ROLES in ai-inference/src/data/stream_synthetic.py
+
+	var sensitivity, error = getResourceSensitivity(origPath, method)
+	if error != nil {
+		slog.Error("failed to get resource sensitivity", "error", error, "path", origPath)
+		sensitivity = 0.0
+	}
+
+	slog.Info("resource_sensitivity", "path", origPath, "method", method, "sensitivity", sensitivity)
+	// TODO : aggiungere la sensibilità della risorsa come feature per il modello AI.
 	roles := []string{"guest", "operator", "manager", "admin"}
 
 	if claims != nil {
@@ -465,7 +472,7 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 		if roleIdx != -1 {
 			srcFeat[0] = float64(roleIdx) / float64(len(roles)-1)
 		}
-		
+
 		clearances := []string{"PUBLIC", "INTERNAL", "CONFIDENTIAL", "SECRET", "TOP_SECRET"}
 		clrIdx := 0
 		for i, c := range clearances {
@@ -523,4 +530,31 @@ func normalizeAIPath(path string) string {
 		return "/static"
 	}
 	return path
+}
+
+func getResourceSensitivity(path string, method string) (float64, error) {
+	switch {
+	case path == "/api/v1/trusted-guard/sanitized-delete-personnel":
+		return 1.0, nil
+	case strings.HasPrefix(path, "/api/v1/personnel/") && method == "DELETE":
+		return 0.6, nil
+	case strings.HasPrefix(path, "/api/v1/personnel/") && method != "DELETE":
+		return 0.4, nil
+	case strings.HasPrefix(path, "/api/v1/documents/") && method == "DELETE":
+		return 0.7, nil
+	case strings.HasPrefix(path, "/api/v1/documents/"):
+		return 0.5, nil
+	case strings.HasPrefix(path, "/api/v1/nuclear-materials/") && method == "DELETE":
+		return 0.7, nil
+	case strings.HasPrefix(path, "/api/v1/nuclear-materials/"):
+		return 0.5, nil
+	case strings.HasPrefix(path, "/api/v1/reactor-parameters/") && method == "DELETE":
+		return 1.0, nil
+	case strings.HasPrefix(path, "/api/v1/reactor-parameters/"):
+		return 0.8, nil
+	case strings.HasPrefix(path, "/static/"):
+		return 0.0, nil
+	default:
+		return 0.0, nil
+	}
 }

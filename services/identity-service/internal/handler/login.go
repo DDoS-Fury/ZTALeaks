@@ -121,7 +121,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// OTP a 6 cifre, hash HMAC-SHA256 (chiave = session token), TTL 5 min, max 3 tentativi
-	otp, err := generateOTP()
+	otp, err := crypto.GenerateOTP()
 	if err != nil {
 		respondError(w, "errore generazione OTP", http.StatusInternalServerError)
 		slog.Error("login: generate OTP", "error", err, "src_ip", r.Header.Get("x-envoy-external-address"))
@@ -132,7 +132,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	_ = api.RateLimits.ResetLimit(r.Context(), ip)
 
 	sessionToken := newSessionToken()
-	otpHash := hashOTP(otp, sessionToken)
+	otpHash := crypto.HashOTP(otp, sessionToken)
 
 	if err := api.OTP.Create(r.Context(), models.OTPSession{
 		SessionToken: sessionToken,

@@ -454,6 +454,9 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 	// Deve restare allineato a ROLES in ai-inference/src/data/stream_synthetic.py
 	roles := []string{"guest", "operator", "manager", "admin"}
 
+	roleVal := 0.0
+	clrVal := 0.0
+
 	if claims != nil {
 		roleIdx := -1
 		for i, r := range roles {
@@ -463,7 +466,7 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 			}
 		}
 		if roleIdx != -1 {
-			srcFeat[0] = float64(roleIdx) / float64(len(roles)-1)
+			roleVal = float64(roleIdx) / float64(len(roles)-1)
 		}
 		
 		clearances := []string{"PUBLIC", "INTERNAL", "CONFIDENTIAL", "SECRET", "TOP_SECRET"}
@@ -474,7 +477,7 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 				break
 			}
 		}
-		srcFeat[1] = float64(clrIdx) / 4.0
+		clrVal = float64(clrIdx) / 4.0
 	}
 
 	tier := 0.0
@@ -485,18 +488,23 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 			tier = 0.5
 		}
 	}
+	// Per coerenza con i dati di training `node_features[num_users + i, 2] = ip_tiers[i] / 2.0`
 	srcFeat[2] = tier
 
 	keySrc := clientIP
 	if claims != nil {
-		keySrc = claims.UserID
+		if tpmOK && claims.DeviceID != "" {
+			keySrc = "tpm:" + claims.DeviceID
+		} else {
+			keySrc = claims.UserID
+		}
 	}
 
 	return aiscorer.Event{
 		KeySrc:    keySrc,
 		KeyDst:    normalizeAIPath(origPath),
 		Timestamp: now.Unix(),
-		Features:  []float64{ja3Float, alertEdge, alertMid, alertInt, methodFloat},
+		Features:  []float64{ja3Float, alertEdge, alertMid, alertInt, methodFloat, roleVal, clrVal},
 		SrcFeat:   srcFeat,
 	}
 }

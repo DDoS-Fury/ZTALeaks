@@ -357,3 +357,10 @@ Poiché le reti temporali PyG standard (TGN) processano archi coppia (`src -> ds
   - Lanciare `docker compose --profile training-tgn up --build train-tgn`.
   - Verificare che il modello converga (la lateral AUC dovrà dimostrare che il TGN riesce a propagare il segnale attraverso il nodo intermedio del device).
   - Assicurarsi che i test `verify-tgn` passino con il nuovo schema tripartito.
+
+## Review — Stress test v3 (2026-06-10)
+Verified `tests/test_client.py` (streaming load) against the v3 inference service.
+- Setup: service via `docker compose --profile serve-tgn up --build` (healthy, `schema_version=3`, CUDA); client via project `.venv` (registered `graphagate` editable `--no-deps`, added `torch==2.12.0+cpu` for py3.14 — fastapi/sklearn/torch_geometric/uvicorn are serve-side only, live in the container).
+- Result: 10474 events, **0 HTTP/schema errors**; namespaced keys flow end-to-end (`src:100.64.0.30`, `ck:0059-g0`). Latency P50 6.2ms / P99 7.2ms.
+- Detection: Benign 98.56% spec · Policy 88.93% · Contextual 96.40% · CredTheft 77.97% · Lateral 21.26% (consistent with the validated ~22.6% lateral-recall baseline in lessons.md — not a regression from the v3 changes).
+- Conclusion: stress test is functional and compatible with the 4-node v3 schema.

@@ -107,6 +107,10 @@ services:
         condition: service_started
     env_file:
       - ../../.env
+    environment:
+      # Firma HMAC del cookie dispositivo zta_device (condivisa con la
+      # security-orchestrator, che la verifica prima di usarlo come key_device).
+      - DEVICE_COOKIE_SECRET=${DEVICE_COOKIE_SECRET:-ztaleaks-dev-device-cookie-secret}
     # Nessuna porta esposta sull'host: identity-service è raggiungibile solo
     # via Envoy (PEP). Login/register e le rotte /api/v1/auth/* passano quindi
     # da ext_authz → orchestrator → OPA (PDP), come tutte le altre rotte.
@@ -146,6 +150,7 @@ services:
       - SECURITY_ORCHESTRATOR_PORT=${SECURITY_ORCHESTRATOR_PORT:-8081}
       - SNORT_ALERTS_TCP_PORT=${SNORT_ALERTS_TCP_PORT:-9000}
       - AI_SCORER_URL=http://ai-inference:8088
+      - DEVICE_COOKIE_SECRET=${DEVICE_COOKIE_SECRET:-ztaleaks-dev-device-cookie-secret}
     volumes:
       - orchestrator-logs:/var/log/ztaleaks/orchestrator
     networks:

@@ -498,17 +498,32 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 	// Per coerenza con i dati di training `node_features[num_users + i, 2] = ip_tiers[i] / 2.0`
 	srcFeat[2] = tier
 
-	keySrc := clientIP
+	// Catena causale v3: source(IP) → device(hw id) → user → resource.
+	// Le chiavi sono namespaced per TIPO cosi' un IP non puo' mai aliasare uno
+	// slot device nel NodeRegistry condiviso del modello: source = "src:<ip>",
+	// device reale = "tpm:" (tier 2) > "ck:" (cookie firmato, tier 0/1), fallback
+	// legacy = "ipdev:<ip>" SENZA key_source (mai la stessa chiave su due ruoli:
+	// il modello salterebbe l'arco sbagliato).
+	keyUser := "anonymous"
 	if claims != nil {
-		if tpmOK && claims.DeviceID != "" {
-			keySrc = "tpm:" + claims.DeviceID
-		} else {
-			keySrc = claims.UserID
-		}
+		keyUser = claims.UserID
+	}
+	keyDevice, keySource := "", ""
+	if tpmOK && claims != nil && claims.DeviceID != "" {
+		keyDevice = "tpm:" + claims.DeviceID
+	} else if ck, ok := deviceIDFromCookie(r); ok {
+		keyDevice = "ck:" + ck
+	}
+	if keyDevice != "" {
+		keySource = "src:" + clientIP
+	} else {
+		keyDevice = "ipdev:" + clientIP
 	}
 
 	return aiscorer.Event{
-		KeySrc:    keySrc,
+		KeyUser:   keyUser,
+		KeyDevice: keyDevice,
+		KeySource: keySource,
 		KeyDst:    normalizeAIPath(origPath),
 		Timestamp: now.Unix(),
 		Features:  []float64{ja3Float, alertEdge, alertMid, alertInt, methodFloat, roleVal, clrVal},

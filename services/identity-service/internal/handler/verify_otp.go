@@ -107,6 +107,7 @@ func (api *IdentityAPI) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	slog.Info("login completato", "username", user.Username, "role", user.Role, "src_ip", r.Header.Get("x-envoy-external-address"))
+	ensureDeviceCookie(w, r)
 	respondJSON(w, http.StatusOK, tokenResponse{
 		AccessToken: tok,
 		ExpiresIn:   int(crypto.AccessTokenTTL.Seconds()),

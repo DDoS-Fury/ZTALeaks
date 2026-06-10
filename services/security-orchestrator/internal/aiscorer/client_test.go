@@ -9,7 +9,7 @@ import (
 
 func TestInfer_NoURL_ReturnsLowConfidence(t *testing.T) {
 	c := &Client{url: "", httpClient: http.DefaultClient}
-	got := c.Infer(context.Background(), Event{KeySrc: "EMP-001"})
+	got := c.Infer(context.Background(), Event{KeyUser: "EMP-001", KeyDevice: "tpm:dev-1"})
 	if got.Confidence != ConfidenceLow || got.Score != 0.99 {
 		t.Fatalf("expected {0.99, low}, got %+v", got)
 	}
@@ -21,7 +21,7 @@ func TestInfer_HTTPError_ReturnsLowConfidence(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{url: srv.URL, httpClient: srv.Client()}
-	got := c.Infer(context.Background(), Event{KeySrc: "EMP-001"})
+	got := c.Infer(context.Background(), Event{KeyUser: "EMP-001", KeyDevice: "tpm:dev-1"})
 	if got.Confidence != ConfidenceLow || got.Score != 0.99 {
 		t.Fatalf("expected {0.99, low} on 500, got %+v", got)
 	}
@@ -34,7 +34,7 @@ func TestInfer_HappyPath_ReturnsHighConfidence(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{url: srv.URL, httpClient: srv.Client()}
-	got := c.Infer(context.Background(), Event{KeySrc: "EMP-001"})
+	got := c.Infer(context.Background(), Event{KeyUser: "EMP-001", KeyDevice: "tpm:dev-1"})
 	if got.Confidence != ConfidenceHigh || got.Score != 0.42 {
 		t.Fatalf("expected {0.42, high}, got %+v", got)
 	}
@@ -46,7 +46,7 @@ func TestInfer_MalformedJSON_ReturnsLowConfidence(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{url: srv.URL, httpClient: srv.Client()}
-	got := c.Infer(context.Background(), Event{KeySrc: "EMP-001"})
+	got := c.Infer(context.Background(), Event{KeyUser: "EMP-001", KeyDevice: "tpm:dev-1"})
 	if got.Confidence != ConfidenceLow || got.Score != 0.99 {
 		t.Fatalf("expected {0.99, low} on bad JSON, got %+v", got)
 	}

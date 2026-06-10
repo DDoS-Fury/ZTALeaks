@@ -13,3 +13,32 @@
 ## LaTeX edits without a local engine
 **Mistake risk**: Added `\text{}`, `\|`, `\hat` in math mode to `report.tex` whose preamble lacked `amsmath`.
 **Rule**: When editing `.tex` and no compiler is available locally, audit every new macro against the loaded packages (add `\usepackage{amsmath}` if using `\text`/`\|`/aligned envs), and state explicitly that the file was not compiled.
+
+## Una feature "di contesto" può mascherare un attacco (valida ogni feature contro TUTTE le classi)
+**Contesto (2026-06-10)**: aggiunta una feature `source-internal` (bit RFC1918 interno/esterno
+sul nodo rete) come da richiesta utente. Il primo retrain mostrava lateral AUC SU (0.818→0.900)
+e quindi sembrava un successo — ma la cred-theft era CROLLATA (AUC 0.969→0.662, recall 1.00→0.49).
+**Mistake da evitare**: giudicare una nuova feature solo sulla metrica aggregata o sulla classe
+che si intendeva migliorare. La feature "esterno benigno" (roaming/CGNAT) normalizza i binding
+`esterno→device`, che sono ESATTAMENTE l'arco su cui vive il segnale del furto di credenziali →
+la feature ha mascherato l'attacco.
+**Regola**: ogni nuova node/edge feature va valutata contro TUTTE le classi di anomalia (metriche
+per-tipo a parità di seed = stessi eventi di test), non solo l'aggregato. Rendere ogni feature
+nuova ABLABILE con un flag (come `use_hist_feats`/`use_precursor` già nel progetto), persisterlo
+in `hyperparams` del checkpoint e gatarlo a serve-time. Default OFF finché non passa il gate
+della classe che potrebbe regredire. Quando una richiesta utente introduce un trade-off di
+sicurezza, implementarla dietro flag + riportare il trade-off, non spedirla di nascosto.
+
+## In caso di regressione: STOP, isola con un'ablation, non accettare il "netto positivo"
+**Contesto (2026-06-10)**: davanti al miglioramento lateral + regressione cred-theft, la
+tentazione era spedire ("AUC aggregata su, va bene"). Invece: STOP, ipotesi sul meccanismo,
+ablation controllata (retrain con la sola feature sospetta disattivata, stesso seed) → conferma
+che `source-internal` era il colpevole (cred-theft 0.662→0.922) e che `resource-risk` era
+innocuo/benefico. Tre run a parità di seed danno attribuzione pulita.
+**Regola**: alla prima regressione di una metrica di sicurezza, fermarsi e isolare con
+un'ablation a parità di seed prima di concludere. Un seed fisso rende gli eventi di test
+identici tra i run → i delta per-classe sono attribuibili, non rumore.
+
+## Entity mapping in AI models
+**Mistake**: Assuming that creating distinct entity IDs (`tpm:<deviceId>`) for different devices of the same user preserves user identity for the AI model. It does not. The TGN model treats distinct strings as completely disconnected nodes, meaning the historical profile of the user is split and lost across their devices.
+**Rule**: When designing graph-based AI models (like TGN), the primary entity identifier (`KeySrc`) must remain the core entity (the `User`), while device characteristics (like TPM presence or device tier) should be passed as edge features or dynamic node features. Do not branch the core entity ID based on the authentication mechanism unless you explicitly want a disconnected graph node.

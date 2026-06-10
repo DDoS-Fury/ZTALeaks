@@ -167,6 +167,7 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	}(user.Email, otp)
 
 	slog.Info("OTP emesso", "user_id", user.ID, "email", user.Email)
+	ensureDeviceCookie(w, r)
 	respondJSON(w, http.StatusOK, loginResponse{
 		Status:       "otp_required",
 		SessionToken: sessionToken,

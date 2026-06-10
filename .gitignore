@@ -123,3 +123,10 @@ CLAUDE.md
 # ------------------------------------------------------------------------------
 *.pt
 *.pth
+
+certs/*.crt
+certs/*.key
+certs/*.p12
+certs/*.pfx
+certs/*.csr
+certs/*.srl

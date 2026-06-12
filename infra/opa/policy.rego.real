@@ -5,11 +5,44 @@ import rego.v1
 # Default decision: deny everything unless a rule explicitly allows it.
 default allow := false
 
+# Mappatura gerarchica dei livelli di sicurezza (corrispondenza esatta maiuscola)
+livelli := {
+    "PUBLIC": 0,
+    "INTERNAL": 1,
+    "CONFIDENTIAL": 2,
+    "SECRET": 3,
+    "TOP_SECRET": 4
+}
+
+# Definiamo cosa significa ogni ruolo aziendale nel mondo Bell-LaPadula
+ruoli_to_blp := {
+    "guest": {
+        "clearance": 0, # Mappato a PUBLIC
+        "categorie": []
+    },
+    "operator": {
+        "clearance": 1, # Mappato a INTERNAL
+        "categorie": ["hr", "ops"]
+    },
+    "manager": {
+        "clearance": 2, # Mappato a CONFIDENTIAL
+        "categorie": ["hr", "ops", "finance"]
+    },
+    "admin": {
+        "clearance": 4, # Mappato a TOP_SECRET
+        "categorie": ["hr", "ops", "finance", "nuclear", "security"]
+    }
+}
+
+# Estrazione dei dati utente basati sul JWT
+ruolo_utente := input.claims.role
+user_clearance_val := ruoli_to_blp[ruolo_utente].clearance
+user_categories := ruoli_to_blp[ruolo_utente].categorie
+
 # ==================================================
 # Section 1 : Public Routes
 # ==================================================
 
-# Rotte tecniche: passano SEMPRE e a prescindere dall'AI
 allow if {
     input.request.path in {"/health", "/.well-known/jwks.json", "/api/v1/evaluate/favicon.ico", "/favicon.ico"}
 }
@@ -25,6 +58,8 @@ public_paths := {
     "/api/v1/auth/verify-otp",
     "/api/v1/auth/login/begin",
     "/api/v1/auth/login/finish",
+    "/api/v1/auth/register/finish",
+    "/api/v1/auth/register/begin",
 }
 
 public_paths_impact := 0.2
@@ -32,109 +67,56 @@ public_paths_impact := 0.2
 allow if {
     input.request.path in public_paths
     ai_score := object.get(input, ["ai", "score"], 0.0)
-    (input.ai.score - public_paths_impact) < 0.6
+    (ai_score - public_paths_impact) < 0.6
 }
 
-# Allow all static assets (CSS, JS, images, etc.)
 allow if {
     startswith(input.request.path, "/static/")
 }
 
 # ==================================================
-# Section 2 : Roles-Gain Nested Matrix [rotta][metodo]
+# Section 2 : BLP Populated Security Matrix
 # ==================================================
 
 matrice_sicurezza := {
     "/api/v1/personnel": {
-        "POST": {
-            "benefici": 0.3,
-            "ruoli_ammessi": ["operator", "manager","admin"],
-            "rischio_accettato": 0.5
-        },
-        "GET": {
-            "benefici": 0.4,
-            "ruoli_ammessi": ["operator", "manager","admin"],
-            "rischio_accettato": 0.5
-        }
+        "classificazione": "INTERNAL",
+        "categorie": ["hr"],
+        "POST": {"benefici": 0.3, "rischio_accettato": 0.5},
+        "GET": {"benefici": 0.4, "rischio_accettato": 0.5}
     },
     "/api/v1/documents": {
-        "GET": {
-            "benefici": 0.4,
-            "ruoli_ammessi": [ "manager","admin"],
-            "rischio_accettato": 0.5
-        },
-        "POST": {
-            "benefici": 0.3,
-            "ruoli_ammessi": [ "manager","admin"],
-            "rischio_accettato": 0.5
-        },
-        "DELETE": {
-            "benefici": 0.3,
-            "ruoli_ammessi": [ "manager","admin"],
-            "rischio_accettato": 0.5
-        }
+        "classificazione": "CONFIDENTIAL",
+        "categorie": ["finance"],
+        "GET": {"benefici": 0.4, "rischio_accettato": 0.5},
+        "POST": {"benefici": 0.3, "rischio_accettato": 0.5},
+        "DELETE": {"benefici": 0.3, "rischio_accettato": 0.5}
     },
-     "/api/v1/nuclear-materials": {
-        "GET": {
-            "benefici": 0.2,
-            "ruoli_ammessi": ["manager","admin"],
-            "rischio_accettato": 0.4
-        },
-        "POST": {
-            "benefici": 0.2,  
-            "ruoli_ammessi": ["manager","admin"],
-            "rischio_accettato": 0.4
-        },
-        "DELETE": {
-            "benefici": 0.2,
-            "ruoli_ammessi": ["manager","admin"],
-            "rischio_accettato": 0.4
-        }
+    "/api/v1/nuclear-materials": {
+        "classificazione": "TOP_SECRET",
+        "categorie": ["nuclear"],
+        "GET": {"benefici": 0.2, "rischio_accettato": 0.4},
+        "POST": {"benefici": 0.2, "rischio_accettato": 0.4},
+        "DELETE": {"benefici": 0.2, "rischio_accettato": 0.4}
     },
     "/api/v1/reactor-parameters": {
-        "GET": {
-            "benefici": 0.15,
-            "ruoli_ammessi": ["admin"],
-            "rischio_accettato": 0.2
-        },
-        "POST": {
-            "benefici": 0.15,
-            "ruoli_ammessi": ["admin"],
-            "rischio_accettato": 0.2
-        },
-        "DELETE": {
-            "benefici": 0.15,
-            "ruoli_ammessi": ["admin"],
-            "rischio_accettato": 0.2
-        }
+        "classificazione": "TOP_SECRET",
+        "categorie": ["nuclear", "security"],
+        "GET": {"benefici": 0.15, "rischio_accettato": 0.2},
+        "POST": {"benefici": 0.15, "rischio_accettato": 0.2},
+        "DELETE": {"benefici": 0.15, "rischio_accettato": 0.2}
     },
+    # Questo endpoint è SECRET. Un admin (TOP_SECRET) che fa una POST violerebbe la *-Property.
+    # Lo classifichiamo come SECRET richiedendo la categoria "security".
     "/api/v1/trusted-guard/sanitized-delete-personnel": {
-        "POST": {
-            "benefici": 0.4,
-            "ruoli_ammessi": ["admin"],
-            "rischio_accettato": 0.2
-        }
-    },
-    # Enrollment WebAuthn: richiede utente autenticato (qualsiasi ruolo non-guest)
-    "/api/v1/auth/register/begin": {
-        "POST": {
-            "benefici": 0.2,
-            "ruoli_ammessi": ["operator", "manager", "admin"],
-            "rischio_accettato": 0.5
-        }
-    },
-    "/api/v1/auth/register/finish": {
-        "POST": {
-            "benefici": 0.2,
-            "ruoli_ammessi": ["operator", "manager", "admin"],
-            "rischio_accettato": 0.5
-        }
+        "classificazione": "SECRET",
+        "categorie": ["security"],
+        "POST": {"benefici": 0.4, "rischio_accettato": 0.2}
     }
-
 }
 
 # =======================================================
-# Section 3 : Risoluzione Dinamica della Rotta (Sottorotte)
+# Section 3 : Dynamic Route Resolution
 # =======================================================
 
 rotte_compatibili[p] if {
@@ -144,8 +126,6 @@ rotte_compatibili[p] if {
 
 rotte_compatibili[p] if {
     matrice_sicurezza[p]
-    # Verifica se il path in input inizia con la rotta base seguita da un "/"
-    # Es: /api/v1/transazioni/123 inizia con /api/v1/transazioni/
     startswith(input.request.path, sprintf("%s/", [p]))
 }
 
@@ -160,16 +140,48 @@ ha_match_piu_lungo(p) if {
 }
 
 # =======================================================
-# Section 4 : Rules
+# Section 4 : BLP Logic Core (Funzioni helper con scope corretto)
+# =======================================================
+
+# Simple Security Property (No Read-Up):
+blp_elabora_regola("GET", u_clearance, o_classification, _, _) if {
+    u_clearance >= o_classification
+}
+
+# *-Property (No Write-Down standard):
+metodi_scrittura := {"POST", "PUT", "DELETE", "PATCH"}
+blp_elabora_regola(method, u_clearance, o_classification, path, _) if {
+    method in metodi_scrittura
+    # Escludiamo la rotta di bypass dal controllo standard no-write-down
+    path != "/api/v1/trusted-guard/sanitized-delete-personnel"
+    u_clearance <= o_classification
+}
+
+# eccezione: SANITIZED WRITE-DOWN (Concept di Soggetto Fidato / Trusted Subject)
+# Permette specificamente all'admin (clearance 4) di scrivere sulla rotta del Trusted Guard (clearance 3)
+blp_elabora_regola("POST", 4, 3, "/api/v1/trusted-guard/sanitized-delete-personnel", "admin")
+
+
+# =======================================================
+# Section 5 : Final Authorization Rule
 # =======================================================
 
 allow if {
-    # Usiamo 'rotta_base' (risolta dinamicamente) invece di 'input.request.path'
-    config_rotta := matrice_sicurezza[rotta_base][input.request.method]
+    # 1. Estrazione configurazione metodo (Senza il finto sotto-blocco .metodi)
+    config_metodo := matrice_sicurezza[rotta_base][input.request.method]
     
-    # --- CONTROLLO 1: RUOLO (RBAC) ---
-    input.claims.role == config_rotta.ruoli_ammessi[_]
+    # 2. Risoluzione dinamica dei dati dell'oggetto per questa specifica rotta
+    obj_classification_val := livelli[matrice_sicurezza[rotta_base].classificazione]
+    obj_categories := matrice_sicurezza[rotta_base].categorie
     
-    # --- CONTROLLO 2: RISCHIO VS BENEFICI ---
-    (input.ai.score - config_rotta.benefici) < config_rotta.rischio_accettato
+    # 3. Controllo Matematico Compartimenti (Categorie)
+    categorie_mancanti := {c | c := obj_categories[_]; not c in user_categories}
+    count(categorie_mancanti) == 0
+    
+    # 4. Controllo Gerarchico BLP (Inclusa eccezione Trusted Guard)
+    blp_elabora_regola(input.request.method, user_clearance_val, obj_classification_val, rotta_base, ruolo_utente)
+    
+    # 5. Controllo Rischio AI (Formula corretta per il calcolo del rischio netto)
+    ai_score := object.get(input, ["ai", "score"], 0.0)
+    (ai_score - config_metodo.benefici) < config_metodo.rischio_accettato
 }

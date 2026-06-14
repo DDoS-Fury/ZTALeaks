@@ -57,18 +57,18 @@ type ZTNAMetadata struct {
 }
 
 type Personnel struct {
-	EmployeeID          string          `bson:"employee_id" json:"employee_id"`
-	ClassificationLevel string          `bson:"classification_level" json:"classification_level"`
-	FirstName           string          `bson:"first_name" json:"first_name"`
-	LastName            string          `bson:"last_name" json:"last_name"`
-	Role                string          `bson:"role" json:"role"`
-	Department          string          `bson:"department" json:"department"`
-	ClearanceLevel      string          `bson:"clearance_level" json:"clearance_level"`
+	EmployeeID          string          `bson:"employee_id" json:"employee_id" validate:"required"`
+	ClassificationLevel string          `bson:"classification_level" json:"classification_level" validate:"required,oneof=PUBLIC INTERNAL CONFIDENTIAL SECRET TOP_SECRET"`
+	FirstName           string          `bson:"first_name" json:"first_name" validate:"required"`
+	LastName            string          `bson:"last_name" json:"last_name" validate:"required"`
+	Role                string          `bson:"role" json:"role" validate:"required,oneof=operator maintenance_technician radiation_protection_officer security_officer plant_manager inspector"`
+	Department          string          `bson:"department" json:"department" validate:"required"`
+	ClearanceLevel      string          `bson:"clearance_level" json:"clearance_level" validate:"required,oneof=PUBLIC INTERNAL CONFIDENTIAL SECRET TOP_SECRET"`
 	Qualifications      []Qualification `bson:"qualifications" json:"qualifications"`
 	AssignedZones       []string        `bson:"assigned_zones" json:"assigned_zones"`
 	BadgeID             string          `bson:"badge_id" json:"badge_id"`
 	Contact             Contact         `bson:"contact" json:"contact"`
-	Status              string          `bson:"status" json:"status"`
+	Status              string          `bson:"status" json:"status" validate:"required"`
 	HireDate            time.Time       `bson:"hire_date" json:"hire_date"`
 	LastMedicalCheck    time.Time       `bson:"last_medical_check" json:"last_medical_check"`
 	ZTNAMetadata        ZTNAMetadata    `bson:"ztna_metadata" json:"ztna_metadata"`
@@ -153,27 +153,27 @@ type Zone struct {
 // ===========================================================================
 
 type ControlRodPosition struct {
-	RodGroup        string  `bson:"rod_group" json:"rod_group"`
-	PositionPercent float64 `bson:"position_percent" json:"position_percent"`
+	RodGroup        string  `bson:"rod_group" json:"rod_group" validate:"required"`
+	PositionPercent float64 `bson:"position_percent" json:"position_percent" validate:"gte=0,lte=100"`
 }
 
 type ReactorParameters struct {
-	ClassificationLevel   string               `bson:"classification_level" json:"classification_level"`
+	ClassificationLevel   string               `bson:"classification_level" json:"classification_level" validate:"required,oneof=PUBLIC INTERNAL CONFIDENTIAL SECRET TOP_SECRET"`
 	Timestamp             time.Time            `bson:"timestamp" json:"timestamp"`
-	ReactorID             string               `bson:"reactor_id" json:"reactor_id"`
-	ThermalPowerMW        float64              `bson:"thermal_power_mw" json:"thermal_power_mw"`
-	ElectricalPowerMW     float64              `bson:"electrical_power_mw" json:"electrical_power_mw"`
+	ReactorID             string               `bson:"reactor_id" json:"reactor_id" validate:"required"`
+	ThermalPowerMW        float64              `bson:"thermal_power_mw" json:"thermal_power_mw" validate:"gte=0"`
+	ElectricalPowerMW     float64              `bson:"electrical_power_mw" json:"electrical_power_mw" validate:"gte=0"`
 	CoolantTempInletC     float64              `bson:"coolant_temperature_inlet_c" json:"coolant_temperature_inlet_c"`
 	CoolantTempOutletC    float64              `bson:"coolant_temperature_outlet_c" json:"coolant_temperature_outlet_c"`
-	CoolantPressureMPA    float64              `bson:"coolant_pressure_mpa" json:"coolant_pressure_mpa"`
-	CoolantFlowRateKgS    float64              `bson:"coolant_flow_rate_kg_s" json:"coolant_flow_rate_kg_s"`
-	NeutronFlux           float64              `bson:"neutron_flux" json:"neutron_flux"`
-	ControlRodPositions   []ControlRodPosition `bson:"control_rod_positions" json:"control_rod_positions"`
-	BoronConcentrationPPM int                  `bson:"boron_concentration_ppm" json:"boron_concentration_ppm"`
-	ReactorStatus         string               `bson:"reactor_status" json:"reactor_status"`
+	CoolantPressureMPA    float64              `bson:"coolant_pressure_mpa" json:"coolant_pressure_mpa" validate:"gte=0"`
+	CoolantFlowRateKgS    float64              `bson:"coolant_flow_rate_kg_s" json:"coolant_flow_rate_kg_s" validate:"gte=0"`
+	NeutronFlux           float64              `bson:"neutron_flux" json:"neutron_flux" validate:"gte=0"`
+	ControlRodPositions   []ControlRodPosition `bson:"control_rod_positions" json:"control_rod_positions" validate:"dive"`
+	BoronConcentrationPPM int                  `bson:"boron_concentration_ppm" json:"boron_concentration_ppm" validate:"gte=0"`
+	ReactorStatus         string               `bson:"reactor_status" json:"reactor_status" validate:"required,oneof=shutdown startup power_operation hot_standby emergency_shutdown"`
 	ScramStatus           bool                 `bson:"scram_status" json:"scram_status"`
 	Alerts                []string             `bson:"alerts" json:"alerts"`
-	RecordedBy            string               `bson:"recorded_by" json:"recorded_by"`
+	RecordedBy            string               `bson:"recorded_by" json:"recorded_by" validate:"required"`
 	ShiftID               string               `bson:"shift_id" json:"shift_id"`
 	DataIntegrityHash     string               `bson:"data_integrity_hash" json:"data_integrity_hash"`
 }
@@ -241,18 +241,18 @@ type Revision struct {
 }
 
 type Document struct {
-	DocumentID          string    `bson:"document_id" json:"document_id"`
-	ClassificationLevel string    `bson:"classification_level" json:"classification_level"`
-	Title               string    `bson:"title" json:"title"`
-	Type                string    `bson:"type" json:"type"`
-	Category            string    `bson:"category" json:"category"`
+	DocumentID          string    `bson:"document_id" json:"document_id" validate:"required"`
+	ClassificationLevel string    `bson:"classification_level" json:"classification_level" validate:"required,oneof=PUBLIC INTERNAL CONFIDENTIAL SECRET TOP_SECRET"`
+	Title               string    `bson:"title" json:"title" validate:"required"`
+	Type                string    `bson:"type" json:"type" validate:"required,oneof=procedure manual drawing report analysis"`
+	Category            string    `bson:"category" json:"category" validate:"required,oneof=operational emergency maintenance safety administrative"`
 	Revision            Revision  `bson:"revision" json:"revision"`
 	ApplicableSystems   []string  `bson:"applicable_systems" json:"applicable_systems"`
 	ApplicableZones     []string  `bson:"applicable_zones" json:"applicable_zones"`
 	ApplicableRoles     []string  `bson:"applicable_roles" json:"applicable_roles"`
 	FileReference       string    `bson:"file_reference" json:"file_reference"`
 	Keywords            []string  `bson:"keywords" json:"keywords"`
-	Status              string    `bson:"status" json:"status"`
+	Status              string    `bson:"status" json:"status" validate:"required,oneof=draft under_review approved superseded archived"`
 	PreviousRevisions   []string  `bson:"previous_revisions" json:"previous_revisions"`
 	ReviewDate          time.Time `bson:"review_date" json:"review_date"`
 	CreatedAt           time.Time `bson:"created_at" json:"created_at"`
@@ -288,14 +288,14 @@ type Accountability struct {
 }
 
 type NuclearMaterial struct {
-	MaterialID          string           `bson:"material_id" json:"material_id"`
-	ClassificationLevel string           `bson:"classification_level" json:"classification_level"`
-	Type                string           `bson:"type" json:"type"`
-	Description         string           `bson:"description" json:"description"`
-	EnrichmentPercent   float64          `bson:"enrichment_percent,omitempty" json:"enrichment_percent,omitempty"`
-	MassKG              float64          `bson:"mass_kg" json:"mass_kg"`
-	InitialU235KG       float64          `bson:"initial_u235_kg,omitempty" json:"initial_u235_kg,omitempty"`
-	Status              string           `bson:"status" json:"status"`
+	MaterialID          string           `bson:"material_id" json:"material_id" validate:"required"`
+	ClassificationLevel string           `bson:"classification_level" json:"classification_level" validate:"required,oneof=PUBLIC INTERNAL CONFIDENTIAL SECRET TOP_SECRET"`
+	Type                string           `bson:"type" json:"type" validate:"required,oneof=fuel_assembly spent_fuel waste source"`
+	Description         string           `bson:"description" json:"description" validate:"required"`
+	EnrichmentPercent   float64          `bson:"enrichment_percent,omitempty" json:"enrichment_percent,omitempty" validate:"omitempty,gte=0,lte=100"`
+	MassKG              float64          `bson:"mass_kg" json:"mass_kg" validate:"gt=0"`
+	InitialU235KG       float64          `bson:"initial_u235_kg,omitempty" json:"initial_u235_kg,omitempty" validate:"omitempty,gte=0"`
+	Status              string           `bson:"status" json:"status" validate:"required,oneof=in_storage in_reactor spent_pool dry_cask transferred"`
 	Location            MaterialLocation `bson:"location" json:"location"`
 	BurnupMWDT          float64          `bson:"burnup_mwd_t,omitempty" json:"burnup_mwd_t,omitempty"`
 	CycleLoaded         int              `bson:"cycle_loaded,omitempty" json:"cycle_loaded,omitempty"`

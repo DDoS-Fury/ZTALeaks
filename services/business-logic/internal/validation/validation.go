@@ -24,6 +24,34 @@ import (
 // quindi creata una sola volta, non per ogni richiesta.
 var validate = validator.New(validator.WithRequiredStructEnabled())
 
+func init() {
+	// Registra il validatore custom per employee_id che verifica il formato NP-YYYY-NNNN
+	_ = validate.RegisterValidation("employee_id", func(fl validator.FieldLevel) bool {
+		val := fl.Field().String()
+		// Controllo regex base: inizia con NP-, poi 4 cifre, -, e 4 cifre
+		if len(val) != 12 {
+			return false
+		}
+		if !strings.HasPrefix(val, "NP-") {
+			return false
+		}
+		for i := 3; i < 7; i++ {
+			if val[i] < '0' || val[i] > '9' {
+				return false
+			}
+		}
+		if val[7] != '-' {
+			return false
+		}
+		for i := 8; i < 12; i++ {
+			if val[i] < '0' || val[i] > '9' {
+				return false
+			}
+		}
+		return true
+	})
+}
+
 // ValidationError rappresenta un payload che ha superato il parsing JSON ma ha
 // violato una o più regole di validazione. È distinto da un errore di decode
 // così che il chiamante possa, volendo, differenziare i due casi; entrambi

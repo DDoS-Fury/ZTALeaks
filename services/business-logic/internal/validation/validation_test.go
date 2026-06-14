@@ -18,20 +18,21 @@ func decode(body string) (models.Personnel, error) {
 
 func TestDecodeAndValidate_Valid(t *testing.T) {
 	body := `{
-		"employee_id": "EMP-001",
+		"employee_id": "NP-2023-0001",
 		"classification_level": "SECRET",
 		"first_name": "Mara",
 		"last_name": "Rossi",
 		"role": "operator",
 		"department": "Operations",
 		"clearance_level": "SECRET",
-		"status": "active"
+		"status": "active",
+		"badge_id": "BDG-12345"
 	}`
 	p, err := decode(body)
 	if err != nil {
 		t.Fatalf("payload valido rifiutato: %v", err)
 	}
-	if p.EmployeeID != "EMP-001" {
+	if p.EmployeeID != "NP-2023-0001" {
 		t.Fatalf("decode errato: employee_id = %q", p.EmployeeID)
 	}
 }
@@ -39,13 +40,14 @@ func TestDecodeAndValidate_Valid(t *testing.T) {
 func TestDecodeAndValidate_MissingRequired(t *testing.T) {
 	// Manca first_name (required).
 	body := `{
-		"employee_id": "EMP-002",
+		"employee_id": "NP-2023-0002",
 		"classification_level": "SECRET",
 		"last_name": "Rossi",
 		"role": "operator",
 		"department": "Operations",
 		"clearance_level": "SECRET",
-		"status": "active"
+		"status": "active",
+		"badge_id": "BDG-12345"
 	}`
 	_, err := decode(body)
 	if err == nil {
@@ -60,14 +62,15 @@ func TestDecodeAndValidate_MissingRequired(t *testing.T) {
 func TestDecodeAndValidate_BadEnum(t *testing.T) {
 	// role fuori dal dominio oneof.
 	body := `{
-		"employee_id": "EMP-003",
+		"employee_id": "NP-2023-0003",
 		"classification_level": "SECRET",
 		"first_name": "Mara",
 		"last_name": "Rossi",
 		"role": "supreme_leader",
 		"department": "Operations",
 		"clearance_level": "SECRET",
-		"status": "active"
+		"status": "active",
+		"badge_id": "BDG-12345"
 	}`
 	_, err := decode(body)
 	if err == nil {
@@ -93,7 +96,7 @@ func TestDecodeAndValidate_MalformedJSON(t *testing.T) {
 
 func TestDecodeAndValidate_UnknownField(t *testing.T) {
 	body := `{
-		"employee_id": "EMP-004",
+		"employee_id": "NP-2023-0004",
 		"classification_level": "SECRET",
 		"first_name": "Mara",
 		"last_name": "Rossi",
@@ -101,9 +104,46 @@ func TestDecodeAndValidate_UnknownField(t *testing.T) {
 		"department": "Operations",
 		"clearance_level": "SECRET",
 		"status": "active",
+		"badge_id": "BDG-12345",
 		"is_admin": true
 	}`
 	if _, err := decode(body); err == nil {
 		t.Fatal("campo sconosciuto (is_admin) accettato, atteso errore")
+	}
+}
+
+func TestDecodeAndValidate_InvalidEmployeeID(t *testing.T) {
+	body := `{
+		"employee_id": "dasdasd",
+		"classification_level": "SECRET",
+		"first_name": "Mara",
+		"last_name": "Rossi",
+		"role": "operator",
+		"department": "Operations",
+		"clearance_level": "SECRET",
+		"status": "active",
+		"badge_id": "BDG-12345"
+	}`
+	_, err := decode(body)
+	if err == nil {
+		t.Fatal("employee_id malformato accettato, atteso errore")
+	}
+}
+
+func TestDecodeAndValidate_InvalidBadgeID(t *testing.T) {
+	body := `{
+		"employee_id": "NP-2023-0005",
+		"classification_level": "SECRET",
+		"first_name": "Mara",
+		"last_name": "Rossi",
+		"role": "operator",
+		"department": "Operations",
+		"clearance_level": "SECRET",
+		"status": "active",
+		"badge_id": "12345"
+	}`
+	_, err := decode(body)
+	if err == nil {
+		t.Fatal("badge_id malformato accettato, atteso errore")
 	}
 }

@@ -49,7 +49,7 @@ type Contact struct {
 type ZTNAMetadata struct {
 	TrustScore          float64   `bson:"trust_score" json:"trust_score"`
 	LastTrustEvaluation time.Time `bson:"last_trust_evaluation" json:"last_trust_evaluation"`
-	RiskFlags           []string  `bson:"risk_flags" json:"risk_flags"`
+	RiskFlags           []string  `bson:"risk_flags,omitempty" json:"risk_flags" `
 	MFAEnrolled         bool      `bson:"mfa_enrolled" json:"mfa_enrolled"`
 	LastSuccessfulAuth  time.Time `bson:"last_successful_auth" json:"last_successful_auth"`
 	FailedAuthCount     int       `bson:"failed_auth_count" json:"failed_auth_count"`
@@ -57,16 +57,16 @@ type ZTNAMetadata struct {
 }
 
 type Personnel struct {
-	EmployeeID          string          `bson:"employee_id" json:"employee_id" validate:"required"`
+	EmployeeID          string          `bson:"employee_id" json:"employee_id" validate:"required,employee_id"`
 	ClassificationLevel string          `bson:"classification_level" json:"classification_level" validate:"required,oneof=PUBLIC INTERNAL CONFIDENTIAL SECRET TOP_SECRET"`
 	FirstName           string          `bson:"first_name" json:"first_name" validate:"required"`
 	LastName            string          `bson:"last_name" json:"last_name" validate:"required"`
 	Role                string          `bson:"role" json:"role" validate:"required,oneof=operator maintenance_technician radiation_protection_officer security_officer plant_manager inspector"`
 	Department          string          `bson:"department" json:"department" validate:"required"`
 	ClearanceLevel      string          `bson:"clearance_level" json:"clearance_level" validate:"required,oneof=PUBLIC INTERNAL CONFIDENTIAL SECRET TOP_SECRET"`
-	Qualifications      []Qualification `bson:"qualifications" json:"qualifications"`
-	AssignedZones       []string        `bson:"assigned_zones" json:"assigned_zones"`
-	BadgeID             string          `bson:"badge_id" json:"badge_id"`
+	Qualifications      []Qualification `bson:"qualifications,omitempty" json:"qualifications"`
+	AssignedZones       []string        `bson:"assigned_zones,omitempty" json:"assigned_zones"`
+	BadgeID             string          `bson:"badge_id" json:"badge_id" validate:"required,startswith=BDG-"`
 	Contact             Contact         `bson:"contact" json:"contact"`
 	Status              string          `bson:"status" json:"status" validate:"required"`
 	HireDate            time.Time       `bson:"hire_date" json:"hire_date"`

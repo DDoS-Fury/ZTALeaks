@@ -17,7 +17,7 @@ COPY mongod.conf /etc/mongod.conf
 COPY db_init/ /docker-entrypoint-initdb.d/
 
 # Create the ztaleaks log directory and set permissions
-RUN mkdir -p /var/log/ztaleaks/mongodb && chown -R mongodb:mongodb /var/log/ztaleaks/mongodb
+RUN mkdir -p /var/log/ztaleaks/security-db && chown -R mongodb:mongodb /var/log/ztaleaks/security-db
 
 # Expose the default MongoDB port
 EXPOSE 27017

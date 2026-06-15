@@ -3,11 +3,23 @@ package handler
 import (
 	"html/template"
 	"log"
+	"log/slog"
 	"net/http"
 )
 
 // HomeHandler gestisce la route della pagina principale HTML
 func HomeHandler(w http.ResponseWriter, r *http.Request) {
+
+	reqID := r.Header.Get("X-Request-ID")
+	if reqID == "" {
+		reqID = "unknown_request"
+	}
+
+	slog.Info(
+		"Request Home Page",
+		slog.String("req_id", reqID),
+		slog.String("remote_addr", r.Header.Get("x-envoy-external-address")),
+	)
 	tmpl, err := template.ParseFiles("templates/index.html")
 	if err != nil {
 		log.Printf("Errore nel parsing del template: %v", err)

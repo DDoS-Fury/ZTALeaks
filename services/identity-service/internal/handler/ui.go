@@ -3,11 +3,18 @@ package handler
 import (
 	"html/template"
 	"log"
+	"log/slog"
 	"net/http"
 )
 
 func ServeLoginPage(w http.ResponseWriter, r *http.Request) {
 	ensureDeviceCookie(w, r)
+
+	slog.Info(
+		"Request Login Page",
+		slog.String("req_id", r.Header.Get("X-Request-ID")),
+		slog.String("remote_addr", r.Header.Get("x-envoy-external-address")),
+	)
 	tmpl, err := template.ParseFiles("templates/login.html")
 	if err != nil {
 		log.Printf("Errore nel parsing del template login: %v", err)
@@ -19,6 +26,11 @@ func ServeLoginPage(w http.ResponseWriter, r *http.Request) {
 
 func ServeRegisterPage(w http.ResponseWriter, r *http.Request) {
 	ensureDeviceCookie(w, r)
+	slog.Info(
+		"Request Register Page",
+		slog.String("req_id", r.Header.Get("X-Request-ID")),
+		slog.String("remote_addr", r.Header.Get("x-envoy-external-address")),
+	)
 	tmpl, err := template.ParseFiles("templates/register.html")
 	if err != nil {
 		log.Printf("Errore nel parsing del template register: %v", err)

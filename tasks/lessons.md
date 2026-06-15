@@ -5,6 +5,35 @@
 **Correction**: The user pointed out the existence of `docs/docker.md` which specified the exact command (`docker compose --profile training-tgn up`).
 **Rule**: Always check for specific documentation (e.g. `docs/docker.md`, `README.md`) in the component folder before attempting to run services or scripts. Do not assume standard commands apply directly without checking documentation.
 
+## Addestramento/inferenza: USA SEMPRE il `docker compose` del componente (GPU), MAI il venv locale
+**Mistake (2026-06-15)**: per il retrain del TGN ho lanciato `python -m graphagate.train_tgn` nel
+`.venv` locale (torch CPU build) — girava su CPU a ~9 it/s (ETA ~2h), mentre la macchina ha una
+RTX 5070 Ti e `infra/ai-inference/docker-compose.yml` definisce già il servizio `train-tgn`
+(profilo `training-tgn`) con riserva GPU nvidia e i bind-mount `./src` + `./public`. Sul percorso
+Docker corretto il training ha girato su `cuda` (~40 it/s, retrain completo in pochi minuti).
+**Regola**: per QUALSIASI run di training/eval/serve di un componente containerizzato, lanciare
+sempre il servizio `docker compose` previsto (`docker compose --profile training-tgn up train-tgn`),
+che porta GPU + dipendenze + volumi corretti. Non ricreare l'ambiente nel venv locale. Indizio
+diagnostico già nel repo: gli artifact `public/*.pt` erano `root`-owned → prodotti in container.
+Verificare `nvidia-smi` e i profili compose PRIMA di scegliere come eseguire. Collegata alla
+lezione "Docker Command Documentation" sopra: leggere `docker-compose.yml` / `docs/docker.md` prima.
+
+## Compliance del modello AI = il manifold benigno DEVE essere l'insieme che OPA consente
+**Contesto (2026-06-15)**: `policy.rego` riscritta da RBAC a Bell-LaPadula (clearance dal ruolo,
+classificazione+compartimenti per rotta, no-read-up/no-write-down, eccezione trusted-guard). Il
+generatore sintetico `stream_synthetic.py` codificava ancora l'RBAC vecchio (clearance random
+indipendente dal ruolo, niente categorie, niente write-down) → il TGN imparava come "normali"
+accessi che la policy NEGA (es. admin POST /documents = write-down) e marcava come `etype=1` dei
+fallimenti di *tier* che OPA non controlla nemmeno.
+**Regola**: quando la policy di autorizzazione cambia, i dati sintetici di training vanno allineati
+1:1 alla decisione di allow reale (qui un `policy_allows()` che è un port diretto del rego), così il
+manifold benigno = traffico consentito da OPA e gli `etype=1` sono violazioni reali. Aggiungere un
+test-invariante sullo stream generato (0 eventi benigni negati, 0 falsi `etype=1`) e ritrainare.
+Distinguere ciò che è gate di policy (OPA) da ciò che è solo realismo (il device *tier*): il
+realismo non deve mai rietichettare un accesso consentito come violazione. NB: `RESOURCE_RISK`
+rispecchia `handler.go::getResourceSensitivity`, una fonte di verità DIVERSA dal rego — non toccarla
+solo perché "sta nel dominio policy".
+
 ## Data-leak audits: check the docs, not just the code
 **Mistake pattern**: When asked to "check for data leaks", the instinct is to read only the code paths. But a clean codebase can ship with documentation (`docs/latex/report.tex`) that still describes a *removed* leaky technique as if it were current.
 **Finding (2026-06-07)**: The code was leak-free (de-circularized uniform negatives, val-only calibration, benign-only training), yet `report.tex` still documented the removed `×10 hard-negative on non-habitual resources` (the exact circular leak), a wrong loss (`BCEWithLogitsLoss` sum instead of InfoNCE + anchors), the struct head as the lateral detector (ablation says marginal), and an unsupported "≈50% lateral recall" (validated: 22.6%).

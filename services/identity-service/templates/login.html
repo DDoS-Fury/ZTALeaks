@@ -144,7 +144,7 @@
                     showMsg('Errore: ' + (data.error || 'Server error'), 'error');
                 }
             } catch (err) {
-                showMsg('Errore di rete o server offline.', 'error');
+                showMsg(err, 'error');
             }
         });
 

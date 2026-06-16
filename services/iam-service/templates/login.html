@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZTA Leaks - Login</title>
+    <style>
+        :root {
+            --bg: #0f172a; --panel: #1e293b; --text: #f8fafc;
+            --primary: #3b82f6; --primary-hover: #2563eb;
+            --secondary: #475569; --secondary-hover: #334155;
+            --danger: #ef4444; --success: #10b981;
+            --border: #334155; --muted: #94a3b8;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg); color: var(--text);
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh; margin: 0;
+        }
+        .container {
+            background-color: var(--panel); border: 1px solid var(--border);
+            padding: 2rem; border-radius: 8px; width: 100%; max-width: 400px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.5);
+        }
+        h2 { margin-top: 0; text-align: center; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; font-size: 0.875rem; margin-bottom: 0.5rem; color: var(--muted); }
+        input {
+            width: 100%; padding: 0.75rem; border: 1px solid var(--border);
+            background-color: var(--bg); color: var(--text);
+            border-radius: 4px; box-sizing: border-box;
+        }
+        input:focus { outline: none; border-color: var(--primary); }
+        button {
+            width: 100%; padding: 0.75rem; border: none; border-radius: 4px;
+            background-color: var(--primary); color: white;
+            font-weight: 600; cursor: pointer; margin-top: 1rem;
+        }
+        button:hover { background-color: var(--primary-hover); }
+        button.btn-secondary { background-color: var(--secondary); margin-top: 0.5rem; }
+        button.btn-secondary:hover { background-color: var(--secondary-hover); }
+        
+        .form-switch { text-align: center; margin-top: 1rem; font-size: 0.875rem; }
+        .form-switch a { color: var(--primary); text-decoration: none; }
+        .form-switch a:hover { text-decoration: underline; }
+        #message { margin-top: 1rem; text-align: center; font-size: 0.875rem; }
+        .error { color: var(--danger); }
+        .success { color: var(--success); }
+        
+        #step2-otp { display: none; margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+        .divider { text-align: center; margin: 1.5rem 0; color: var(--muted); font-size: 0.875rem; position: relative; }
+        .divider::before, .divider::after {
+            content: ""; position: absolute; top: 50%; width: 40%; height: 1px; background-color: var(--border);
+        }
+        .divider::before { left: 0; }
+        .divider::after { right: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Pannello di Accesso</h2>
+        
+        <form id="login-form-step1">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required>
+            </div>
+            <button type="submit">Avanti (Invio OTP)</button>
+        </form>
+
+        <div class="divider">OPPURE</div>
+        
+        <!-- WebAuthn Login -->
+        <button type="button" id="btn-webauthn-login" class="btn-secondary">Accedi con Security Key (WebAuthn)</button>
+
+        <!-- OTP Verification Step -->
+        <div id="step2-otp">
+            <p style="font-size: 0.875rem; color: var(--muted); text-align:center;">Controlla la tua email per il codice OTP a 6 cifre.</p>
+            <form id="login-form-step2">
+                <div class="form-group">
+                    <label for="otp">Codice OTP</label>
+                    <input type="text" id="otp" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
+                </div>
+                <button type="submit" style="background-color: var(--success);">Verifica Login</button>
+            </form>
+        </div>
+        
+        <div id="message"></div>
+
+        <div class="form-switch">
+            Non hai un account? <a href="/register">Registrati</a>
+        </div>
+    </div>
+
+    <script>
+        const formStep1 = document.getElementById('login-form-step1');
+        const formStep2 = document.getElementById('login-form-step2');
+        const divStep2 = document.getElementById('step2-otp');
+        const btnWebAuthn = document.getElementById('btn-webauthn-login');
+        const msgDiv = document.getElementById('message');
+
+        let sessionToken = "";
+        let inputUsername = "";
+
+        // Mostra messaggio
+        function showMsg(text, type='success') {
+            msgDiv.textContent = text;
+            msgDiv.className = type;
+        }
+
+        // ============================================
+        // STEP 1: Login base -> Ricezione SessionToken
+        // ============================================
+        formStep1.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            inputUsername = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            showMsg("Verifica credenziali...", "success");
+
+            try {
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: inputUsername, password: password })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    sessionToken = data.session_token;
+                    
+                    formStep1.style.display = 'none';
+                    document.querySelector('.divider').style.display = 'none';
+                    btnWebAuthn.style.display = 'none';
+                    
+                    divStep2.style.display = 'block';
+                    showMsg("Credenziali corrette. OTP inviato.", "success");
+                } else {
+                    const data = await res.json();
+                    showMsg('Errore: ' + (data.error || 'Server error'), 'error');
+                }
+            } catch (err) {
+                showMsg(err, 'error');
+            }
+        });
+
+        // ============================================
+        // STEP 2: Verifica OTP -> JWT
+        // ============================================
+        formStep2.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const otpCode = document.getElementById('otp').value;
+            showMsg("Verifica OTP...", "success");
+
+            try {
+                const res = await fetch('/api/v1/auth/verify-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_token: sessionToken, otp: otpCode })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    localStorage.setItem('access_token', data.access_token);
+                    showMsg("Accesso consentito! Reindirizzamento...", "success");
+                    setTimeout(() => window.location.href = '/reserved', 1000); // Ritorna alla pagina reserved
+                } else {
+                    const data = await res.json();
+                    showMsg('Errore: ' + (data.error || 'OTP errato'), 'error');
+                }
+            } catch (err) {
+                showMsg('Errore di rete.', 'error');
+            }
+        });
+
+
+        // ============================================
+        // WEBAUTHN LOGIN
+        // ============================================
+        
+        function bufferToBase64url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let str = '';
+            for (let charCode of bytes) str += String.fromCharCode(charCode);
+            return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        function base64urlToBuffer(base64url) {
+            const padding = '='.repeat((4 - base64url.length % 4) % 4);
+            const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+            return outputArray.buffer;
+        }
+
+        btnWebAuthn.addEventListener('click', async () => {
+            const usernameValue = document.getElementById('username').value;
+            if (!usernameValue) {
+                showMsg("Inserisci il tuo username prima di usare WebAuthn.", "error");
+                return;
+            }
+            showMsg("Attendere interazione token hardware...", "success");
+            
+            try {
+                // 1. Chiedi challenge al server
+                const rBegin = await fetch('/api/v1/auth/login/begin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: usernameValue }) // Identifica l'utente
+                });
+                
+                if (!rBegin.ok) {
+                    const eTxt = await rBegin.text();
+                    throw new Error(eTxt || "Impossibile avviare WebAuthn");
+                }
+                const data = JSON.parse(await rBegin.text());
+                const publicKeyOptions = data.publicKey;
+                const sessionID = data.session_id;
+                
+                // Conversione formati da base64 a buffer
+                publicKeyOptions.challenge = base64urlToBuffer(publicKeyOptions.challenge);
+                if (publicKeyOptions.allowCredentials) {
+                    publicKeyOptions.allowCredentials.forEach(item => {
+                        item.id = base64urlToBuffer(item.id);
+                    });
+                }
+
+                // 2. Chiedi al browser di firmare con la Security Key
+                const credential = await navigator.credentials.get({ publicKey: publicKeyOptions });
+
+                // 3. Manda firma al server per completare
+                const rFinish = await fetch('/api/v1/auth/login/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        session_id: sessionID,
+                        credential_id: credential.id,
+                        sign_count: 1 // Dummy sign_count for lab
+                    })
+                });
+
+                if (rFinish.ok) {
+                    const data = await rFinish.json();
+                    if (data.status === "otp_required") {
+                        // Successo FIDO2! Ora passiamo allo Step 2 dell'OTP
+                        sessionToken = data.session_token;
+                        document.getElementById('login-form-step1').style.display = 'none';
+                        document.querySelector('.divider').style.display = 'none';
+                        btnWebAuthn.style.display = 'none';
+                        document.getElementById('step2-otp').style.display = 'block';
+                        
+                        showMsg(data.message, "success");
+                    }
+                } else {
+                    const errTxt = await rFinish.text();
+                    throw new Error(errTxt || "Firma WebAuthn respinta.");
+                }
+
+            } catch (err) {
+                console.error(err);
+                showMsg('Login WebAuthn fallito: ' + err.message, 'error');
+            }
+        });
+    </script>
+</body>
+</html>

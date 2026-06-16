@@ -2,7 +2,7 @@
 // TPM Lookup — verifica enrollment WebAuthn read-only su security-db
 // Project: ZTALeaks - Security Orchestrator
 // =============================================================================
-// Il JWT issued da identity-service contiene `device_id` quando l'utente ha
+// Il JWT issued da iam-service contiene `device_id` quando l'utente ha
 // enrollato un device. L'orchestrator verifica che quel credential_id esista
 // in device_fingerprints e appartenga allo stesso user_id del claim sub.
 // =============================================================================

@@ -3,7 +3,7 @@
 // Project: ZTALeaks - Zero Trust Architecture for Nuclear Plant
 // =============================================================================
 // Creates collections + indexes for the security database. User documents are
-// seeded by the identity-service at startup (Argon2id hashing happens in Go).
+// seeded by the iam-service at startup (Argon2id hashing happens in Go).
 //
 // Collections:
 //   identity_users         employee credentials, roles, clearance, TPM flags

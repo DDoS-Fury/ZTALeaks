@@ -95,11 +95,11 @@ services:
       - snort-mid-logs:/var/log/ztaleaks/snort-mid
     restart: unless-stopped
 
-  identity-service:
+  iam-service:
     build:
-      context: ../../services/identity-service
+      context: ../../services/iam-service
       dockerfile: Dockerfile
-    container_name: ztaleaks_identity_service
+    container_name: ztaleaks_iam_service
     depends_on:
       security-db:
         condition: service_healthy
@@ -111,11 +111,11 @@ services:
       # Firma HMAC del cookie dispositivo zta_device (condivisa con la
       # security-orchestrator, che la verifica prima di usarlo come key_device).
       - DEVICE_COOKIE_SECRET=${DEVICE_COOKIE_SECRET:-ztaleaks-dev-device-cookie-secret}
-    # Nessuna porta esposta sull'host: identity-service è raggiungibile solo
+    # Nessuna porta esposta sull'host: iam-service è raggiungibile solo
     # via Envoy (PEP). Login/register e le rotte /api/v1/auth/* passano quindi
     # da ext_authz → orchestrator → OPA (PDP), come tutte le altre rotte.
     volumes:
-      - identity-logs:/var/log/ztaleaks/identity
+      - iam-logs:/var/log/ztaleaks/iam
     restart: unless-stopped
     networks:
       - auth-net
@@ -141,7 +141,7 @@ services:
         condition: service_started # OPA deve essere in ascolto prima di avviare l'orchestrator
       security-db:
         condition: service_healthy
-      identity-service:
+      iam-service:
         condition: service_started  # JWKS endpoint deve essere up
     env_file:
       - ../../.env
@@ -309,7 +309,7 @@ services:
       - snort-internal-logs:/var/log/ztaleaks/snort-internal:ro
       - snort-mid-logs:/var/log/ztaleaks/snort-mid:ro
       - business-logs:/var/log/ztaleaks/business-logic:ro
-      - identity-logs:/var/log/ztaleaks/identity:ro
+      - iam-logs:/var/log/ztaleaks/iam:ro
       - orchestrator-logs:/var/log/ztaleaks/orchestrator:ro
       - opa-logs:/var/log/ztaleaks/opa:ro
       - business-db-logs:/var/log/ztaleaks/mongodb:ro
@@ -360,7 +360,7 @@ volumes:
   snort-internal-logs:
   snort-mid-logs:
   business-logs:
-  identity-logs:
+  iam-logs:
   orchestrator-logs:
   opa-logs:
   splunk-etc:

@@ -24,7 +24,7 @@ if [[ "$issued" == "yes" ]]; then
     assert_eq "JWT.role == plant_manager"   "plant_manager" "$role"
     assert_eq "JWT.clearance == TOP_SECRET" "TOP_SECRET"   "$clr"
     assert_eq "JWT.mfa_verified == True"    "True"         "$mfa"
-    assert_eq "JWT.iss == identity service" "identity-service.ztaleaks.local" "$iss"
+    assert_eq "JWT.iss == identity service" "iam-service.ztaleaks.local" "$iss"
 fi
 
 # Negative: OTP errato → 401

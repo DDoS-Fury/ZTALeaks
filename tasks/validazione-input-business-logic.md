@@ -22,7 +22,7 @@ team: *"correggere la validazione dei dati sul backend"* usando una libreria
 
 ### Scope: solo `business-logic`
 È l'unico servizio con `json.Decode` + zero validazione che scrive input
-utente in Mongo. `identity-service` ha già validazione propria fatta dai
+utente in Mongo. `iam-service` ha già validazione propria fatta dai
 colleghi (rate-limit, OTP, WebAuthn) → non toccato per non sovrapporsi.
 `security-orchestrator` riceve metadati da Envoy, non input utente → fuori scope.
 

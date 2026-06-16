@@ -12,9 +12,9 @@ import (
 )
 
 // Il cookie dispositivo "zta_device" (valore "v1.<uuid-hex>.<hmac-hex>") e'
-// emesso dall'identity-service e firmato HMAC-SHA256 con il segreto condiviso
+// emesso dall'iam-service e firmato HMAC-SHA256 con il segreto condiviso
 // DEVICE_COOKIE_SECRET. Formato e firma devono restare allineati a
-// services/identity-service/internal/crypto/devicecookie.go. La verifica qui
+// services/iam-service/internal/crypto/devicecookie.go. La verifica qui
 // impedisce a un client di forgiare device-key arbitrarie e inondare il
 // NodeRegistry LRU del modello AI: un cookie non valido viene ignorato.
 const (

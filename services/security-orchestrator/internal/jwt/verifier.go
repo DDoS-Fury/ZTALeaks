@@ -1,5 +1,5 @@
 // =============================================================================
-// JWT Verifier — Pulls JWKS from identity-service and verifies RS256 tokens
+// JWT Verifier — Pulls JWKS from iam-service and verifies RS256 tokens
 // Project: ZTALeaks - Security Orchestrator
 // =============================================================================
 // Identity firma con la chiave privata, orchestrator verifica con la chiave
@@ -28,7 +28,7 @@ const (
 	expectedAlg  = "RS256"
 )
 
-// ZTAClaims rispecchia la struct in identity-service/internal/crypto/jwt.go.
+// ZTAClaims rispecchia la struct in iam-service/internal/crypto/jwt.go.
 // I tag json devono coincidere perché lo unmarshal va a fattore di nome.
 type ZTAClaims struct {
 	UserID         string `json:"sub"`
@@ -40,7 +40,7 @@ type ZTAClaims struct {
 	jwtlib.RegisteredClaims
 }
 
-// Verifier scarica e cacheca la chiave pubblica dell'identity-service.
+// Verifier scarica e cacheca la chiave pubblica dell'iam-service.
 type Verifier struct {
 	jwksURL    string
 	httpClient *http.Client

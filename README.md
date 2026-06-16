@@ -242,7 +242,7 @@ ZTALeaks/
 │   │   │   └── models/             # Domain models and enumerations
 │   │   ├── static/                 # Stylesheet and JavaScript assets
 │   │   └── templates/              # HTML templates for browser UI
-│   ├── identity-service/           # Authentication and credential management
+│   ├── iam-service/           # Authentication and credential management
 │   │   ├── Dockerfile
 │   │   ├── go.mod
 │   │   ├── cmd/identity/main.go    # Entry point
@@ -723,9 +723,9 @@ Tests generate synthetic malicious traffic patterns and verify that Snort produc
 | `BUSINESS_LOGIC_PORT` | business-logic | `8080` | HTTP port for the Business Logic API |
 | `MONGO_URI` | business-logic | `mongodb://seed_service:...@business-db:27017/...` | MongoDB connection string for Business DB |
 | `MONGO_DB` | business-logic | `nuclear_plant_db` | MongoDB database name |
-| `SECURITY_DB_URI` | identity-service | `mongodb://ztadmin:ztpassword@security-db:27017/...` | MongoDB connection string for Security DB |
-| `PORT` | identity-service | `8082` | HTTP port for the Identity Service |
-| `LOG_DIR` | identity-service | `/var/log/ztaleaks/identity` | Directory for JSON log output |
+| `SECURITY_DB_URI` | iam-service | `mongodb://ztadmin:ztpassword@security-db:27017/...` | MongoDB connection string for Security DB |
+| `PORT` | iam-service | `8082` | HTTP port for the Identity Service |
+| `LOG_DIR` | iam-service | `/var/log/ztaleaks/identity` | Directory for JSON log output |
 | `SECURITY_ORCHESTRATOR_PORT` | security-orchestrator | `8081` | HTTP port for the Security Orchestrator |
 | `OPA_URL` | security-orchestrator | `http://opa:8181/v1/data/envoy/authz/allow` | OPA policy evaluation endpoint |
 | `ENVOY_PORT` | firewall | `8443` | Port for Envoy listener (injected into nftables and Snort rules) |

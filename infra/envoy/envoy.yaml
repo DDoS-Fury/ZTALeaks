@@ -6,7 +6,7 @@
 # Traffic flow:
 #   Client (HTTPS/mTLS) --> Envoy :8443
 #       --> ext_authz  --> Security Orchestrator :8081  (authorization)
-#       --> identity-service  :8082  (auth routes: login, register, JWKS)
+#       --> iam-service  :8082  (auth routes: login, register, JWKS)
 #       --> business-logic    :8080  (all other API routes)
 #
 # Key security decisions made here:
@@ -190,22 +190,22 @@ static_resources:
                         - match:
                             prefix: "/api/v1/auth/"
                           route:
-                            cluster: identity_service_cluster
+                            cluster: iam_service_cluster
 
                         - match:
                             path: "/.well-known/jwks.json"
                           route:
-                            cluster: identity_service_cluster
+                            cluster: iam_service_cluster
 
                         - match:
                             prefix: "/login"
                           route:
-                            cluster: identity_service_cluster
+                            cluster: iam_service_cluster
 
                         - match:
                             prefix: "/register"
                           route:
-                            cluster: identity_service_cluster
+                            cluster: iam_service_cluster
 
                         # -------------------------------------------------------
                         # Business logic routes - all protected by ext_authz
@@ -304,18 +304,18 @@ static_resources:
                       port_value: 8081
 
     # Identity Service - handles login, MFA, WebAuthn registration, and JWKS
-    - name: identity_service_cluster
+    - name: iam_service_cluster
       connect_timeout: 5s
       type: STRICT_DNS
       lb_policy: ROUND_ROBIN
       load_assignment:
-        cluster_name: identity_service_cluster
+        cluster_name: iam_service_cluster
         endpoints:
           - lb_endpoints:
               - endpoint:
                   address:
                     socket_address:
-                      address:    identity-service
+                      address:    iam-service
                       port_value: 8082
 
     # Business Logic Service - CRUD operations for plant resources

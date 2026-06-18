@@ -267,6 +267,48 @@ services:
       - back-net
       - auth-net
 
+  db-resetter:
+    image: mongo:latest
+    container_name: ztaleaks_db_resetter
+    profiles:
+      - reset-db
+    env_file:
+      - ../../.env
+    depends_on:
+      business-db:
+        condition: service_healthy
+      security-db:
+        condition: service_healthy
+    restart: "no"
+    command: >
+      bash -c "
+      echo 'Dropping business DB...' &&
+      mongosh \"$$MONGO_URI\" --eval 'db.dropDatabase()' &&
+      echo 'Dropping security DB...' &&
+      mongosh \"$$SECURITY_DB_URI\" --eval 'db.dropDatabase()' &&
+      echo 'Databases dropped successfully.'
+      "
+    networks:
+      - back-net
+      - auth-net
+
+  seeder-reset:
+    build:
+      context: ../../tools/seeder
+      dockerfile: Dockerfile
+    container_name: ztaleaks_seeder_reset
+    profiles:
+      - reset-db
+    env_file:
+      - ../../.env
+    depends_on:
+      db-resetter:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - back-net
+      - auth-net
+
   splunk:
     image: splunk/splunk:latest
     container_name: ztaleaks_splunk

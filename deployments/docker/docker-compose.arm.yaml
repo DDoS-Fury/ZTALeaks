@@ -260,61 +260,55 @@ services:
     depends_on:
       business-db:
         condition: service_healthy
+      security-db:
+        condition: service_healthy
     restart: "no"
     networks:
       - back-net
       - auth-net
 
-  # splunk:
-  #   image: splunk/splunk:latest
-  #   container_name: ztaleaks_splunk
-  #   env_file:
-  #     - ../../.env
-  #   environment:
-  #     - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
-  #     - SPLUNK_START_ARGS=--accept-license --answer-yes
-  #   ports:
-  #     - "8000:8000"
-  #     - "8088:8088"
-  #     - "9997:9997"
-  #   volumes:
-  #     - splunk-etc:/opt/splunk/etc
-  #     - splunk-var:/opt/splunk/var
-  #   restart: unless-stopped
-  #   networks:
-  #     back-net:
-  #       aliases:
-  #         - splunk
+  db-resetter:
+    image: mongo:latest
+    container_name: ztaleaks_db_resetter
+    profiles:
+      - reset-db
+    env_file:
+      - ../../.env
+    depends_on:
+      business-db:
+        condition: service_healthy
+      security-db:
+        condition: service_healthy
+    restart: "no"
+    command: >
+      bash -c "
+      echo 'Dropping business DB...' &&
+      mongosh \"$$MONGO_URI\" --eval 'db.dropDatabase()' &&
+      echo 'Dropping security DB...' &&
+      mongosh \"$$SECURITY_DB_URI\" --eval 'db.dropDatabase()' &&
+      echo 'Databases dropped successfully.'
+      "
+    networks:
+      - back-net
+      - auth-net
 
-  # splunk-uf:
-  #   image: splunk/universalforwarder:latest
-  #   container_name: ztaleaks_splunk_uf
-  #   user: root
-  #   env_file:
-  #     - ../../.env
-  #   environment:
-  #     - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
-  #     - SPLUNK_START_ARGS=--accept-license --answer-yes --run-as-root
-  #     - SPLUNK_USER=root
-  #     - SPLUNK_STANDALONE_URL=splunk
-  #   depends_on:
-  #     - splunk
-  #   volumes:
-  #     - ../../infra/splunk-uf:/opt/splunkforwarder/etc/apps/ztaleaks_forwarder/local
-  #     - firewall-logs:/var/log/ztaleaks/nftables:ro
-  #     - envoy-logs:/var/log/ztaleaks/envoy:ro
-  #     - snort-logs:/var/log/ztaleaks/snort:ro
-  #     - snort-internal-logs:/var/log/ztaleaks/snort-internal:ro
-  #     - snort-mid-logs:/var/log/ztaleaks/snort-mid:ro
-  #     - business-logs:/var/log/ztaleaks/business-logic:ro
-  #     - iam-logs:/var/log/ztaleaks/iam:ro
-  #     - orchestrator-logs:/var/log/ztaleaks/orchestrator:ro
-  #     - opa-logs:/var/log/ztaleaks/opa:ro
-  #     - business-db-logs:/var/log/ztaleaks/mongodb:ro
-  #     - security-db-logs:/var/log/ztaleaks/security-db:ro
-  #   restart: unless-stopped
-  #   networks:
-  #     - back-net
+  seeder-reset:
+    build:
+      context: ../../tools/seeder
+      dockerfile: Dockerfile
+    container_name: ztaleaks_seeder_reset
+    profiles:
+      - reset-db
+    env_file:
+      - ../../.env
+    depends_on:
+      db-resetter:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - back-net
+      - auth-net
+
 
   alerts-tester:
     build:
@@ -361,5 +355,3 @@ volumes:
   iam-logs:
   orchestrator-logs:
   opa-logs:
-  # splunk-etc:
-  # splunk-var:

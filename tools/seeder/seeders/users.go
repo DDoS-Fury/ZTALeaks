@@ -19,8 +19,8 @@ type userSeed struct {
 
 var defaultUsers = []userSeed{
 	{"admin", "admin@ztaleaks.local", "admin", "TOP_SECRET"},
-	{"manager1", "manager1@ztaleaks.local", "manager", "SECRET"},
-	{"operator1", "operator1@ztaleaks.local", "operator", "CONFIDENTIAL"},
+	{"manager1", "manager1@ztaleaks.local", "manager", "CONFIDENTIAL"},
+	{"operator1", "operator1@ztaleaks.local", "operator", "INTERNAL"},
 }
 
 const defaultPassword = "admin123"

@@ -49,12 +49,11 @@ docker compose -f deployments/docker/docker-compose.yaml up --build seeder
 Re-running it is required after changing the default users (e.g., the role migration to `operator`/`manager`/`admin`): the seeder upserts roles and clearances onto existing users.
 
 ### Resetting the Databases
-To wipe both databases and reseed from scratch (e.g., after a bad seeding run), remove their data volumes — the stack must be down first, since mounted volumes cannot be deleted:
+To automatically wipe both databases (which will also clear all registered WebAuthn TPMs) and reapply the initial seed data, you can simply call the `reset-db` profile:
 ```bash
-docker compose -f deployments/docker/docker-compose.yaml down
-docker volume rm docker_business-db-data docker_security-db-data
-docker compose -f deployments/docker/docker-compose.yaml up --build seeder
+docker compose -f deployments/docker/docker-compose.yaml --profile reset-db up
 ```
+This command will drop both databases on the fly and immediately re-run the seeder to restore the factory state.
 
 To stop the environment:
 ```bash

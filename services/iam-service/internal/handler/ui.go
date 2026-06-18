@@ -8,7 +8,7 @@ import (
 )
 
 func ServeLoginPage(w http.ResponseWriter, r *http.Request) {
-	ensureDeviceCookie(w, r)
+
 
 	slog.Info(
 		"Request Login Page",
@@ -25,7 +25,7 @@ func ServeLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func ServeRegisterPage(w http.ResponseWriter, r *http.Request) {
-	ensureDeviceCookie(w, r)
+
 	slog.Info(
 		"Request Register Page",
 		slog.String("req_id", r.Header.Get("X-Request-ID")),

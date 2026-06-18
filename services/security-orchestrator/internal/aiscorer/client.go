@@ -48,7 +48,8 @@ type Score struct {
 // (omessa ⇒ il modello salta l'arco source→device, mai aliasing su KeyDevice).
 type Event struct {
 	KeyUser   string    `json:"key_user"`
-	KeyDevice string    `json:"key_device"`
+	KeyDevice string    `json:"key_device,omitempty"`
+	KeyConfig string    `json:"key_config,omitempty"`
 	KeySource string    `json:"key_source,omitempty"`
 	KeyDst    string    `json:"key_dst"`
 	Timestamp int64     `json:"timestamp"`

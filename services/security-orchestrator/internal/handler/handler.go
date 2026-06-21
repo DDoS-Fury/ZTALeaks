@@ -461,21 +461,35 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 	// TODO : aggiungere la sensibilità della risorsa come feature per il modello AI.
 	roles := []string{"guest", "operator", "manager", "admin"}
 
-	roleVal := 0.0
-	clrVal := 0.0
-
-	if claims != nil {
-		roleIdx := -1
-		for i, r := range roles {
-			if r == claims.Role {
-				roleIdx = i
+	activeRole := "guest"
+	if claims != nil && claims.Role != "" {
+		activeRole = claims.Role
+	} else if cc.Present {
+		parts := strings.Split(cc.Subject, ",")
+		for _, part := range parts {
+			partT := strings.TrimSpace(part)
+			if strings.HasPrefix(partT, "OU=") {
+				activeRole = strings.ToLower(strings.TrimPrefix(partT, "OU="))
 				break
 			}
 		}
-		if roleIdx != -1 {
-			roleVal = float64(roleIdx) / float64(len(roles)-1)
-		}
+	}
 
+	roleVal := 0.0
+	clrVal := 0.0
+
+	roleIdx := -1
+	for i, r := range roles {
+		if strings.EqualFold(r, activeRole) {
+			roleIdx = i
+			break
+		}
+	}
+	if roleIdx != -1 {
+		roleVal = float64(roleIdx) / float64(len(roles)-1)
+	}
+
+	if claims != nil {
 		clearances := []string{"PUBLIC", "INTERNAL", "CONFIDENTIAL", "SECRET", "TOP_SECRET"}
 		clrIdx := 0
 		for i, c := range clearances {

@@ -19,6 +19,7 @@ import (
 	"ztaleaks/security-orchestrator/internal/tpm"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -245,13 +246,16 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 
 	if claims != nil {
 		userID = claims.UserID
-		errQuery := usersColl.FindOne(ctx, bson.M{"_id": claims.UserID}).Decode(&user)
-		if errQuery == nil && user != nil {
-			if b, ok := user["has_tpm"].(bool); ok {
-				userHasTPM = b
-			}
-			if un, ok := user["username"].(string); ok {
-				username = un
+		objID, err := primitive.ObjectIDFromHex(claims.UserID)
+		if err == nil {
+			errQuery := usersColl.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+			if errQuery == nil && user != nil {
+				if b, ok := user["has_tpm"].(bool); ok {
+					userHasTPM = b
+				}
+				if un, ok := user["username"].(string); ok {
+					username = un
+				}
 			}
 		}
 	}
@@ -449,8 +453,6 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 		methodFloat = 4.0
 	}
 
-	srcFeat := make([]float64, 16)
-
 	var sensitivity, error = getResourceSensitivity(origPath, method)
 	if error != nil {
 		slog.Error("failed to get resource sensitivity", "error", error, "path", origPath)
@@ -509,8 +511,16 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 			tier = 0.5
 		}
 	}
-	// Per coerenza con i dati di training `node_features[num_users + i, 2] = ip_tiers[i] / 2.0`
-	srcFeat[2] = tier
+
+	// Feature di nodo separate PER TIPO, fedeli al contratto del training
+	// (infra/ai-inference/src/data/stream_synthetic.py):
+	//   - nodo UTENTE: tutte zero (ruolo/clearance viaggiano nel messaggio, Features[5]/[6]);
+	//   - nodo DEVICE: solo node_feat[2] = tier (in training `node_feat[dev+i, 2] = tier/2`).
+	// Collassare entrambe su un unico vettore (applicato a utente E device) scriveva il
+	// tier nel nodo utente — feature sempre zero in training — mandandolo fuori distribuzione.
+	userFeat := make([]float64, 16)
+	deviceFeat := make([]float64, 16)
+	deviceFeat[2] = tier
 
 	// Catena causale v4: source(IP) → config(JA3) → device(hw id) → user → resource.
 	// Le chiavi sono namespaced per TIPO cosi' un IP non puo' mai aliasare uno
@@ -535,14 +545,15 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 	keySource := "src:" + clientIP
 
 	return aiscorer.Event{
-		KeyUser:   keyUser,
-		KeyDevice: keyDevice,
-		KeyConfig: keyConfig,
-		KeySource: keySource,
-		KeyDst:    normalizeAIPath(origPath),
-		Timestamp: now.Unix(),
-		Features:  []float64{ja3Float, alertEdge, alertMid, alertInt, methodFloat, roleVal, clrVal},
-		SrcFeat:   srcFeat,
+		KeyUser:    keyUser,
+		KeyDevice:  keyDevice,
+		KeyConfig:  keyConfig,
+		KeySource:  keySource,
+		KeyDst:     normalizeAIPath(origPath),
+		Timestamp:  now.Unix(),
+		Features:   []float64{ja3Float, alertEdge, alertMid, alertInt, methodFloat, roleVal, clrVal},
+		UserFeat:   userFeat,
+		DeviceFeat: deviceFeat,
 	}
 }
 

@@ -47,15 +47,16 @@ type Score struct {
 // La catena causale e' source→device→user→resource: KeySource e' opzionale
 // (omessa ⇒ il modello salta l'arco source→device, mai aliasing su KeyDevice).
 type Event struct {
-	KeyUser   string    `json:"key_user"`
-	KeyDevice string    `json:"key_device,omitempty"`
-	KeyConfig string    `json:"key_config,omitempty"`
-	KeySource string    `json:"key_source,omitempty"`
-	KeyDst    string    `json:"key_dst"`
-	Timestamp int64     `json:"timestamp"`
-	Features  []float64 `json:"features"`
-	SrcFeat   []float64 `json:"src_feat,omitempty"`
-	DstFeat   []float64 `json:"dst_feat,omitempty"`
+	KeyUser    string    `json:"key_user"`
+	KeyDevice  string    `json:"key_device,omitempty"`
+	KeyConfig  string    `json:"key_config,omitempty"`
+	KeySource  string    `json:"key_source,omitempty"`
+	KeyDst     string    `json:"key_dst"`
+	Timestamp  int64     `json:"timestamp"`
+	Features   []float64 `json:"features"`
+	UserFeat   []float64 `json:"user_feat,omitempty"`
+	DeviceFeat []float64 `json:"device_feat,omitempty"`
+	DstFeat    []float64 `json:"dst_feat,omitempty"`
 }
 
 // Client e' il client HTTP verso ai-scorer. Url vuoto → fallback immediato.

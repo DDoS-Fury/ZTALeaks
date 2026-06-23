@@ -81,3 +81,37 @@ identici tra i run → i delta per-classe sono attribuibili, non rumore.
 **Mistake**: Ho chiesto all'utente conferme sul comportamento dei dispositivi "guest" e sull'assenza del JA3 (fallback a `conf:guest`) durante l'integrazione dell'AI model, pur avendo il codice Python del modello a disposizione che spiegava esplicitamente queste logiche.
 **Correction**: L'utente mi ha corretto bruscamente facendomi notare che dovevo dedurre il comportamento dal codice del modello stesso.
 **Rule**: Prima di fare domande su come un componente esterno gestisce i fallback o i valori mancanti, analizza approfonditamente il codice di quel componente (es. API schemas, parametri opzionali). Se il codice gestisce nativamente i fallback (come in `serve_api.py`), procedi senza chiedere conferme inutili.
+
+## Reset DB: rispetta i privilegi least-privilege e NON distruggere lo schema
+**Mistake (2026-06-23)**: il `db-resetter` falliva con exit 1 (`not authorized ... dropDatabase on nuclear_plant_db`). Primo tentativo: far connettere il resetter come root `ztadmin` (come fa `SECURITY_DB_URI`). Sbagliato due volte: (1) `business-db` NON ha alcun utente root — `infra/databases/business/init-scripts/01-init-users.js` crea solo utenti per-ruolo + `seed_service` (readWrite) + reader, quindi l'auth come `ztadmin` dà `Authentication failed`; (2) anche se avesse funzionato, `dropDatabase()` distrugge i validator JSON Schema e gli indici creati da `02-create-collections.js`, che girano SOLO al primo avvio (data dir vuota) e NON vengono mai ricreati dal seeder Go (fa solo `InsertMany`).
+**Fix corretto**: il reset svuota le collezioni con `db.getCollectionNames().forEach(c => { if (!/^system/.test(c)) db.getCollection(c).deleteMany({}); })`, usando `MONGO_URI` (seed_service ha l'azione `remove` via readWrite). Preserva validator/indici/utenti; il seeder ri-popola senza duplicate-key. Verificato end-to-end: resetter exit 0 + seeder-reset exit 0.
+**Regola**: prima di scegliere le credenziali per un'operazione DB, leggere gli init-script per sapere QUALI utenti/ruoli esistono davvero (non assumere un root). E un "reset" deve preservare lo schema gestito a init-time (validator, indici): svuotare le collezioni (`deleteMany`), non droppare il database, a meno che qualcosa ricrei esplicitamente lo schema dopo. Verificare sempre l'intera catena `--profile reset-db` (resetter → seeder), non solo il primo step.
+
+## Train/serve feature skew: verifica empirica, non indovinare l'indice (2026-06-23)
+**Contesto**: un admin appena registrato (TPM ok) veniva bloccato con `ai_score≈0.98`. Ho
+ipotizzato prima "cold-start", poi "role/clearance iniettati in node_feat[0]/[1]". **Entrambe
+sbagliate.** Una sonda A/B/C in-process (stesso checkpoint, stesse chiavi cold, solo `src_feat`
+diverso) ha mostrato che il driver è `srcFeat[2]`=**device tier** scritto nel nodo **utente**:
+in `stream_synthetic.py` `node_feat[2]` è ≠0 SOLO per i nodi *device*; per gli utenti è sempre 0.
+`score_event` applica lo stesso `src_feat` a utente E device, quindi `buildAIEvent` (tier in [2])
+rende il nodo utente OOD. L'edge `user→res` (unico driver; binding edge ≈0) sale a ~0.96.
+Role/clearance ([0]/[1]) erano innocui (B_zero 0.13 ≈ D_role 0.13).
+**Regola**: per uno skew train/serve sospetto, NON dedurre quale indice/feature è il colpevole
+dalla lettura — caricare il checkpoint e fare una sonda d'ablazione (varia una sola feature,
+tieni identità/memoria/vicini costanti) prima di asserire la causa. E ricordare che le feature
+statiche di un nodo hanno semantica PER-TIPO: una colonna valida per i device non lo è per gli
+utenti. Cfr. [[Entity mapping in AI models]].
+
+## Non fidarsi dei numeri documentati come baseline di un confronto (2026-06-23)
+**Mistake**: dopo aver corretto lo skew train/serve, ho misurato la specificità benigna online
+a ~43% e l'ho confrontata col ~76% scritto nel report, concludendo (per un istante) che la fix
+fosse una **regressione**. Errore: i numeri del report erano **stantii** (schema v3 a 3 archi,
+checkpoint precedente), NON prodotti dal checkpoint deployato. Il confronto giusto — old-skew vs
+fix sullo **stesso** checkpoint corrente, stato fresco per ogni run — ha mostrato il contrario:
+specificità 32.7%→43.4% (la fix **migliora**), recall laterale 86.7%→82.1%.
+**Regola**: prima di dichiarare "regressione/miglioramento" rispetto a un numero scritto in
+doc/README/paper, stabilire una baseline **fresca** sullo stesso artefatto e codice (qui:
+emulare il comportamento vecchio via branch diagnostico env-gated, poi rimuoverlo). I numeri
+documentati possono precedere il checkpoint/schema attuale. Inoltre: per misurare un detector
+online che muta stato via `/update`, girare contro una **copia** dell'artefatto e riavviare il
+servizio a stato fresco tra i run, mai contro il checkpoint deployato.

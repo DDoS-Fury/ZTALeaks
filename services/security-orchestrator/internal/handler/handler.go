@@ -491,6 +491,9 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 		clrVal = float64(clrIdx) / 4.0
 	}
 
+	srcFeat[0] = roleVal
+	srcFeat[1] = clrVal
+
 	tier := 0.0
 	if cc.Present {
 		if tpmOK {

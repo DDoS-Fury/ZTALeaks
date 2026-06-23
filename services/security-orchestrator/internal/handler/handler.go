@@ -512,17 +512,33 @@ func buildAIEvent(r *http.Request, origPath string, method string, now time.Time
 	// Per coerenza con i dati di training `node_features[num_users + i, 2] = ip_tiers[i] / 2.0`
 	srcFeat[2] = tier
 
-	keySrc := clientIP
+	// Catena causale v4: source(IP) → config(JA3) → device(hw id) → user → resource.
+	// Le chiavi sono namespaced per TIPO cosi' un IP non puo' mai aliasare uno
+	// slot device nel NodeRegistry condiviso del modello.
+	keyUser := "anonymous"
 	if claims != nil {
-		if tpmOK && claims.DeviceID != "" {
-			keySrc = "tpm:" + claims.DeviceID
-		} else {
-			keySrc = claims.UserID
-		}
+		keyUser = claims.UserID
 	}
 
+	keyConfig := ""
+	if ja3Header != "" {
+		keyConfig = "conf:" + ja3Header
+	} else if claims != nil && claims.JA3 != "" {
+		keyConfig = "conf:" + claims.JA3
+	}
+
+	keyDevice := ""
+	if tpmOK && claims != nil && claims.DeviceID != "" {
+		keyDevice = "tpm:" + claims.DeviceID
+	}
+
+	keySource := "src:" + clientIP
+
 	return aiscorer.Event{
-		KeySrc:    keySrc,
+		KeyUser:   keyUser,
+		KeyDevice: keyDevice,
+		KeyConfig: keyConfig,
+		KeySource: keySource,
 		KeyDst:    normalizeAIPath(origPath),
 		Timestamp: now.Unix(),
 		Features:  []float64{ja3Float, alertEdge, alertMid, alertInt, methodFloat, roleVal, clrVal},
@@ -540,6 +556,13 @@ var aiResourceBases = []string{
 	"/api/v1/documents",
 	"/api/v1/nuclear-materials",
 	"/api/v1/reactor-parameters",
+	"/api/v1/auth/register",
+	"/api/v1/auth/login",
+	"/api/v1/auth/verify-otp",
+	"/api/v1/auth/register/begin",
+	"/api/v1/auth/register/finish",
+	"/api/v1/auth/login/begin",
+	"/api/v1/auth/login/finish",
 }
 
 func normalizeAIPath(path string) string {

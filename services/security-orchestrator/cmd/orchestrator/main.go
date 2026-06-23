@@ -3,7 +3,7 @@
 // Project: ZTALeaks - mix-master-zta-core split architecture
 // =============================================================================
 // Responsabilità (per direttive del compagno):
-//   - verificare il token JWT (scarica la pubkey via JWKS da identity-service)
+//   - verificare il token JWT (scarica la pubkey via JWKS da iam-service)
 //   - verificare TPM via security-db (lookup read-only su device_fingerprints)
 //   - controllare il certificato client (header forwarded da Envoy)
 //   - costruire input arricchito e chiamare OPA per la decisione finale
@@ -61,7 +61,7 @@ func main() {
 	}
 	defer mongoClient.Disconnect()
 
-	jwksURL := getenv("IDENTITY_JWKS_URL", "http://identity-service:8082/.well-known/jwks.json")
+	jwksURL := getenv("IDENTITY_JWKS_URL", "http://iam-service:8082/.well-known/jwks.json")
 	verifier := jwtpkg.NewVerifier(jwksURL)
 	tpmLookup := tpm.New(mongoClient.DB())
 	usersColl := mongoClient.DB().Collection("identity_users")

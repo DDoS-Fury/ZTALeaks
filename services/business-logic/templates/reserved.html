@@ -59,7 +59,8 @@
                 idField: 'employee_id',
                 columns: ['employee_id', 'first_name', 'last_name', 'role', 'department', 'clearance_level', 'status'],
                 fields: [
-                    { name: 'employee_id', label: 'Employee ID', placeholder: 'EMP-100' },
+                    { name: 'employee_id', label: 'Employee ID', placeholder: 'NP-2023-0001' },
+                    { name: 'badge_id', label: 'Badge ID', placeholder: 'BDG-12345' },
                     { name: 'first_name', label: 'Nome', placeholder: 'Mario' },
                     { name: 'last_name', label: 'Cognome', placeholder: 'Rossi' },
                     { name: 'role', label: 'Ruolo', type: 'select', options: ['operator', 'manager', 'admin'] },
@@ -490,7 +491,7 @@
             return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         }
         // Base64 STANDARD (con padding): il backend decodifica la public key
-        // con base64.StdEncoding (identity-service/internal/webauthn/register.go).
+        // con base64.StdEncoding (iam-service/internal/webauthn/register.go).
         function bufferToBase64Std(buffer) {
             const bytes = new Uint8Array(buffer);
             let str = '';

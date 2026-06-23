@@ -43,9 +43,14 @@ type Score struct {
 	Confidence string  `json:"confidence"`
 }
 
-// Event rappresenta la tupla da inviare al modello TGN.
+// Event rappresenta la tupla da inviare al modello TGN (schema v2, 4 nodi).
+// La catena causale e' source→device→user→resource: KeySource e' opzionale
+// (omessa ⇒ il modello salta l'arco source→device, mai aliasing su KeyDevice).
 type Event struct {
-	KeySrc    string    `json:"key_src"`
+	KeyUser   string    `json:"key_user"`
+	KeyDevice string    `json:"key_device,omitempty"`
+	KeyConfig string    `json:"key_config,omitempty"`
+	KeySource string    `json:"key_source,omitempty"`
 	KeyDst    string    `json:"key_dst"`
 	Timestamp int64     `json:"timestamp"`
 	Features  []float64 `json:"features"`

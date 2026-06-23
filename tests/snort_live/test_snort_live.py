@@ -54,7 +54,7 @@ def trigger_snort_mid():
 
 def make_legitimate_request():
     print("[*] Invio di una richiesta HTTP finale per forzare la valutazione dell'Orchestrator...")
-    url = f"{HTTP_URL}/health"  
+    url = f"{HTTP_URL}/login"  
     try:
         req = requests.get(url, verify=False, timeout=3)
         print(f"[+] Risposta ricevuta (status: {req.status_code})")

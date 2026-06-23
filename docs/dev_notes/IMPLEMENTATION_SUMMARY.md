@@ -23,7 +23,7 @@ L'attributo `service` viene impostato sul default logger una sola volta al boot,
 
 - `services/business-logic/cmd/server/main.go`: `slog.New(...).With("service", "business-logic")`
 - `services/security-orchestrator/cmd/orchestrator/main.go`: `... .With("service", "security-orchestrator")`
-- `services/identity-service/internal/logger/logger.go` (`InitLogger`): `... .With("service", "identity-service")`
+- `services/iam-service/internal/logger/logger.go` (`InitLogger`): `... .With("service", "iam-service")`
 
 ### 1.2 Envoy access log
 
@@ -79,7 +79,7 @@ Allow-list ristretta a ciò che Envoy davvero apre in uscita (il firewall condiv
 - 53 DNS interno Docker
 - 8080 business-logic
 - 8081 security-orchestrator (ext_authz)
-- 8082 identity-service
+- 8082 iam-service
 
 Le porte 80/443/8088/8181 sono usate da altri container nei loro namespace e non vanno permesse qui. Principio Zero Trust: only what is strictly used.
 
@@ -175,7 +175,7 @@ Esegue in sequenza i 6 pillar (`auth`, `pep`, `rbac`, `abac`, `tier`, `nftables`
 | `infra/opa/policy_test.rego` | 3 nuovi test di rifiuto |
 | `services/business-logic/cmd/server/main.go` | Pre-popola `service` sul default logger |
 | `services/business-logic/internal/middleware/logging.go` | Logga `user`, `ja3_fingerprint`, `x_request_id` |
-| `services/identity-service/internal/logger/logger.go` | Pre-popola `service` sul default logger |
+| `services/iam-service/internal/logger/logger.go` | Pre-popola `service` sul default logger |
 | `services/security-orchestrator/cmd/orchestrator/main.go` | Pre-popola `service` sul default logger |
 
 ### Test
@@ -198,7 +198,7 @@ Esegue in sequenza i 6 pillar (`auth`, `pep`, `rbac`, `abac`, `tier`, `nftables`
 
 Verifica empirica del rate-limit per-source: 50 SYN burst da un singolo IP → 85 entry `threat: syn_flood` nel parser JSONL, con `src` IP loggato. Il token bucket per-source funziona come atteso.
 
-Verifica empirica del campo `service`: campione di log estratto da ogni sink (envoy, business-logic, identity-service, security-orchestrator, nftables-parser) mostra `"service":"<name>"` correttamente popolato.
+Verifica empirica del campo `service`: campione di log estratto da ogni sink (envoy, business-logic, iam-service, security-orchestrator, nftables-parser) mostra `"service":"<name>"` correttamente popolato.
 
 ---
 
@@ -219,9 +219,9 @@ Le voci seguenti sono tutte **fattibili in autonomia adesso**, nessuna dipende d
 
 ### 8.1 Logging — completare il quadro
 
-- **Middleware HTTP strutturato in `identity-service`**: oggi le `slog.Info` sono sparse a mano nei singoli handler (login, register, verify_otp). Replicare il pattern di `business-logic/internal/middleware/logging.go` aggiungerebbe per ogni request un'unica riga con `method`/`path`/`status_code`/`duration`/`x_request_id`, evitando log inconsistenti tra handler.
+- **Middleware HTTP strutturato in `iam-service`**: oggi le `slog.Info` sono sparse a mano nei singoli handler (login, register, verify_otp). Replicare il pattern di `business-logic/internal/middleware/logging.go` aggiungerebbe per ogni request un'unica riga con `method`/`path`/`status_code`/`duration`/`x_request_id`, evitando log inconsistenti tra handler.
 - **`duration` nel decision log dell'orchestrator** (`internal/handler/handler.go`): cronometrare `BuildEvaluateHandler` dall'inizio alla `respondAllow` e aggiungere `slog.Duration("decision_ms", ...)`. Utile per profiling del PDP sotto carico.
-- **`X-Request-ID` correlato lato `identity-service`**: l'header è già iniettato da Envoy, ma le `slog.X` dei singoli handler non lo leggono. Va letto e propagato (sempre via middleware §8.1).
+- **`X-Request-ID` correlato lato `iam-service`**: l'header è già iniettato da Envoy, ma le `slog.X` dei singoli handler non lo leggono. Va letto e propagato (sempre via middleware §8.1).
 - **`cert_subject` nel decision log dell'orchestrator**: il valore è già parsato in `cc.Subject` ma viene loggato solo da `evaluateStrictDeviceFingerprinting` in shadow mode. Aggiungerlo al log "decisione" principale rende il record auto-sufficiente per audit (oggi serve incrociare due righe).
 
 ### 8.2 Firewall — coperture aggiuntive

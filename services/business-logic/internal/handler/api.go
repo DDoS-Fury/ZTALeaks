@@ -11,6 +11,7 @@ import (
 
 	"ztaleaks/business-logic/internal/db"
 	"ztaleaks/business-logic/internal/models"
+	"ztaleaks/business-logic/internal/validation"
 )
 
 // APIHandler struct includes instances of our db repositories
@@ -83,12 +84,10 @@ func (h *APIHandler) GetPersonnel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) CreatePersonnel(w http.ResponseWriter, r *http.Request) {
-	var p models.Personnel
-
-	log_action(r, "create_personnel", "", "success", nil)
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	p, err := validation.DecodeAndValidate[models.Personnel](r)
+	if err != nil {
 		log_action(r, "create_personnel", "", "failure", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := h.PersonnelRepo.Create(r.Context(), &p); err != nil {
@@ -141,12 +140,10 @@ func (h *APIHandler) GetReactorParameter(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *APIHandler) CreateReactorParameter(w http.ResponseWriter, r *http.Request) {
-	var rp models.ReactorParameters
-
-	log_action(r, "create_reactor_parameter", "", "success", nil)
-	if err := json.NewDecoder(r.Body).Decode(&rp); err != nil {
+	rp, err := validation.DecodeAndValidate[models.ReactorParameters](r)
+	if err != nil {
 		log_action(r, "create_reactor_parameter", "", "failure", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := h.ReactorRepo.Create(r.Context(), &rp); err != nil {
@@ -216,11 +213,10 @@ func (h *APIHandler) GetDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) CreateDocument(w http.ResponseWriter, r *http.Request) {
-	var d models.Document
-	log_action(r, "create_document", "", "success", nil)
-	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
+	d, err := validation.DecodeAndValidate[models.Document](r)
+	if err != nil {
 		log_action(r, "create_document", "", "failure", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := h.DocumentRepo.Create(r.Context(), &d); err != nil {
@@ -286,11 +282,10 @@ func (h *APIHandler) GetNuclearMaterial(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *APIHandler) CreateNuclearMaterial(w http.ResponseWriter, r *http.Request) {
-	var m models.NuclearMaterial
-	log_action(r, "create_nuclear_material", "", "success", nil)
-	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+	m, err := validation.DecodeAndValidate[models.NuclearMaterial](r)
+	if err != nil {
 		log_action(r, "create_nuclear_material", "", "failure", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := h.NuclearMaterialRepo.Create(r.Context(), &m); err != nil {

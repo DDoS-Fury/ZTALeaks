@@ -1,3 +1,3 @@
-module ztaleaks/identity-service
+module ztaleaks/iam-service
 
 go 1.26.1

@@ -184,8 +184,9 @@ static_resources:
                       routes:
                         # -------------------------------------------------------
                         # Identity service routes (auth, WebAuthn, JWKS)
-                        # These bypass ext_authz because they handle unauthenticated
-                        # requests (login, registration, key discovery).
+                        # These routes pass through ext_authz (PDP), which is
+                        # responsible for allowing these unauthenticated requests
+                        # (login, registration, key discovery).
                         # -------------------------------------------------------
                         - match:
                             prefix: "/api/v1/auth/"

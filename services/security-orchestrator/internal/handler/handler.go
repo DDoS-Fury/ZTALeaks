@@ -19,6 +19,7 @@ import (
 	"ztaleaks/security-orchestrator/internal/tpm"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -245,13 +246,16 @@ func evaluateStrictDeviceFingerprinting(ctx context.Context, cc cert.ClientCert,
 
 	if claims != nil {
 		userID = claims.UserID
-		errQuery := usersColl.FindOne(ctx, bson.M{"_id": claims.UserID}).Decode(&user)
-		if errQuery == nil && user != nil {
-			if b, ok := user["has_tpm"].(bool); ok {
-				userHasTPM = b
-			}
-			if un, ok := user["username"].(string); ok {
-				username = un
+		objID, err := primitive.ObjectIDFromHex(claims.UserID)
+		if err == nil {
+			errQuery := usersColl.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+			if errQuery == nil && user != nil {
+				if b, ok := user["has_tpm"].(bool); ok {
+					userHasTPM = b
+				}
+				if un, ok := user["username"].(string); ok {
+					username = un
+				}
 			}
 		}
 	}

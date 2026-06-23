@@ -289,11 +289,11 @@ services:
     restart: "no"
     command: >
       bash -c "
-      echo 'Dropping business DB...' &&
-      mongosh \"$$MONGO_URI\" --eval 'db.dropDatabase()' &&
-      echo 'Dropping security DB...' &&
-      mongosh \"$$SECURITY_DB_URI\" --eval 'db.dropDatabase()' &&
-      echo 'Databases dropped successfully.'
+      echo 'Resetting business DB (clearing collections)...' &&
+      mongosh \"$$MONGO_URI\" --quiet --eval 'db.getCollectionNames().forEach(c => { if (!/^system/.test(c)) db.getCollection(c).deleteMany({}); })' &&
+      echo 'Resetting security DB (clearing collections)...' &&
+      mongosh \"$$SECURITY_DB_URI\" --quiet --eval 'db.getCollectionNames().forEach(c => { if (!/^system/.test(c)) db.getCollection(c).deleteMany({}); })' &&
+      echo 'Databases reset successfully.'
       "
     networks:
       - back-net

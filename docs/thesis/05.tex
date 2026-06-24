@@ -25,7 +25,7 @@ L'architettura del modello combina la memoria ricorrente tipica dei TGN (Rossi e
     \item \textit{Dual Head Scorer}: lo score di un arco è la \emph{somma} di due logit complementari, $\text{logit} = \text{feat\_logit} + \text{struct\_logit}$.
     \begin{itemize}
         \item \textit{Feature head} (\texttt{LinkPredictor}, MLP a 3 strati): consuma gli embedding dei due endpoint, il messaggio dell'evento, gli attributi statici con hashed-identity, le codifiche di recency ($\Delta t$ coppia, $\Delta t$ sorgente) e le \textit{history features}. Cattura anomalie \textit{contestuali} e di \textit{policy} e veicola la novelty cue del laterale.
-        \item \textit{Structural head}: similarità coseno (scalata da una temperatura apprendibile) delle proiezioni non-lineari degli embedding. \emph{Nota}: l'ablation a 3 seed la mostra \emph{marginale} sul laterale ($0.882$ con vs $0.875$ senza, $+0.007$ AUC); su questo stream il segnale è già portato dalle \textit{history features} e dalla memoria temporale. La testa è comunque \emph{mantenuta} come segnale complementare a basso costo: l'ottimizzatore le assegna una temperatura non banale (\texttt{struct\_scale}$\approx 4.7$ nel checkpoint addestrato), dunque è \emph{attiva ma ridondante}, non inutilizzata. Poiché nel task sintetico il movimento laterale coincide quasi per costruzione con la \textit{pair-novelty} - catturata direttamente dalle history features - l'ablation ne sottostima probabilmente il contributo: il suo valore su topologie reali (dove il laterale ha struttura di grafo oltre alla semplice novità della coppia) e in regime di \textit{cold-start} o di \textit{poisoning} dei contatori, dove il coseno sugli embedding è un segnale indipendente dai contatori espliciti, è plausibile ma \emph{non ancora verificato}.
+        \item \textit{Structural head}: similarità coseno (scalata da una temperatura apprendibile) delle proiezioni non-lineari degli embedding. È \emph{marginale} sul laterale (ablation a 3 seed: $+0.007$ AUC), poiché su questo stream il segnale è già portato dalle \textit{history features} e dalla memoria temporale; è comunque \emph{mantenuta} come segnale complementare a basso costo (l'ottimizzatore le assegna una temperatura non banale, \texttt{struct\_scale}$\approx 4.7$, dunque è attiva ma ridondante). Il suo contributo è plausibilmente sottostimato dal task sintetico --- dove il laterale coincide quasi per costruzione con la \textit{pair-novelty} già catturata dalle history features --- e atteso più rilevante su topologie reali o in regime di \textit{cold-start}/\textit{poisoning} dei contatori, ma ciò resta \emph{non verificato}.
     \end{itemize}
     \item \textit{Kill-chain Precursor} (prior di serving, non addestrato): il movimento laterale segue tipicamente un alert di recon (Snort / anomalia rilevata) sulla \emph{stessa} entità, ma il gate predict-then-update scarta quel precursore dalla memoria TGN. Si mantiene quindi uno stato per-entità \texttt{recent\_alert} e si applica un fattore \emph{moltiplicativo} allo score, $1 + \text{max\_boost}\cdot 0.5^{\,\Delta t / \text{half\_life}}$ (default $\text{max\_boost}{=}2$, $\text{half\_life}{=}600$\,s). Moltiplicativo per costruzione: alza uno score già sospetto sopra soglia senza trasformare in falsi positivi gli score benigni $\approx 0$. Il suo contributo è però \emph{marginale} (ablation multi-seed a 3 seed: $+0.013$ AUC), comparabile a quello della testa strutturale. Non costituisce un input addestrato (il training solo-benigno lo renderebbe una feature morta).
 \end{itemize}
@@ -129,7 +129,7 @@ L'architettura del modello combina la memoria ricorrente tipica dei TGN (Rossi e
 \end{scope}
 
 \end{tikzpicture}
-\caption{Schema dei layer dove i moduli interni sono esplicitati per i due di alto livello (GAE ed il Dual Head Scorer): i tre hop dentro \textit{GraphAttentionEmbedding} e le due teste (\textit{Feature}/\textit{Structural}) dentro il \textit{Dual Head Scorer}. Tutti i \texttt{TransformerConv} usano \texttt{heads}=4, \texttt{dropout}=0.1 e concatenano \texttt{edge\_attr} (alimenta ogni hop). Lo score grezzo $1-P(\text{benign})$ è moltiplicato dal prior di kill-chain (con cap a 1) e confrontato con la soglia instradata sul segnale; a serving lo score dell'evento è il massimo sui suoi archi (accesso e binding).}
+\caption{Schema dei layer del modello: i tre hop di \textit{GraphAttentionEmbedding} e le due teste (\textit{Feature} e \textit{Structural}) del \textit{Dual Head Scorer}.}
 \label{fig:layers}
 \end{figure}
 
@@ -205,13 +205,13 @@ Lateral --- Recall @1\%FPR     & $\mathbf{0.166}\pm0.009$ & $0.125\pm0.006$ & $0
 Recall aggregata @1\%FPR       & $\mathbf{0.665}\pm0.043$ & $0.366\pm0.004$ & $0.479\pm0.038$ & $0.116\pm0.020$ \\
 \hline
 \end{tabular}
-\caption{Confronto sul test set sintetico (replay per-evento de-circolarizzato, \texttt{num\_events}=200\,000, \textbf{3 seed} \texttt{[42,7,123]}, media $\pm$ dev.std, soglia globale all'1\% FPR). Il vantaggio del TGN sul \textit{lateral movement} emerge isolando il segnale temporale: la GNN statica, priva di memoria ricorrente ma provvista degli stessi contatori tabellari, resta a livello di caso ($0.451\pm0.021$), contro l'AUC $0.913\pm0.014$ del TGN. Il recall laterale a soglia globale resta basso ($\sim$16.6\%) e l'apparente 12.5\% della GNN è \emph{spurio} (AUC$\approx$caso con soglia permissiva, non un segnale reale); la sua conversione in recall operativo è affidata alla calibrazione cost-sensitive instradata (Sez.~\ref{sec:threshold}). XGBoost \emph{supervisionato} (vede le etichette, fuori categoria) raggiunge AUC $0.974\pm0.001$ / lateral $0.929\pm0.001$: è un upper-bound di riferimento, non una baseline non supervisionata comparabile. \emph{Provenienza}: riga TGN da run \emph{v3} (keying per-cookie); le baseline sono rimisurate sotto la configurazione \emph{deployable} corrente (collasso \texttt{dev:guest}); \textit{Recall aggregata} alla soglia globale 1\% FPR su tutte le classi. Numeri rigenerati da \texttt{tests/regen\_report\_tables.py} (\texttt{tasks/runs/panelA.json}; cfr.\ \texttt{docs/latex/PROVENANCE.md}).}
+\caption{Confronto sul test set sintetico tra TGN e baseline non relazionali (3 seed \texttt{[42,7,123]}, soglia globale all'1\% FPR); XGBoost \emph{supervisionato} è riportato come upper-bound di riferimento fuori categoria.}
 \label{tab:baselines}
 \end{table}
 
 \subsubsection{Cost-sensitive routing}
 
-Per convertire la forte capacità di ranking (lateral AUC $0.913\pm0.014$; Tab.~\ref{tab:baselines}) in recall operativo, è stato implementato un routing cost-sensitive. Il flusso di eventi viene separato a runtime in \textit{signal-dirty} e \textit{signal-clean}. Sul flusso pulito, la soglia viene rilassata per minimizzare i falsi negativi dei movimenti laterali (configurabile tramite un parametro di \texttt{cost\_ratio}). Sul test sintetico (3 seed, media), ciò porta il recall laterale dal $\sim$16.6\% (soglia globale all'1\% FPR, FPR benigno $\sim$1.6\%) al $\sim$35.0\% (decisione instradata, FPR benigno $\sim$5.0\%), con recall aggregato $\sim$75.8\%.
+Per convertire la forte capacità di ranking (lateral AUC $0.913\pm0.014$; Tab.~\ref{tab:baselines}) in recall operativo, la decisione è instradata sul segnale con la soglia cost-sensitive calibrata in Sez.~\ref{sec:threshold}. Sul test sintetico (3 seed, media) ciò porta il recall laterale dal $\sim$16.6\% (soglia globale all'1\% FPR, FPR benigno $\sim$1.6\%) al $\sim$35.0\% (decisione instradata, FPR benigno $\sim$5.0\%), con recall aggregato $\sim$75.8\%.
 
 \section{L'evoluzione: il nodo \textit{Configuration} (schema v4)}
 \label{sec:v4}
@@ -264,7 +264,7 @@ Il nodo config è \emph{inserito tra source e device} nella catena causale, sost
 % binding aggiuntivo config -> user
 \draw[bnd] (C) to[out=-35, in=-145] node[lbl, below]{bind (furto cred.)} (U);
 \end{tikzpicture}
-\caption{Catena causale dello schema v4. I \textit{binding edge} (tratteggiati) portano messaggio-zero; il solo \textit{access edge} \textit{user}$\rightarrow$\textit{resource} porta il messaggio a 7 dimensioni. Lo score dell'evento è il \emph{massimo} sui suoi archi. L'arco diretto \textit{source}$\rightarrow$\textit{device} di v3 è sostituito da \textit{source}$\rightarrow$\textit{config}$\rightarrow$\textit{device}; il \textit{binding} \textit{config}$\rightarrow$\textit{user} discrimina il furto di credenziali (un client diverso da quello abituale della vittima).}
+\caption{Catena causale dello schema v4, con il nodo \textit{config} inserito tra \textit{source} e \textit{device} e il \textit{binding} \textit{config}$\rightarrow$\textit{user}; gli archi tratteggiati sono \textit{binding} a messaggio-zero, il solo \textit{access} \textit{user}$\rightarrow$\textit{resource} porta il messaggio a 7 dimensioni.}
 \label{fig:v4chain}
 \end{figure}
 
@@ -282,7 +282,7 @@ Il nodo config è \emph{inserito tra source e device} nella catena causale, sost
 \textit{config} $\rightarrow$ \textit{user}    & binding (msg-zero) & nuovo (v4) \\
 \hline
 \end{tabular}
-\caption{Edge set per richiesta nello schema v4 (config sempre presente lato serving). Ordine di commit in memoria, identico in training/replay/serving: \textit{source}$\rightarrow$\textit{config}, \textit{config}$\rightarrow$\textit{device}, \textit{config}$\rightarrow$\textit{user}, \textit{device}$\rightarrow$\textit{user}, \textit{user}$\rightarrow$\textit{resource}. Fallback coerenti con la gestione opzionale già esistente: device assente $\Rightarrow$ \textit{config}$\rightarrow$\textit{user} fa da ponte; source assente $\Rightarrow$ si salta solo \textit{source}$\rightarrow$\textit{config}; per dataset senza config (es. LANL) il \textit{gating} \texttt{has\_config} ripristina il percorso legacy \textit{source}$\rightarrow$\textit{device}.}
+\caption{Edge set per richiesta nello schema v4 (config sempre presente lato serving), con l'ordine di commit in memoria identico in training/replay/serving.}
 \label{tab:v4edges}
 \end{table}
 
@@ -322,7 +322,7 @@ Contextual --- AUC               & $\mathbf{0.994}\pm0.001$ & $0.991\pm0.002$ & 
 FPR benigno (instradato)         & $\mathbf{0.050}\pm0.002$ & $0.066\pm0.013$ & $+0.017$ \\
 \hline
 \end{tabular}
-\caption{Confronto v3 vs v4 (\textit{keying} per-cookie) sul medesimo test set sintetico (replay per-evento, \texttt{num\_events}=200\,000, \textbf{3 seed} \texttt{[42,7,123]}, media $\pm$ dev.std, 15 epoche, decisione cost-sensitive instradata, \texttt{save=False}). Il marcatore $^{\dagger}$ indica un $\Delta$ \emph{entro} la banda di rumore multi-seed ($|\Delta|\le$ max delle due dev.std), quindi non significativo: AUC aggregata ($\approx\!0$) e AP aggregata ($-0.025$). I guadagni \emph{robusti} del nodo config sono il recall operativo del laterale instradato ($+0.227$), il recall aggregato instradato ($+0.071$) e --- a differenza della precedente valutazione single-run --- l'AUC laterale ($+0.017$, ora oltre il rumore), al costo di un FPR benigno più alto ($+0.017$). Il recall laterale @1\%FPR ha varianza inter-seed elevata per v4 ($\pm0.128$) e va letto con cautela. Le classi \textit{policy} (OPA-owned) e \textit{contextual} (rule-trivial) restano sostanzialmente invariate (recall@thr $\sim$0.93--0.98 per entrambe). Il confronto con le baseline non-relazionali (Tab.~\ref{tab:baselines}) è immutato: nessuna baseline modella il nodo config. Numeri rigenerati da \texttt{tests/regen\_report\_tables.py} (\texttt{tasks/runs/panelB.json}).}
+\caption{Confronto v3 vs v4 (\textit{keying} per-cookie) sul medesimo test set sintetico, decisione cost-sensitive instradata (3 seed \texttt{[42,7,123]}, media $\pm$ dev.std); $^{\dagger}$ marca i $\Delta$ entro la banda di rumore multi-seed, quindi non significativi.}
 \label{tab:v3v4}
 \end{table}
 
@@ -348,7 +348,7 @@ Recall aggregata (instradata)    & $0.777\pm0.047$ & $0.744\pm0.005$ & $+0.033$ 
 FPR benigno (cookie-wipe)        & $0.060\pm0.021$ & $0.038\pm0.033$ & $+0.022$ \\
 \hline
 \end{tabular}
-\caption{Validazione mirata del nodo config (3 \texttt{seed} [42,7,123], 80\,000 eventi / 12 epoche, stream \emph{theft-rich}: slot 400/120, \texttt{p\_theft}=0.002, \texttt{p\_wipe}=0.0008; \texttt{save=False}). Lo split mirato porta finalmente $n=452$ eventi di furto nel test (erano $0$). L'ablazione disattiva il nodo config \emph{a parità di stream} (percorso legacy \textit{source}$\rightarrow$\textit{device}). Il nodo config aumenta il \textit{recall} sul furto credenziali ($+0.108$) e sul laterale ($+0.135$); l'AUC sul furto migliora ($+0.053$) ma con dev.std ampia (conteggi per-seed modesti), quindi il segnale robusto è il \textit{recall} e il fatto che la detection diventi \emph{possibile}. L'aggregata è invariata. Si osserva un lieve aumento del FPR benigno sui cookie-wipe ($+0.022$, entro le bande di dev.std): il binding \textit{config}$\rightarrow$\textit{user} è leggermente più sensibile sui dispositivi re-keyed, trade-off accettabile dato il guadagno sul recall.}
+\caption{Validazione mirata del nodo config su stream \emph{theft-rich} (3 \texttt{seed} [42,7,123], \texttt{save=False}): il modello v4 completo contro la sua ablazione a parità di dati (percorso legacy \textit{source}$\rightarrow$\textit{device}, $\approx$v3).}
 \label{tab:theft}
 \end{table}
 
@@ -373,13 +373,13 @@ $+$heads (8)             & $0.896\pm0.037$ & $0.558\pm0.130$ & $0.459\pm0.161$ &
 $+$mem$+$heads$+$layer    & $0.913\pm0.025$ & $0.526\pm0.105$ & $0.443\pm0.111$ & $0.958\pm0.011$ & $0.763\pm0.039$ \\
 \hline
 \end{tabular}
-\caption{Sweep architetturale (3 \texttt{seed} [42,7,123], 40\,000 eventi / 12 epoche, \texttt{save=False}). Nessun aumento di capacità migliora la classe \textit{model-owned} (movimento laterale): il layer MLP extra è \emph{neutro} sull'AUC ($+0.002$, entro la dev.std) ma riduce il \textit{recall} operativo; memoria più ampia e più teste \emph{peggiorano} AUC/AP/recall e \emph{aumentano} la varianza tra seed (es. \texttt{gnn\_heads}=8: recall $0.459\pm0.161$). Il collo di bottiglia del laterale non è la capacità parametrica ma il \emph{segnale} (history features + memoria temporale), coerentemente con l'ablation a 3 seed della Sez.~\ref{sec:v3} (history features $+0.163$ AUC, dominante). \textbf{Decisione}: si mantiene l'architettura corrente; il \textit{deployable} non viene modificato.}
+\caption{Sweep architetturale (3 \texttt{seed} [42,7,123], \texttt{save=False}): nessun aumento di capacità migliora il movimento laterale rispetto alla baseline v4.}
 \label{tab:archsweep}
 \end{table}
 
 \subsubsection{Sintesi}
 
-Il nodo \textit{configuration} (v4) alza sostanzialmente il \textbf{recall operativo} del movimento laterale al punto di lavoro instradato ($+0.227$ a 3 seed) e abilita la rilevazione del furto di credenziali (recall $+0.108$ vs l'ablazione a parità di dati), senza costi architetturali: \texttt{msg\_dim} e \texttt{node\_feat\_dim} restano invariati, e lo sweep conferma che la capacità attuale è già adeguata. Non è però un dominio uniforme: il guadagno è \emph{sul recall instradato} (e sull'AUC laterale, $+0.017$, ora oltre il rumore), e si paga con un FPR benigno più alto ($+0.017$) e un'AP aggregata leggermente più bassa ($-0.025$, entro il rumore), mentre l'AUC aggregata resta piatta entro il rumore multi-seed; è quindi uno \textit{spostamento dell'operating point} verso il laterale, non un miglioramento su tutte le metriche. Questo guadagno operativo si \emph{somma} a quello già documentato del TGN sulle baseline non-relazionali (Tab.~\ref{tab:baselines}), che non modellano la configurazione del client.
+Il nodo \textit{configuration} (v4) alza sostanzialmente il \textbf{recall operativo} del movimento laterale e abilita la rilevazione del furto di credenziali (Sez.~\ref{sec:v4results}), senza costi architetturali: \texttt{msg\_dim} e \texttt{node\_feat\_dim} restano invariati e lo sweep conferma che la capacità attuale è già adeguata. Come discusso sopra non è un dominio uniforme ma uno \textit{spostamento dell'operating point} verso il laterale, al costo di un FPR benigno più alto. Questo guadagno operativo si \emph{somma} a quello già documentato del TGN sulle baseline non-relazionali (Tab.~\ref{tab:baselines}), che non modellano la configurazione del client.
 
 % ==================== ESPERIMENTO: identità del device ====================
 \subsection{Esperimento: granularità dell'identità del dispositivo (nodo \texttt{dev:guest})}
@@ -415,7 +415,7 @@ FPR benigno (instradato)         & $0.045\pm0.002$ & $\mathbf{0.037}\pm0.004$ & 
 FPR cookie-wipe                  & $0.041\pm0.013$ ($n{=}651$) & --- ($n{=}0$) & neutralizzato \\
 \hline
 \end{tabular}
-\caption{Esperimento sull'identità del device: \textit{keying} per-cookie vs collasso su \texttt{dev:guest} (3 \texttt{seed} [42,7,123], 80\,000 eventi / 12 epoche, stream \emph{theft-rich}, \texttt{save=False}). Le due varianti condividono \texttt{seed} e impostazioni ma \emph{non} sono appaiate evento-per-evento: la neutralizzazione del \textit{cookie-wipe} altera il percorso del generatore di numeri casuali (da cui il diverso conteggio di positivi: \textit{lateral} $n{=}3959$ vs $4032$, furto $n{=}452$ vs $386$ sui 3 \texttt{seed}); il confronto è quindi \emph{distribuzionale}. I valori $\Delta$ sono calcolati sulle medie non arrotondate (donde l'apparente $-0.003$ a fronte di $0.915$ vs $0.911$ in tabella). Il collasso su \texttt{dev:guest} non degrada la detection (lateral AUC piatto, $-0.003$ entro la dev.std) e anzi migliora il furto credenziali, abbassa l'FPR benigno, \emph{riduce marcatamente la varianza tra seed} ed elimina l'intera classe di falsi positivi da cookie-wipe ($n_{\text{wiped}}{=}0$, conferma della neutralizzazione implementata).}
+\caption{Esperimento sull'identità del device: \textit{keying} per-cookie vs collasso su \texttt{dev:guest} (3 \texttt{seed} [42,7,123], stream \emph{theft-rich}, \texttt{save=False}); confronto distribuzionale, non appaiato evento-per-evento.}
 \label{tab:guestdev}
 \end{table}
 
@@ -451,6 +451,84 @@ Nel momento di chiusura del framework (o tramite specifici endpoint API persiste
 
 Il sistema finale eroga un'infrastruttura single-worker fondata su \texttt{FastAPI} (gestione I/O asincrono per polling concorrenziale) che elabora gli eventi con una latenza end-to-end (round-trip HTTP client$\to$servizio sulla rete container, catena v4 completa a 5 archi \textit{source}$\to$\textit{config}$\to$\textit{device}$\to$\textit{user}$\to$\textit{resource}) di $P50 \approx 9.6$ ms ($P99 \approx 10.8$ ms); l'omissione del binding di dispositivo non altera apprezzabilmente né la latenza né la detection in cold-start. Misure su GPU RTX 5070 Ti (VRAM occupata $\sim$2.5\,GB), tramite test client di streaming live in regime \textit{cold-start} (entità mai viste prima, prefisso \texttt{prod\_}): un sanity-check d'induttività più che un punto operativo, poiché in cold-start il modello opera ad alto recall ma bassa specificità (lateral recall $\sim$82\%, specificità benigna $\sim$43\% --- FPR gonfiato dall'assenza di storico). \emph{Le feature di nodo sono ora applicate per-tipo (tier del dispositivo solo sul nodo \textit{device}, attributi nulli sul nodo \textit{utente}, coerentemente col contratto di training): correggere il precedente \textit{train/serve skew} --- in cui il tier veniva scritto anche sul nodo utente, sempre nullo in training --- riduce il falso positivo da cold-start (specificità benigna da $\sim$33\% a $\sim$43\% sul medesimo checkpoint, a fronte di un recall laterale da $\sim$87\% a $\sim$82\%).} In puro cold-start il binding di dispositivo è trascurabile (il device, anch'esso privo di storia, non porta segnale aggiuntivo); il punto operativo affidabile resta quello calibrato offline (Sez.~\ref{sec:eval}), non influenzato da questa correzione (il replay non inietta le feature statiche per-evento).
 
+\subsection{Parametri di inferenza forniti dal Security Orchestrator}
+\label{sec:apiparams}
+
+Il modello non è interrogato direttamente: è il Security Orchestrator a costruire, per ogni richiesta intercettata, l'evento da inviare al microservizio TGN. L'interazione avviene su due endpoint HTTP/JSON distinti, coerenti col gate anti-poisoning della Sez.~\ref{sec:limiti}:
+\begin{itemize}
+    \item \texttt{POST /infer} --- chiamata in \emph{sola lettura} (\texttt{update=False}): restituisce lo score senza mutare la memoria del modello. L'orchestrator lo passa a OPA, che resta il decisore finale \textit{allow}/\textit{deny}.
+    \item \texttt{POST /update} --- invocata \emph{solo} se OPA risponde \textit{ALLOW}: \textit{committa} l'evento avanzando lo stato della \texttt{TGNMemory} e le code dei vicini temporali. È questo il meccanismo che esclude dallo stato del modello il traffico classificato come ostile.
+\end{itemize}
+La risposta è il record \texttt{\{anomaly\_score, is\_anomaly, threshold\}}. In caso di endpoint non configurato o di errore di rete, il client adotta una politica \emph{fail-suspicious}, restituendo uno score conservativo $0.99$ con \textit{confidence} bassa, così che la mancanza del segnale IA non si traduca in un permesso implicito.
+
+Il corpo della richiesta è identico per i due endpoint ed è descritto nella Tabella~\ref{tab:apipayload}. Le chiavi sono \emph{namespaced} per tipo (\texttt{src:}, \texttt{conf:}, \texttt{tpm:}) così che, nel \texttt{NodeRegistry} condiviso del modello, un IP non possa mai aliasare uno slot di tipo diverso.
+
+\begin{table}[ht!]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{l c X}
+\toprule
+\textbf{Campo JSON} & \textbf{Obbl.} & \textbf{Significato e costruzione (lato orchestrator)} \\
+\midrule
+\texttt{key\_user}    & sì & Chiave entità utente: lo \texttt{UserID} dei claim, oppure \texttt{anonymous} sulle rotte non autenticate (es.\ \texttt{/login}). \\
+\texttt{key\_device}  & no & Chiave device \texttt{tpm:<id>}, inviata \emph{solo} se il TPM è attestato; altrimenti omessa (mai aliasing sull'IP). \\
+\texttt{key\_config}  & no & Identità di configurazione \texttt{conf:<ja3>} dal \textit{fingerprint} JA3 (header o claim); se non risolvibile, il server adotta il generico \texttt{conf:guest}. \\
+\texttt{key\_source}  & no & Contesto di rete sorgente \texttt{src:<ip>} del client. \\
+\texttt{key\_dst}     & sì & URI della risorsa, normalizzato per collassare le sottorotte parametriche su una base; deve combaciare con i \texttt{RESOURCE\_URIS} usati in addestramento. \\
+\texttt{timestamp}    & sì & Istante dell'evento (epoch Unix, intero). \\
+\texttt{features}     & sì & Messaggio dell'arco \textit{access} \textit{user}$\rightarrow$\textit{resource}: vettore a 7 dimensioni (\texttt{msg\_dim}), dettagliato in Tab.~\ref{tab:features7}. \\
+\texttt{user\_feat}   & no & Feature statiche del nodo utente: vettore a 16 dim (\texttt{node\_feat\_dim}), \emph{interamente nullo} (contratto di training: ruolo e clearance viaggiano nel messaggio). \\
+\texttt{device\_feat} & no & Feature statiche del nodo device: vettore a 16 dim con il solo \texttt{node\_feat[2]} = \textit{tier} ($1.0$ TPM+cert, $0.5$ cert senza TPM, $0.0$ nessuno). \\
+\texttt{dst\_feat}    & no & Feature statiche della risorsa: \emph{non inviato} (il \textit{resource risk} è già codificato nel checkpoint addestrato). \\
+\bottomrule
+\end{tabularx}
+\caption{Campi del payload JSON inviato dal Security Orchestrator al microservizio TGN (endpoint \texttt{/infer} e \texttt{/update}).}
+\label{tab:apipayload}
+\end{table}
+
+Il campo \texttt{features} è il cuore informativo dell'evento: codifica i segnali Zero-Trust osservabili sull'arco di accesso, nell'ordine fisso riportato nella Tabella~\ref{tab:features7}. I primi quattro elementi sono bit di segnale (validità TLS e alert IPS); gli ultimi tre sono attributi della richiesta normalizzati in $[0,1]$.
+
+\begin{table}[ht!]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{c l c X}
+\toprule
+\textbf{Idx} & \textbf{Nome} & \textbf{Valori} & \textbf{Significato} \\
+\midrule
+0 & \texttt{ja3Float}    & $\{0,1\}$ & Bit di validità TLS: $1$ se il JA3 osservato coincide con quello atteso dai claim, $0$ in caso di discordanza. \\
+1 & \texttt{alertEdge}   & $\{0,1\}$ & $1$ se un alert Snort di \textit{edge} (perimetro) è attivo per l'IP client o envoy. \\
+2 & \texttt{alertMid}    & $\{0,1\}$ & $1$ se è attivo un alert Snort \textit{mid} (intermedio). \\
+3 & \texttt{alertInt}    & $\{0,1\}$ & $1$ se è attivo un alert Snort \textit{internal} (interno). \\
+4 & \texttt{methodFloat} & $0$–$4$   & Metodo HTTP: GET$=0$, POST$=1$, PUT$=2$, DELETE$=3$, PATCH$=4$. \\
+5 & \texttt{roleVal}     & $[0,1]$   & Ruolo normalizzato: indice in $[$guest, operator, manager, admin$]$ diviso per $3$. \\
+6 & \texttt{clrVal}      & $[0,1]$   & Clearance normalizzata: indice in $[$PUBLIC, INTERNAL, CONFIDENTIAL, SECRET, TOP\_SECRET$]$ diviso per $4$. \\
+\bottomrule
+\end{tabularx}
+\caption{Composizione del vettore \texttt{features} a 7 dimensioni (\texttt{msg\_dim}=7), nell'ordine esatto con cui l'orchestrator lo costruisce.}
+\label{tab:features7}
+\end{table}
+
+Il microservizio rifiuta con \texttt{HTTP 422} ogni payload le cui dimensioni non corrispondano al modello addestrato: \texttt{features} deve avere lunghezza esattamente $7$ e i vettori di nodo, se presenti, lunghezza $16$. Il modello impone inoltre \texttt{schema\_version}=4: i checkpoint delle versioni precedenti (v1/v2/v3) sono respinti al caricamento.
+
+A titolo di esempio, la richiesta seguente rappresenta un utente \textit{operator} con clearance \textit{CONFIDENTIAL} (\texttt{roleVal}$=1/3$, \texttt{clrVal}$=0.5$) che accede in \textit{GET} (\texttt{methodFloat}$=0$) da un dispositivo attestato via TPM (\texttt{device\_feat[2]}$=1.0$), con JA3 coerente (\texttt{ja3Float}$=1.0$) e nessun alert IPS attivo:
+
+\begin{verbatim}
+POST /infer
+{
+  "key_user":    "u-1042",
+  "key_device":  "tpm:dev-1042",
+  "key_config":  "conf:769,47-53-5,0-23-65281,29-23-24,0",
+  "key_source":  "src:10.0.3.14",
+  "key_dst":     "/reactor/telemetry",
+  "timestamp":   1750768800,
+  "features":    [1.0, 0.0, 0.0, 0.0, 0.0, 0.3333, 0.5],
+  "user_feat":   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  "device_feat": [0,0,1.0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+}
+\end{verbatim}
+
 % ==================== LIMITI ====================
 \section{Limiti del modello}
 \label{sec:limiti}
@@ -465,7 +543,7 @@ Il limite di deployment più strutturale discende direttamente dal design illust
 
 \subsection{La sfida del lateral movement}
 
-Senza l'ausilio delle etichette (unsupervised), il lateral movement non mostra tracce o indicatori palesi: è feature-identico a un accesso benigno non abituale. Le leve che lo rendono \emph{ordinabile} (lateral AUC $0.913\pm0.014$ a 3 seed a piena capacità, keying per-cookie; da $\sim$0.45 della GNN statica) sono il vicinato temporale ampio ($\text{num\_hops}{=}3$, $\text{neighbor\_size}{=}30$, $\text{memory\_dim}{=}256$) e soprattutto le \textit{history features} esplicite ($+0.163$ AUC, il contributo dominante), affiancate dall'hashed-identity ($+0.046$ AUC); il precursore di kill-chain ($+0.013$ AUC) e la testa strutturale ($+0.007$ AUC) risultano invece \emph{marginali} (ablation multi-seed). La conversione del ranking in recall operativo avviene poi con la soglia cost-sensitive instradata (Sez.~\ref{sec:threshold}): sul test sintetico il recall laterale passa da $\sim$\textit{16.6\%} (soglia globale all'1\% FPR, FPR benigno $\sim$1.6\%) a $\sim$\textit{35.0\%} (decisione instradata, FPR benigno $\sim$5.0\%) --- operating point regolabile via \texttt{cost\_ratio}/\texttt{clean\_fpr\_cap}. Resta la classe più ostica (AP $\sim$0.52), ma nettamente sopra le baseline (cfr. Sez.~\ref{sec:eval}).
+Senza l'ausilio delle etichette (unsupervised), il lateral movement non mostra tracce o indicatori palesi: è feature-identico a un accesso benigno non abituale. Le leve che lo rendono \emph{ordinabile} (lateral AUC $0.913\pm0.014$, contro $\sim$0.45 della GNN statica) sono il vicinato temporale ampio e soprattutto le \textit{history features} esplicite, come quantificato dall'ablation multi-seed in Sez.~\ref{sec:v3}; la conversione del ranking in recall operativo passa poi per la soglia cost-sensitive instradata (Sez.~\ref{sec:threshold}, risultati in Sez.~\ref{sec:eval}). Resta comunque la classe più ostica (AP $\sim$0.52), pur nettamente sopra le baseline (cfr. Sez.~\ref{sec:eval}).
 
 \subsection{Anti-poisoning gate nel live stream}
 
@@ -507,6 +585,6 @@ $\approx$v3 (ablazione config)           & 0.956 & ---   & 0.913 & ---   & 0.334
 v4 $+$ \texttt{dev:guest}                & 0.961 & ---   & 0.911 & 0.632 & 0.488 & 0.787 \\
 \bottomrule
 \end{tabular}
-\caption{Quadro riepilogativo delle prestazioni di tutti i modelli e varianti osservati. \textbf{Solo i confronti intra-pannello sono validi} (protocolli di valutazione diversi). \textit{Lat.\ Recall} è a soglia globale 1\% FPR nel Pannello~A e a decisione instradata nei Pannelli~B e~C. La colonna \textit{agg Recall} (recall aggregata su tutte le classi) è alla soglia globale 1\% FPR nel Pannello~A e alla decisione instradata nei Pannelli~B/C. Nel Pannello~A i valori sono medie su \textbf{3 seed} \texttt{[42,7,123]} (dispersione nelle Tab.~\ref{tab:baselines} e~\ref{tab:v3v4}): la riga \textbf{TGN} è la run \emph{v3} (keying per-cookie), le baseline sono sotto la configurazione \emph{deployable} corrente (\texttt{dev:guest}); differiscono da quelli del Pannello~B per la diversa regola di decisione (soglia globale vs instradata). I valori di Pannello~C sono medie su 3 \texttt{seed} su uno stream \emph{theft-rich} (incidenti più frequenti, non appaiati evento-per-evento), perciò non comparabili in assoluto con i Pannelli~A/B. $^{\dagger}$ Il recall della GNN statica è \emph{spurio} (AUC$\approx$caso a soglia permissiva, non segnale reale). $^{\ddagger}$ XGBoost è \emph{supervisionato} (vede le etichette): upper-bound di riferimento, fuori dal paradigma non supervisionato del TGN. Lo \textit{sweep} architetturale (Tab.~\ref{tab:archsweep}) conferma inoltre che nessun aumento di capacità migliora il movimento laterale. Sorgenti: Tab.~\ref{tab:baselines} (A), Tab.~\ref{tab:v3v4} (B), Tab.~\ref{tab:theft} e~\ref{tab:guestdev} (C).}
+\caption{Quadro riepilogativo di tutti i modelli e varianti: \textbf{sono validi solo i confronti intra-pannello} (protocolli diversi). \textit{Lat.\ Recall} e \textit{agg Recall} sono a soglia globale 1\% FPR nel Pannello~A e a decisione instradata nei Pannelli~B/C. $^{\dagger}$ recall spurio (GNN, AUC$\approx$caso); $^{\ddagger}$ XGBoost \emph{supervisionato} (upper-bound fuori categoria).}
 \label{tab:summary}
 \end{table}

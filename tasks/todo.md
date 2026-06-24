@@ -97,3 +97,48 @@ Anche col fix, admin *davvero* nuovo su reactor = ~0.25 vs gate OPA `≤0.10` �
 - Solo le metriche **offline** (`train_tgn._replay`) sono pulite; numeri "online" dal test
   client sono contaminati dallo stesso skew → da rigenerare dopo il fix se citati.
 - Aggiornata `tasks/lessons.md` con la lezione "verifica empirica dello skew train/serve".
+
+---
+
+# Report: riproducibilità + multi-seed Pannelli A/B (P1 + P2 + m1)
+> 2026-06-24. Origine: tasks/report-improvements.md. Piano approvato.
+
+## Piano
+- [x] m1 — `xgboost>=2.0.0` in `pyproject.toml` (era solo in requirements.txt)
+- [x] P2(a) — `src/report_metrics.py` (mean_std / latex_cell / delta / dump_json)
+- [x] P2(a) — `train_tgn` ritorna `agg_recall_global` (recall agg @1%FPR globale, serve a Pannello A)
+- [x] P2(a) — baseline (gnn/ocsvm/iforest/xgboost) ritornano un dict di metriche
+- [x] P2(b) — `tests/regen_report_tables.py` (orchestratore unico, seed [42,7,123])
+- [x] P2(b) — service compose `regen-report`
+- [x] P2(c) — `docs/latex/PROVENANCE.md` (mappa tabella→json/log→script→profilo)
+- [x] Smoke test in container OK (report_metrics, import baseline, xgboost 3.3.0, frammenti tex)
+- [ ] P1 — eseguire `regen-report` (6 run TGN + baseline multi-seed) [IN CORSO, background]
+- [ ] P1 — aggiornare celle+prosa di tab:baselines, tab:v3v4, tab:summary da panel{A,B}.json
+- [ ] Verifica: md5 `public/tgn_checkpoint.pt` invariato (save=False)
+
+## Fuori scope (decisione utente)
+- m2 (struct head), m3 (frase cold-start), P3 (protocollo unico Pannello A) — rimandati.
+
+## Mapping metriche → celle (per l'aggiornamento del .tex)
+- Pannello B (tab:v3v4): agg_auc/agg_ap; agg_recall(instradata); lateral auc/ap/recall(instradata);
+  lateral_recall_before(@1%FPR); policy/ctx auc; fpr_after(FPR benigno instradato).
+- Pannello A (tab:baselines): riga TGN = colonna v3 per-cookie del Pannello B, tutto @1%FPR globale
+  (agg_auc, agg_ap, lat auc, lateral_recall_before, agg_recall_global). Baseline = deployable.
+
+## Review (2026-06-24, completata)
+Tutti gli step P1/P2/m1 eseguiti e verificati:
+- **Esecuzione**: `docker compose --profile regen-report up` (GPU) — 6 run TGN (v3/v4 per-cookie,
+  200k/15ep × 3 seed) + 4 baseline × 3 seed. Exit 0.
+- **Sicurezza artefatto**: md5 `public/tgn_checkpoint.pt` INVARIATO prima/dopo (save=False ok).
+- **Risultati onesti** (la radice del problema): headline TGN sceso da single-run 0.932/0.973 a
+  multi-seed lateral AUC 0.913±0.014 / agg AUC 0.965±0.007. Su v3→v4 la storia è più pulita:
+  AUC laterale +0.017 e recall laterale instradato +0.227 ora SIGNIFICATIVI; AUC/AP aggregate
+  entro il rumore (marcate †).
+- **LaTeX**: report.tex aggiornato (tab:baselines, tab:v3v4, tab:summary A/B + prosa §eval,
+  §cost-routing, §v4results, §limiti, §sintesi). Compila (latexmk exit 0); overflow tab:summary
+  0.81pt (trascurabile). Overfull pre-esistenti a righe 39-40/234-235 non toccati.
+- **Riproducibilità**: panel{A,B}.json + docs/latex/generated/*.tex + PROVENANCE.md.
+- **m1**: xgboost importabile dall'immagine (v3.3.0).
+
+Note: m2/m3/P3 rimandati su decisione utente. La struct head (+0.007) e la frase cold-start
+restano candidati futuri.

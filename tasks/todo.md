@@ -1,3 +1,42 @@
+# Allineamento numeri tesi 05.tex: tabelle = unica fonte di verità (2026-06-24)
+
+## Principio
+I numeri reali vivono nelle tabelle. La prosa NON deve (a) contraddirle né
+(b) duplicarle inutilmente. Le 5 tabelle sorgente sono coerenti tra loro e col
+quadro riepilogativo (verificato cella per cella). Il problema è la PROSA.
+
+## Audit — esito
+- Quadro riepilogativo `tab:summary`: OK, ogni cella traccia a tab:baselines/v3v4/theft/guestdev/gueststd.
+- **BUG (contraddizione)**: §sweep cita baseline v4 lat AUC 0.929 / AP 0.645 / recall 0.607
+  (run separato del sweep, tabella `tab:archsweep` da me eliminata) → confligge con
+  tab:v3v4 v4 (0.930 / 0.575 / 0.577) e Pannello B. Numeri orfani.
+- **Duplicazioni** (numeri prosa = righe tabella, da ridurre):
+  - §sec:eval "Cost-sensitive routing" (riga ~210): 16.6/35.0/5.0/75.8 = riga v3.
+  - §sec:v4results intro (riga ~295): dump di 0.913→0.930/+0.017/0.965→0.964/0.922→0.897/5.0→6.6 = tab:v3v4.
+- **Numeri vaganti non in tabella** (alleggerire): FPR ~1.6% (riga 210), ~79%/~13% (riga 158).
+- Lasciati: latenza P50/P99 (fatto di deployment, nessuna tabella), cold-start 82/43% (sanity, etichettato).
+
+## Piano
+- [x] §sweep: rimossi numeri orfani/contraddittori (0.929/0.645/0.607/0.560/0.905/0.896/0.45), conclusione qualitativa
+- [x] §v4results intro: snellito il dump → narrativa + cfr. Tab.~\ref{tab:v3v4}
+- [x] §cost-sensitive routing: ridotto a riferimento tabella (tolti 16.6/35.0/5.0/75.8 e 1.6%)
+- [x] §threshold: tolti ~0.91/~79%/~13% vaganti
+- [x] Compilato (latexmk exit 0, 60 pp., no undefined refs) + ri-audit: nessun numero-prosa in conflitto
+- [x] lessons.md: regola aggiunta
+
+## Review
+- Causa-radice del conflitto: eliminando `tab:archsweep` avevo lasciato in prosa i numeri del
+  suo run separato (save=False), che differiscono dai canonici v4 di tab:v3v4 (0.929 vs 0.930,
+  0.645 vs 0.575, 0.607 vs 0.577). Risolto rendendo la conclusione qualitativa.
+- Quadro riepilogativo `tab:summary`: già coerente, nessuna modifica necessaria (verificato
+  cella per cella vs le 5 tabelle sorgente).
+- Nota residua (decisione utente): Pannello A riga XGBoost (0.974/0.948/0.339/0.772) non è in
+  `tab:baselines` (tabella a 4 colonne); i numeri vengono dal run baseline/README e sono marcati
+  $^{\ddagger}$ upper-bound fuori categoria. Solo lat AUC 0.929 è citato nel testo. Non contraddice,
+  ma non è table-backed nel capitolo.
+
+---
+
 # Fix: train/serve feature skew (device tier scritto nel nodo utente)
 
 ## Diagnosi (verificata empiricamente, 2026-06-23)

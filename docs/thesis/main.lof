@@ -10,5 +10,5 @@
 \contentsline {figure}{\numberline {5.1}{\ignorespaces Schema dei layer del modello: i tre hop di \textit {GraphAttentionEmbedding} e le due teste (\textit {Feature} e \textit {Structural}) del \textit {Dual Head Scorer}.}}{43}{figure.caption.9}%
 \contentsline {figure}{\numberline {5.2}{\ignorespaces Catena causale dello schema v4, con il nodo \textit {config} inserito tra \textit {source} e \textit {device} e il \textit {binding} \textit {config}$\rightarrow $\textit {user}; gli archi tratteggiati sono \textit {binding} a messaggio-zero, il solo \textit {access} \textit {user}$\rightarrow $\textit {resource} porta il messaggio a 7 dimensioni.}}{47}{figure.caption.15}%
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {6.1}{\ignorespaces Grafico Peak 30 UV}}{59}{figure.caption.34}%
-\contentsline {figure}{\numberline {6.2}{\ignorespaces Grafico Peak 100 UV}}{60}{figure.caption.35}%
+\contentsline {figure}{\numberline {6.1}{\ignorespaces Grafico Peak 30 UV}}{58}{figure.caption.30}%
+\contentsline {figure}{\numberline {6.2}{\ignorespaces Grafico Peak 100 UV}}{59}{figure.caption.31}%

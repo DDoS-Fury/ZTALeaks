@@ -1,5 +1,22 @@
 # Self-Improvement Lessons
 
+## Tesi/report: le TABELLE sono l'unica fonte di verità per le metriche
+**Mistake**: (1) Ho aggiunto il risultato richiesto in una sotto-sezione nuova invece di metterlo
+nella tabella esistente che l'utente aveva indicato (Pannello B del quadro riepilogativo), e ho
+riproposto rigenerazioni inutili pur avendo già i dati. (2) Eliminando una tabella (`tab:archsweep`)
+ho lasciato i suoi numeri (di un run separato `save=False`) nella prosa, dove contraddicevano i
+numeri canonici v4 di `tab:v3v4` (0.929 vs 0.930, 0.645 vs 0.575, 0.607 vs 0.577).
+**Correction**: L'utente ha chiesto allineamento totale e di tenere meno numeri possibile nel testo.
+**Rule**:
+- Quando l'utente dice "aggiungilo alla tabella X", aggiungilo a QUELLA tabella, non altrove.
+- I numeri di metrica vivono nelle tabelle; la prosa li REFERENZIA (`cfr. Tab.~\ref{...}`), non li
+  ripete. Pochi numeri-headline qualitativi al massimo.
+- Se cancelli/sposti una tabella, cancella/sposta SUBITO i suoi numeri dalla prosa: numeri di run
+  diversi orfani contraddicono le tabelle canoniche.
+- Prima di "rigenerare" qualcosa, controlla se i dati esistono già (run precedenti, JSON, log).
+- Dopo modifiche ai numeri: ri-audit grep di tutti i valori in prosa vs le tabelle sorgente, e
+  compila (latexmk exit 0, no undefined refs).
+
 ## Docker Command Documentation
 **Mistake**: I attempted to guess the standard `docker compose` command (`docker compose --profile training-tgn up --build train-tgn`) instead of reading the provided documentation.
 **Correction**: The user pointed out the existence of `docs/docker.md` which specified the exact command (`docker compose --profile training-tgn up`).

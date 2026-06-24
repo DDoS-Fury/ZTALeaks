@@ -62,11 +62,11 @@ public_paths := {
     "/api/v1/auth/register/begin",
 }
 
-beneficio := 0.99
+beneficio := 0.70
 
 allow if {
     input.request.path in public_paths
-    ai_score := object.get(input, ["ai", "score"], 0.99)
+    ai_score := object.get(input, ["ai", "score"], 0.50)
     (beneficio - ai_score) >= 0
 }
 

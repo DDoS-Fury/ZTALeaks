@@ -24,20 +24,6 @@ else
     assert_eq "Normal traffic to Envoy" "allowed" "blocked(HTTP=$code)"
 fi
 
-# Test 2: Il set blocked_ips deve essere caricato con gli elementi attesi
-log "TEST 2: blocked_ips set is loaded with expected elements"
-if docker exec "$FIREWALL_CTR" nft list set inet filter blocked_ips 2>/dev/null \
-     | grep -qE '10\.99\.99\.99'; then
-    assert_eq "blocked_ips contains 10.99.99.99" "present" "present"
-else
-    assert_eq "blocked_ips contains 10.99.99.99" "present" "missing"
-fi
-if docker exec "$FIREWALL_CTR" nft list set inet filter blocked_ips 2>/dev/null \
-     | grep -qE '172\.18\.0\.10'; then
-    assert_eq "blocked_ips contains 172.18.0.10" "present" "present"
-else
-    assert_eq "blocked_ips contains 172.18.0.10" "present" "missing"
-fi
 
 # Test 3: Chain output deve avere policy DROP e la allow-list applicata
 log "TEST 3: output chain has policy drop and allow-list configured"

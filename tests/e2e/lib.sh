@@ -14,8 +14,8 @@ ZTA_E2E_LIB_SOURCED=1
 ENVOY_URL="${ENVOY_URL:-https://127.0.0.1:8443}"
 MAILHOG_URL="${MAILHOG_URL:-http://127.0.0.1:8025}"
 CERTS_DIR="${CERTS_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../certs" && pwd)}"
-CLIENT_CERT="$CERTS_DIR/client.crt"
-CLIENT_KEY="$CERTS_DIR/client.key"
+CLIENT_CERT="$CERTS_DIR/admin.crt"
+CLIENT_KEY="$CERTS_DIR/admin.key"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-90}"
 
 # ----- Pretty output ---------------------------------------------------------

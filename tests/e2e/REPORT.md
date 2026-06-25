@@ -1,6 +1,6 @@
 # ZTALeaks — E2E Validation Report (auto-generated)
 
-**Generated**: 2026-05-24T16:43:09Z
+**Generated**: 2026-06-25T10:37:31Z
 **Stack endpoint**: `https://127.0.0.1:8443`
 **Source**: `tests/e2e/run_all.sh` su 6 pillar.
 
@@ -17,7 +17,7 @@ Questo file viene rigenerato a ogni esecuzione.
 | 3 | Role-Based Access Control (OPA) | ❌ FAIL |
 | 4 | Attribute-Based Access (clearance hierarchy) | ❌ FAIL |
 | 5 | 3-Tier Admission (cert × TPM) | ❌ FAIL |
-| 6 | Firewall (nftables rate-limiting + egress) | ✅ PASS |
+| 6 | Firewall (nftables rate-limiting + egress) | ❌ FAIL |
 
 **Outcome**: almeno un pillar è FAIL.
 
@@ -31,15 +31,15 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: FAIL
 
 ```
-[18:42:57] Waiting for stack readiness
+[12:37:29] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[18:43:00] Auth pillar — admin login flow + claims
+[12:37:29] Auth pillar — admin login flow + claims
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
   admin login → JWT issued                                   yes        no         FAIL
-[18:43:03] Negative scenario: OTP errato
+[12:37:29] Negative scenario: OTP errato
   verify-otp con OTP errato → 401                            401        400        FAIL
   login con password errata → 401                            401        403        FAIL
 
@@ -52,10 +52,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: FAIL
 
 ```
-[18:43:03] Waiting for stack readiness
+[12:37:29] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[18:43:03] PEP pillar — public bypass + protect by default
+[12:37:30] PEP pillar — public bypass + protect by default
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -74,10 +74,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: FAIL
 
 ```
-[18:43:04] Waiting for stack readiness
+[12:37:30] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[18:43:05] RBAC pillar — role × resource matrix (OPA)
+[12:37:30] RBAC pillar — role × resource matrix (OPA)
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -90,10 +90,10 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: FAIL
 
 ```
-[18:43:05] Waiting for stack readiness
+[12:37:30] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[18:43:05] ABAC pillar — clearance vs resource
+[12:37:31] ABAC pillar — clearance vs resource
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
@@ -106,45 +106,45 @@ Questo file viene rigenerato a ogni esecuzione.
 - **Status**: FAIL
 
 ```
-[18:43:05] Waiting for stack readiness
+[12:37:31] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[18:43:05] Tier admission pillar — cert × tpm (utente fresh per isolare TPM)
+[12:37:31] Tier admission pillar — cert × tpm (utente fresh per isolare TPM)
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
-  ✗ impossibile ottenere JWT tier_pm_gi0u_q
+  ✗ impossibile ottenere JWT tier_pm_8hue1q
 ```
 
 ### Firewall (nftables)
 
 - **Script**: `tests/e2e/nftables.sh`
-- **Status**: PASS
+- **Status**: FAIL
 
 ```
-[18:43:06] Waiting for stack readiness
+[12:37:31] Waiting for stack readiness
   ✓ Envoy reachable (https://127.0.0.1:8443)
   ✓ MailHog reachable (http://127.0.0.1:8025)
-[18:43:06] Firewall pillar — nftables rate-limiting + egress filtering
+[12:37:31] Firewall pillar — nftables rate-limiting + egress filtering
 
   Scenario                                                     Expected   Actual     Result
   ------------------------------------------------------------------------------------------
-[18:43:06] TEST 1: Normal traffic to Envoy (chain input accept)
+[12:37:31] TEST 1: Normal traffic to Envoy (chain input accept)
   Normal traffic to Envoy                                      allowed    allowed    PASS
-[18:43:06] TEST 2: blocked_ips set is loaded with expected elements
-  blocked_ips contains 10.99.99.99                             present    present    PASS
-  blocked_ips contains 172.18.0.10                             present    present    PASS
-[18:43:07] TEST 3: output chain has policy drop and allow-list configured
+[12:37:31] TEST 2: blocked_ips set is loaded with expected elements
+  blocked_ips contains 10.99.99.99                             present    missing    FAIL
+  blocked_ips contains 172.18.0.10                             present    missing    FAIL
+[12:37:31] TEST 3: output chain has policy drop and allow-list configured
   output policy is drop                                        drop       drop       PASS
   output allow-list contains upstream ports                    present    present    PASS
   output logs unauthorized egress                              present    present    PASS
-[18:43:07] TEST 4: nftables JSON parser writes to /var/log/ztaleaks/nftables/firewall.jsonl
+[12:37:31] TEST 4: nftables JSON parser writes to /var/log/ztaleaks/nftables/firewall.jsonl
   nftables JSON log file exists                                present    present    PASS
   log lines contain action field                               valid      valid      PASS
-[18:43:08] TEST 5: SYN flood rate-limit rule is present in chain input
+[12:37:31] TEST 5: SYN flood rate-limit rule is present in chain input
   SYN flood rule present                                       present    present    PASS
-[18:43:09] TEST 6: Established connections pass (ct state established,related)
+[12:37:31] TEST 6: Established connections pass (ct state established,related)
   Established connection rule                                  pass       pass       PASS
 
-  Total: 10  PASS: 10  FAIL: 0
+  Total: 10  PASS: 8  FAIL: 2
 ```

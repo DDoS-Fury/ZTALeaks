@@ -62,12 +62,12 @@ public_paths := {
     "/api/v1/auth/register/begin",
 }
 
-beneficio := 0.70
+beneficio := 0.8
 
 allow if {
     input.request.path in public_paths
     ai_score := object.get(input, ["ai", "score"], 0.99)
-    (beneficio - ai_score) >= 0
+    (beneficio - ai_score) >= 0.4
 }
 
 allow if {
@@ -82,36 +82,36 @@ matrice_sicurezza := {
     "/api/v1/personnel": {
         "classificazione": "INTERNAL",
         "categorie": ["hr"],
-        "GET": {"benefici": 0.6, "rischio_accettato": 0.3},
-        "POST": {"benefici": 0.6, "rischio_accettato": 0.3}        
+        "GET": {"benefici": 0.6, "beneficio_netto_minimo": 0.3},
+        "POST": {"benefici": 0.6, "beneficio_netto_minimo": 0.3}        
     },
     "/api/v1/documents": {
         "classificazione": "CONFIDENTIAL",
         "categorie": ["finance"],
-        "GET": {"benefici": 0.7, "rischio_accettato": 0.5},
-        "POST": {"benefici": 0.7, "rischio_accettato": 0.5},
-        "DELETE": {"benefici": 0.7, "rischio_accettato": 0.5}
+        "GET": {"benefici": 0.7, "beneficio_netto_minimo": 0.5},
+        "POST": {"benefici": 0.7, "beneficio_netto_minimo": 0.5},
+        "DELETE": {"benefici": 0.7, "beneficio_netto_minimo": 0.5}
     },
     "/api/v1/nuclear-materials": {
         "classificazione": "TOP_SECRET",
         "categorie": ["nuclear"],
-        "GET": {"benefici": 0.8, "rischio_accettato": 0.6},
-        "POST": {"benefici": 0.8, "rischio_accettato": 0.6},
-        "DELETE": {"benefici": 0.8, "rischio_accettato": 0.6}
+        "GET": {"benefici": 0.8, "beneficio_netto_minimo": 0.6},
+        "POST": {"benefici": 0.8, "beneficio_netto_minimo": 0.6},
+        "DELETE": {"benefici": 0.8, "beneficio_netto_minimo": 0.6}
     },
     "/api/v1/reactor-parameters": {
         "classificazione": "TOP_SECRET",
         "categorie": ["nuclear", "security"],
-        "GET": {"benefici": 0.9, "rischio_accettato": 0.8},
-        "POST": {"benefici": 0.9, "rischio_accettato": 0.8},
-        "DELETE": {"benefici": 0.9, "rischio_accettato": 0.8}
+        "GET": {"benefici": 0.9, "beneficio_netto_minimo": 0.8},
+        "POST": {"benefici": 0.9, "beneficio_netto_minimo": 0.8},
+        "DELETE": {"benefici": 0.9, "beneficio_netto_minimo": 0.8}
     },
     # Questo endpoint è SECRET. Un admin (TOP_SECRET) che fa una POST violerebbe la *-Property.
     # Lo classifichiamo come SECRET richiedendo la categoria "security".
     "/api/v1/trusted-guard/sanitized-delete-personnel": {
         "classificazione": "SECRET",
         "categorie": ["security"],
-        "POST": {"benefici": 0.9, "rischio_accettato": 0.7}
+        "POST": {"benefici": 0.9, "beneficio_netto_minimo": 0.7}
     }
 }
 
@@ -183,5 +183,5 @@ allow if {
     
     # 5. Controllo Rischio AI (Formula corretta per il calcolo del rischio netto)
     ai_score := object.get(input, ["ai", "score"], 0.99)
-    (config_metodo.benefici - ai_score) >= config_metodo.rischio_accettato
+    (config_metodo.benefici - ai_score) >= config_metodo.beneficio_netto_minimo
 }

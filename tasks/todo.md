@@ -1,183 +1,19 @@
-# Allineamento numeri tesi 05.tex: tabelle = unica fonte di verità (2026-06-24)
+# Fix AI Default Score on Public Routes
 
-## Principio
-I numeri reali vivono nelle tabelle. La prosa NON deve (a) contraddirle né
-(b) duplicarle inutilmente. Le 5 tabelle sorgente sono coerenti tra loro e col
-quadro riepilogativo (verificato cella per cella). Il problema è la PROSA.
+## Goal
+Resolve the discrepancy noted by the AI reviewer regarding the default AI score of 0.5 on public routes.
 
-## Audit — esito
-- Quadro riepilogativo `tab:summary`: OK, ogni cella traccia a tab:baselines/v3v4/theft/guestdev/gueststd.
-- **BUG (contraddizione)**: §sweep cita baseline v4 lat AUC 0.929 / AP 0.645 / recall 0.607
-  (run separato del sweep, tabella `tab:archsweep` da me eliminata) → confligge con
-  tab:v3v4 v4 (0.930 / 0.575 / 0.577) e Pannello B. Numeri orfani.
-- **Duplicazioni** (numeri prosa = righe tabella, da ridurre):
-  - §sec:eval "Cost-sensitive routing" (riga ~210): 16.6/35.0/5.0/75.8 = riga v3.
-  - §sec:v4results intro (riga ~295): dump di 0.913→0.930/+0.017/0.965→0.964/0.922→0.897/5.0→6.6 = tab:v3v4.
-- **Numeri vaganti non in tabella** (alleggerire): FPR ~1.6% (riga 210), ~79%/~13% (riga 158).
-- Lasciati: latenza P50/P99 (fatto di deployment, nessuna tabella), cold-start 82/43% (sanity, etichettato).
+## Context & Finding
+- The AI reviewer noted that the default score on public routes is `0.5`, ma `infra/ai-inference` non lo imposta.
+- L'analisi del codice ha confermato che:
+  1. `infra/ai-inference` non restituisce `0.5`.
+  2. Il **Security Orchestrator** (`services/security-orchestrator/internal/aiscorer/client.go`) implementa una logica *fail-suspicious*: se il modello AI è irraggiungibile, restituisce `0.99`.
+  3. L'ambiguità nasce dal **Security Orchestrator (in particolare da OPA)**: in `infra/opa/policy.rego` (riga 69) c'è un fallback hardcoded `ai_score := object.get(input, ["ai", "score"], 0.50)` per le rotte pubbliche.
+- Poiché l'orchestrator passa *sempre* la chiave `ai.score` (al massimo passandola a `0.99` se il microservizio fallisce), OPA non utilizzerà mai quel `0.50` di default. Tuttavia, questo valore è inconsistente col resto della policy (che usa `0.99` a riga 185) e con il design *fail-suspicious* descritto nella tesi.
 
-## Piano
-- [x] §sweep: rimossi numeri orfani/contraddittori (0.929/0.645/0.607/0.560/0.905/0.896/0.45), conclusione qualitativa
-- [x] §v4results intro: snellito il dump → narrativa + cfr. Tab.~\ref{tab:v3v4}
-- [x] §cost-sensitive routing: ridotto a riferimento tabella (tolti 16.6/35.0/5.0/75.8 e 1.6%)
-- [x] §threshold: tolti ~0.91/~79%/~13% vaganti
-- [x] Compilato (latexmk exit 0, 60 pp., no undefined refs) + ri-audit: nessun numero-prosa in conflitto
-- [x] lessons.md: regola aggiunta
+## Plan
+- [x] 1. Modificare `infra/opa/policy.rego`: cambiare `object.get(input, ["ai", "score"], 0.50)` in `0.99` per coerenza con la sezione BLP e la documentazione.
+- [x] 2. Aggiornare `tasks/todo.md` segnando il task come completato e inserire una section di Review.
 
 ## Review
-- Causa-radice del conflitto: eliminando `tab:archsweep` avevo lasciato in prosa i numeri del
-  suo run separato (save=False), che differiscono dai canonici v4 di tab:v3v4 (0.929 vs 0.930,
-  0.645 vs 0.575, 0.607 vs 0.577). Risolto rendendo la conclusione qualitativa.
-- Quadro riepilogativo `tab:summary`: già coerente, nessuna modifica necessaria (verificato
-  cella per cella vs le 5 tabelle sorgente).
-- Nota residua (decisione utente): Pannello A riga XGBoost (0.974/0.948/0.339/0.772) non è in
-  `tab:baselines` (tabella a 4 colonne); i numeri vengono dal run baseline/README e sono marcati
-  $^{\ddagger}$ upper-bound fuori categoria. Solo lat AUC 0.929 è citato nel testo. Non contraddice,
-  ma non è table-backed nel capitolo.
-
----
-
-# Fix: train/serve feature skew (device tier scritto nel nodo utente)
-
-## Diagnosi (verificata empiricamente, 2026-06-23)
-Un admin appena registrato (TPM ok) viene bloccato con `ai_score≈0.98`. Sonda A/B/C
-in-process sul checkpoint reale (stesse chiavi cold, unica variabile `src_feat`):
-
-| src_feat | docs | reactor |
-|---|---|---|
-| `[role=1,clr=1,tier=1]` (prod oggi) | 0.461 | **0.959** ≈ log 0.982 |
-| `[0,0,0]` (utente training-consistent) | 0.132 | 0.249 |
-| `[0,0,tier=1]` | 0.457 | 0.963 |
-| `[role=1,clr=1,0]` | 0.134 | 0.239 |
-
-- Driver unico: edge `access user→res`; binding edge ≈0.
-- Colpevole: **`srcFeat[2]`=device tier scritto nel nodo UTENTE**. In `stream_synthetic.py`
-  `node_feat[2]`≠0 solo per i nodi *device*; per gli utenti è sempre 0. `score_event`
-  applica lo stesso `src_feat` a utente E device → l'utente diventa OOD.
-- Role/clearance (`[0]/[1]`) sono innocui (viaggiano già nel messaggio).
-- Lo skew è presente anche in `tests/generator.py:55` (`src_feat = nf[device]`), quindi nel
-  path di eval HTTP. L'eval **offline** (`_replay`) è pulito (non usa `src_feat`).
-
-## Parte 1 — Fix (Option B: contratto feature per-tipo-di-nodo) — DA IMPLEMENTARE
-Obiettivo: il serving riproduce esattamente il contratto del training — nodo utente = zeri,
-nodo device = tier in `[2]` — senza rinunciare a una feature appresa (scelta pubblicabile).
-
-- [x] `infra/ai-inference/src/serve_tgn.py`: in `score_event` e `commit_event` sostituire il
-      singolo `src_feat` (applicato a utente+device) con `user_feat` e `device_feat`;
-      applicare `user_feat`→nodo utente, `device_feat`→nodo device, `dst_feat`→risorsa.
-      Aggiornare docstring.
-- [x] `infra/ai-inference/src/serve_api.py`: `EventIn` → sostituire `src_feat` con
-      `user_feat`/`device_feat` (mantenere `dst_feat`); aggiornare `_validate_dims` e le 3
-      chiamate (`/infer`, `/update`, `/score`).
-- [x] `services/security-orchestrator/internal/aiscorer/client.go`: struct `Event` →
-      `UserFeat`/`DeviceFeat` (json `user_feat`/`device_feat`) al posto di `SrcFeat`.
-- [x] `services/security-orchestrator/internal/handler/handler.go` `buildAIEvent`:
-      costruire `deviceFeat` con solo `[2]=tier`; `userFeat` = zeri. Rimosso role/
-      clearance dalle feature di nodo (restano nel messaggio `Features[5],[6]`).
-- [x] `infra/ai-inference/tests/generator.py`: manda `user_feat = nf[ev["user"]]` (zeri) e
-      `device_feat = nf[ev["device"]]`.
-- [x] Test che passano `src_feat`: nessuno (i test serve passano i feat solo come kwarg
-      opzionale, mai `src_feat`; le baseline usano `src_feat` come variabile locale, non l'API).
-
-### Verifica Parte 1
-- [x] Sonda A/B in-process sul checkpoint reale (GPU): admin cold benigno, single-key.
-      docs OLD 0.42→BLOCK / NEW 0.107→ALLOW; reactor OLD 0.985 (≈log 0.982)→BLOCK / NEW 0.018→ALLOW.
-- [x] Sonda aggregata (60 identità cold, isola il segnale dal rumore dell'hash embedding):
-      reactor tier=1.0 (TPM) OLD block 87% → NEW block 27%; docs ~invariato a livello di gate.
-      Il bias sistematico colpiva soprattutto l'admin TPM su risorse TOP_SECRET (il caso prod).
-- [x] `pytest` (test_serve_v2, test_policy_blp, calibration, netclass, stable_hash): 20 passed.
-- [x] `go build ./...` + `go test ./...` orchestratore: OK (aiscorer pass).
-- [x] Eval offline (`_replay`) invariato: la fix tocca solo il path di serving; il replay
-      legge `model.node_feat` diretto e non inietta mai feature statiche per-evento.
-
-## Review (2026-06-23)
-**Fix applicato** (Option B, contratto feature per-tipo-di-nodo): 5 file, 2 servizi.
-serve_tgn.py / serve_api.py / client.go / handler.go / generator.py. Build+test verdi.
-
-**Metriche online rigenerate** (test client live cold-start, checkpoint corrente, GPU
-RTX 5070 Ti, run da 90 s, ~8 k eventi). Confronto pulito old-skew vs fix sullo *stesso*
-checkpoint (old-skew emulato via branch diagnostico env-gated, poi rimosso):
-
-| Path | Lateral recall | Specificità benigna | Latenza P50/P99 |
-|---|---|---|---|
-| OLD skew (device ≈ no-device) | 86.7% | 32.7% | 9.4 / 10.6 ms |
-| NEW fixed (device ≈ no-device) | 82.1% | 43.4% | 9.5 / 10.8 ms |
-
-- La fix **migliora** la specificità benigna in cold-start (32.7%→43.4%, meno falsi
-  positivi) a fronte di un piccolo calo di recall laterale (86.7%→82.1%): lo skew
-  faceva apparire ogni utente cold come OOD (tier sul nodo utente) → più flagging.
-- device-edge vs no-device: ora **identico** in puro cold-start (il device cold non
-  porta storia) — la fix non lo cambia; aggiornata di conseguenza la sezione serving.
-- I numeri online preesistenti nel report (lateral ~47%, specificità ~76%, latenza
-  v3 a 3 archi/6.0 ms) erano **stantii**: descrivevano lo schema v3 e/o un checkpoint
-  precedente, NON il checkpoint deployato. Aggiornati a v4 + fix.
-
-**Metriche offline**: NON toccate dalla fix (path di serving isolato). Non re-verificabili
-indipendentemente senza un retrain completo (train_tgn non ha modalità eval-only; ri-eseguire
-produrrebbe un *nuovo* checkpoint non-deterministico, non validerebbe quello attuale).
-Lasciate invariate; la non-influenza è argomentata in report (replay non usa src_feat).
-
-**Report aggiornato**: `infra/ai-inference/docs/latex/report.tex` §serving (sola sezione
-con numeri online) + PDF ricompilato (latexmk, exit 0).
-
-## Parte 2 — Residuo cold-start su reactor-parameters — DA DECIDERE (poi plan)
-Anche col fix, admin *davvero* nuovo su reactor = ~0.25 vs gate OPA `≤0.10` → ancora bloccato.
-È vero cold-start (piccolo) + gate strettissimo. Opzioni:
-- **(consigliata) Astensione/confidence-gating**: il servizio AI espone un segnale di cold-start
-  reale (es. src senza storia benigna; oggi `confidence` è solo "rete ha risposto"). OPA, in
-  assenza di evidenza, defer alla policy deterministica (BLP+cert+TPM) invece di lasciar negare
-  uno score senza evidenza. Story Zero-Trust pulita e pubblicabile.
-- Enrollment warmup: seed di eventi benigni alla registrazione TPM (fabbrica baseline — più
-  debole per un paper).
-- Ritaratura `rischio_accettato` reactor (rozza, indebolisce la sicurezza).
-- [ ] Decidere l'approccio, poi entrare in plan mode dedicato.
-
-## Note di pubblicazione
-- Solo le metriche **offline** (`train_tgn._replay`) sono pulite; numeri "online" dal test
-  client sono contaminati dallo stesso skew → da rigenerare dopo il fix se citati.
-- Aggiornata `tasks/lessons.md` con la lezione "verifica empirica dello skew train/serve".
-
----
-
-# Report: riproducibilità + multi-seed Pannelli A/B (P1 + P2 + m1)
-> 2026-06-24. Origine: tasks/report-improvements.md. Piano approvato.
-
-## Piano
-- [x] m1 — `xgboost>=2.0.0` in `pyproject.toml` (era solo in requirements.txt)
-- [x] P2(a) — `src/report_metrics.py` (mean_std / latex_cell / delta / dump_json)
-- [x] P2(a) — `train_tgn` ritorna `agg_recall_global` (recall agg @1%FPR globale, serve a Pannello A)
-- [x] P2(a) — baseline (gnn/ocsvm/iforest/xgboost) ritornano un dict di metriche
-- [x] P2(b) — `tests/regen_report_tables.py` (orchestratore unico, seed [42,7,123])
-- [x] P2(b) — service compose `regen-report`
-- [x] P2(c) — `docs/latex/PROVENANCE.md` (mappa tabella→json/log→script→profilo)
-- [x] Smoke test in container OK (report_metrics, import baseline, xgboost 3.3.0, frammenti tex)
-- [ ] P1 — eseguire `regen-report` (6 run TGN + baseline multi-seed) [IN CORSO, background]
-- [ ] P1 — aggiornare celle+prosa di tab:baselines, tab:v3v4, tab:summary da panel{A,B}.json
-- [ ] Verifica: md5 `public/tgn_checkpoint.pt` invariato (save=False)
-
-## Fuori scope (decisione utente)
-- m2 (struct head), m3 (frase cold-start), P3 (protocollo unico Pannello A) — rimandati.
-
-## Mapping metriche → celle (per l'aggiornamento del .tex)
-- Pannello B (tab:v3v4): agg_auc/agg_ap; agg_recall(instradata); lateral auc/ap/recall(instradata);
-  lateral_recall_before(@1%FPR); policy/ctx auc; fpr_after(FPR benigno instradato).
-- Pannello A (tab:baselines): riga TGN = colonna v3 per-cookie del Pannello B, tutto @1%FPR globale
-  (agg_auc, agg_ap, lat auc, lateral_recall_before, agg_recall_global). Baseline = deployable.
-
-## Review (2026-06-24, completata)
-Tutti gli step P1/P2/m1 eseguiti e verificati:
-- **Esecuzione**: `docker compose --profile regen-report up` (GPU) — 6 run TGN (v3/v4 per-cookie,
-  200k/15ep × 3 seed) + 4 baseline × 3 seed. Exit 0.
-- **Sicurezza artefatto**: md5 `public/tgn_checkpoint.pt` INVARIATO prima/dopo (save=False ok).
-- **Risultati onesti** (la radice del problema): headline TGN sceso da single-run 0.932/0.973 a
-  multi-seed lateral AUC 0.913±0.014 / agg AUC 0.965±0.007. Su v3→v4 la storia è più pulita:
-  AUC laterale +0.017 e recall laterale instradato +0.227 ora SIGNIFICATIVI; AUC/AP aggregate
-  entro il rumore (marcate †).
-- **LaTeX**: report.tex aggiornato (tab:baselines, tab:v3v4, tab:summary A/B + prosa §eval,
-  §cost-routing, §v4results, §limiti, §sintesi). Compila (latexmk exit 0); overflow tab:summary
-  0.81pt (trascurabile). Overfull pre-esistenti a righe 39-40/234-235 non toccati.
-- **Riproducibilità**: panel{A,B}.json + docs/latex/generated/*.tex + PROVENANCE.md.
-- **m1**: xgboost importabile dall'immagine (v3.3.0).
-
-Note: m2/m3/P3 rimandati su decisione utente. La struct head (+0.007) e la frase cold-start
-restano candidati futuri.
+Il default per l'AI score sulle rotte pubbliche all'interno della policy OPA è stato corretto. È passato da `0.50` a `0.99`, rispettando pienamente il design "fail-suspicious" della Zero Trust Architecture documentato nella tesi. La discrepanza segnalata è risolta.

@@ -66,7 +66,7 @@ beneficio := 0.70
 
 allow if {
     input.request.path in public_paths
-    ai_score := object.get(input, ["ai", "score"], 0.50)
+    ai_score := object.get(input, ["ai", "score"], 0.99)
     (beneficio - ai_score) >= 0
 }
 

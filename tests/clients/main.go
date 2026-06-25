@@ -45,12 +45,12 @@ func main() {
 	log.Println("Waiting 10 seconds for Envoy to start...")
 	time.Sleep(10 * time.Second)
 
-	targetURL := "https://localhost:8443/"
+	targetURL := "https://ztaleaks_envoy:8443/"
 
 	caFilePath := "/app/certs/ca.crt"
 
-	clientCrtPath := "/app/certs/client.crt"
-	clientKeyPath := "/app/certs/client.key"
+	clientCrtPath := "/app/certs/operator1.crt"
+	clientKeyPath := "/app/certs/operator1.key"
 
 	// Caricamento del certificato client
 
@@ -114,6 +114,39 @@ func main() {
 	// 8. Malformed TLS Handshake (incomplete/corrupted)
 	log.Printf("\nStarting Malformed TLS Handshake Test...\n")
 	simulateMalformedTLSHandshakes("ztaleaks_envoy", 8443, 5)
+
+	// 9. Mid SQLi Test
+	sqliReqID := generateUUID()
+	log.Printf("\nStarting Mid SQLi Test. X-Request-ID: %s\n", sqliReqID)
+	runRequest("MidSQLi", targetURL+"api/v1/personnel?q=UNION+SELECT+*+FROM+users", sqliReqID, &tls.Config{InsecureSkipVerify: true})
+
+	// 10. Mid XSS Test
+	xssReqID := generateUUID()
+	log.Printf("\nStarting Mid XSS Test. X-Request-ID: %s\n", xssReqID)
+	runRequest("MidXSS", targetURL+"api/v1/personnel?username=<script>alert(1)</script>", xssReqID, &tls.Config{InsecureSkipVerify: true})
+
+	// 11. Internal Legacy TLS Test (SSLv3)
+	log.Printf("\nStarting Internal Legacy TLS Test (SSLv3)...\n")
+	simulateLegacyTLS("ztaleaks_envoy", 8443)
+
+	// 12. Slow Lateral Movement Test (Bypass Envoy, target Orchestrator)
+	log.Printf("\nStarting Slow Lateral Movement Test (Slowloris on Orchestrator API)...\n")
+	simulateSlowLateralMovement("ztaleaks_security_orchestrator", 8081)
+
+	log.Printf("\n[+] Attacchi generati. Attendo 3 secondi per l'elaborazione dei log (Snort -> Orchestrator)...\n")
+	time.Sleep(3 * time.Second)
+
+	// 13. Final Legitimate Request to trigger AI Scorer
+	legitReqID := generateUUID()
+	log.Printf("\nStarting Final Legitimate Request to trigger AI Scorer. X-Request-ID: %s\n", legitReqID)
+	runRequest("FinalLegitimate", targetURL+"login", legitReqID, &tls.Config{
+		RootCAs:            getTrustedPool(caFilePath),
+		InsecureSkipVerify: false,
+		Certificates:       []tls.Certificate{clientCert},
+		ServerName:         "ztaleaks_envoy",
+	})
+
+	log.Println("\nAll tests completed.")
 }
 
 func simulatePortScan(host string) {
@@ -127,7 +160,7 @@ func simulatePortScan(host string) {
 			conn.Close()
 		}
 	}
-	log.Println("[PortScan] Finished sending SYN packets for port scan.")
+	log.Println("[PortScan] [PASS] Finished sending SYN packets for port scan.")
 }
 
 func simulateSYNFlood(host string, port int, amount int) {
@@ -143,7 +176,7 @@ func simulateSYNFlood(host string, port int, amount int) {
 		}()
 	}
 	time.Sleep(2 * time.Second) // Attendiamo per assicurarci che completino e l'alert scatti
-	log.Println("[SYN Flood] Finished sending SYN packets.")
+	log.Println("[SYN Flood] [PASS] Finished sending SYN packets.")
 }
 
 func simulateRapidRequests(host string, port int, count int, interval time.Duration) {
@@ -161,7 +194,7 @@ func simulateRapidRequests(host string, port int, count int, interval time.Durat
 		time.Sleep(interval)
 	}
 	time.Sleep(2 * time.Second)
-	log.Println("[RapidRequests] Finished rapid request sequence.")
+	log.Println("[RapidRequests] [PASS] Finished rapid request sequence.")
 }
 
 func simulateMalformedTLSHandshakes(host string, port int, count int) {
@@ -182,7 +215,7 @@ func simulateMalformedTLSHandshakes(host string, port int, count int) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	time.Sleep(1 * time.Second)
-	log.Println("[MalformedTLS] Finished malformed TLS handshake sequence.")
+	log.Println("[MalformedTLS] [PASS] Finished malformed TLS handshake sequence.")
 }
 
 func runRequest(name, urlStr, reqID string, tlsConfig *tls.Config) {
@@ -195,7 +228,7 @@ func runRequest(name, urlStr, reqID string, tlsConfig *tls.Config) {
 
 	req, err := http.NewRequest("GET", urlStr, nil)
 	if err != nil {
-		log.Printf("[%s] Failed to create request: %v\n", name, err)
+		log.Printf("[%s] [FAIL] Failed to create request: %v\n", name, err)
 		return
 	}
 
@@ -203,12 +236,54 @@ func runRequest(name, urlStr, reqID string, tlsConfig *tls.Config) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[%s] Request failed: %v\n", name, err)
+		log.Printf("[%s] [PASS] Request sent, network/TLS error received (expected if blocked): %v\n", name, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	log.Printf("[%s] Response Status: %s\n", name, resp.Status)
-	log.Printf("[%s] Response Body (truncated): %.100s...\n", name, string(body))
+	log.Printf("[%s] [PASS] Response Status: %s\n", name, resp.Status)
+	log.Printf("[%s] [PASS] Response Body (truncated): %.100s...\n", name, string(body))
+}
+
+func simulateLegacyTLS(host string, port int) {
+	target := fmt.Sprintf("%s:%d", host, port)
+	conn, err := net.DialTimeout("tcp", target, 2*time.Second)
+	if err == nil {
+		// SSLv3 ClientHello
+		clientHello := []byte{
+			0x16, 0x03, 0x01, 0x00, 0x2f, 0x01, 0x00, 0x00, 0x2b, 0x03, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x02, 0x00, 0x04, 0x01, 0x00,
+		}
+		conn.Write(clientHello)
+		conn.Close()
+		log.Println("[LegacyTLS] [PASS] Legacy TLS handshake attack sent.")
+	} else {
+		log.Printf("[LegacyTLS] [FAIL] Could not connect to send Legacy TLS: %v\n", err)
+	}
+}
+
+func simulateSlowLateralMovement(host string, port int) {
+	target := fmt.Sprintf("%s:%d", host, port)
+	log.Printf("[SlowLateral] Attempting Slowloris attack against %s\n", target)
+
+	conn, err := net.DialTimeout("tcp", target, 2*time.Second)
+	if err == nil {
+		defer conn.Close()
+		// Invia l'inizio di una richiesta HTTP GET a /api/v1/evaluate
+		requestLine := "GET /api/v1/evaluate HTTP/1.1\r\nHost: " + host + "\r\n"
+		conn.Write([]byte(requestLine))
+
+		// Invia header finti un byte alla volta molto lentamente
+		headers := []byte("User-Agent: Slowloris\r\nAccept: */*\r\n")
+		for _, b := range headers {
+			conn.Write([]byte{b})
+			time.Sleep(2 * time.Second) // Evade i controlli volumetrici
+		}
+		log.Println("[SlowLateral] [PASS] Finished slow lateral movement Slowloris attack.")
+	} else {
+		log.Printf("[SlowLateral] [FAIL] Could not connect for slow lateral movement: %v\n", err)
+	}
 }

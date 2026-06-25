@@ -4,17 +4,17 @@ Dopo aver delineato nel capitolo precedente la struttura generale dell'architett
 
 \section{Il firewall di rete con nftables}
 
-Il primo componente che intercetta il traffico in ingresso è il container \texttt{ztaleaks\_firewall}, costruito su un'immagine Alpine Linux minimale e configurato per eseguire \texttt{nftables} come sistema di filtraggio dei pacchetti. Questo container svolge un duplice ruolo nell'architettura: da un lato applica una policy di filtraggio rigorosa sul traffico in ingresso, dall'altro fornisce lo stack di rete condiviso per i container Envoy e le tre istanze Snort, che sono configurati con la direttiva \texttt{network\_mode:service:firewall} nel file di Compose.
+Il primo componente che intercetta il traffico in ingresso è il container \texttt{ztaleaks\_firewall}, costruito su un'immagine Alpine Linux minimale e configurato per eseguire \texttt{nftables} come sistema di filtraggio dei pacchetti. Questo container svolge un duplice ruolo nell'architettura: da un lato applica una policy di filtraggio rigorosa sul traffico in ingresso, dall'altro fornisce lo stack di rete condiviso per i container Envoy e le 3 istanze Snort, che sono configurati con la direttiva \texttt{network\_mode:service:firewall} nel file di Compose.
 
 Questa scelta architetturale ha conseguenze rilevanti sulla sicurezza. Il fatto che Envoy e le istanze Snort condividano il namespace di rete del firewall significa che ogni pacchetto destinato a Envoy attraversa obbligatoriamente le catene di nftables prima di raggiungere il proxy, e che Snort osserva esattamente lo stesso flusso di traffico che Envoy riceve. Non esiste alcun percorso alternativo: la complete mediation è garantita a livello del kernel Linux, senza affidarsi a configurazioni applicative che potrebbero essere aggirate.
 
-La configurazione di \texttt{nftables} è definita nel file \texttt{nftables.conf} montato all'interno del container. La tabella principale è denominata \texttt{inet filter} e gestisce sia il traffico IPv4 sia quello IPv6 in modo unificato. All'interno della tabella vengono definite cinque catene: tre catene IDS dedicate al dirottamento del traffico verso le istanze Snort tramite NFQUEUE, e le catene tradizionali \texttt{input}, \texttt{forward} e \texttt{output}.
+La configurazione di \texttt{nftables} è definita nel file \texttt{nftables.conf} montato all'interno del container. La tabella principale è denominata \texttt{inet filter} e gestisce sia il traffico IPv4 sia quello IPv6 in modo unificato. All'interno della tabella vengono definite 5 catene: 3 catene IDS dedicate al dirottamento del traffico verso le istanze Snort tramite NFQUEUE, e le catene tradizionali \texttt{input}, \texttt{forward} e \texttt{output}.
 
 \subsection*{Catene IDS con NFQUEUE}
 
-Prima di raggiungere le catene di filtraggio, il traffico transita attraverso tre catene IDS configurate con priorità negative, in modo da eseguire l'ispezione Snort prima di qualsiasi decisione di filtraggio. La direttiva \texttt{bypass} garantisce il comportamento fail-open: se un'istanza Snort si arresta, il kernel accetta il pacchetto invece di scartarlo, mantenendo operativo il sistema. Le istanze Snort operano in modalità pura IDS, emettendo solo verdetti \texttt{ACCEPT}, senza mai bloccare il traffico autonomamente.
+Prima di raggiungere le catene di filtraggio, il traffico transita attraverso 3 catene IDS configurate con priorità negative, in modo da eseguire l'ispezione Snort prima di qualsiasi decisione di filtraggio. La direttiva \texttt{bypass} garantisce il comportamento fail-open: se un'istanza Snort si arresta, il kernel accetta il pacchetto invece di scartarlo, mantenendo operativo il sistema. Le istanze Snort operano in modalità pura IDS, emettendo solo verdetti \texttt{ACCEPT}, senza mai bloccare il traffico autonomamente.
 
-Le tre catene IDS sono le seguenti:
+Le 3 catene IDS sono le seguenti:
 
 \begin{itemize}
     \item La catena \texttt{ids\_prerouting}, con priorità \texttt{-150}, intercetta tutto il traffico in ingresso sull'interfaccia di rete esterna (\texttt{front-net}) e lo dirige verso la coda numero 1, dove opera l'istanza Snort esterna che rileva attività di scansione e ricognizione.
@@ -28,7 +28,7 @@ Le tre catene IDS sono le seguenti:
 
 La catena \texttt{input} è configurata con policy di default DROP. Questa scelta rappresenta l'applicazione del principio di fail-safe defaults: in assenza di una regola esplicita di consenso, il pacchetto viene scartato silenziosamente. Le regole di consenso sono limitate al minimo necessario: viene accettato il traffico locale sull'interfaccia di loopback, il traffico appartenente a connessioni già stabilite o correlate (sfruttando il connection tracking del kernel) e il traffico TCP nuovo verso la porta di Envoy, loggato con il prefisso \texttt{fw-accept}.
 
-Un meccanismo di rilievo è rappresentato dal controllo anti-SYN flood: tramite un contatore dinamico denominato \texttt{syn\_meter}, le connessioni con flag SYN che superano la frequenza di venti richieste al secondo per singolo indirizzo IP sorgente vengono scartate e registrate nei log con il prefisso \texttt{fw-syn-flood-drop}.
+Un meccanismo di rilievo è rappresentato dal controllo anti-SYN flood: tramite un contatore dinamico denominato \texttt{syn\_meter}, le connessioni con flag SYN che superano la frequenza di 20 richieste al secondo per singolo indirizzo IP sorgente vengono scartate e registrate nei log con il prefisso \texttt{fw-syn-flood-drop}.
 
 La catena \texttt{output} implementa anch'essa una policy di default DROP per impedire connessioni non autorizzate verso l'esterno. La allow-list di uscita comprende il traffico di loopback, le connessioni già stabilite, le porte TCP dei servizi applicativi (8080, 8081, 8082), la porta del socket TCP Snort verso l'orchestratore (9000), le porte per la risoluzione DNS (53 TCP e UDP), la porta MongoDB (27017) e la porta syslog (1025). Ogni altra connessione in uscita viene rifiutata e registrata con il prefisso \texttt{fw-egress-drop}.
 
@@ -36,47 +36,47 @@ La catena \texttt{forward} adotta una policy di default DROP, prevenendo qualsia
 
 \subsection*{Avvio e configurazione a runtime}
 
-Lo script \texttt{entrypoint.sh} orchestra l'avvio del container in sei fasi sequenziali: crea le directory di log, avvia \texttt{ulogd} in background, sostituisce nella configurazione le due variabili segnaposto \texttt{ENV\_ENVOY\_PORT} e \texttt{ENV\_FRONT\_IFACE} con i valori effettivi prelevati dall'ambiente (la seconda viene risolta dinamicamente interrogando la subnet \texttt{FRONT\_NET\_SUBNET} tramite il comando \texttt{ip}), carica le regole nel kernel tramite \texttt{nft delete table} seguito da \texttt{nft -f}, avvia il parser Go in background e infine mantiene il container attivo in foreground effettuando un tail del file di log.
+Lo script \texttt{entrypoint.sh} orchestra l'avvio del container in 6 fasi sequenziali: crea le directory di log, avvia \texttt{ulogd} in background, sostituisce nella configurazione le 2 variabili segnaposto \texttt{ENV\_ENVOY\_PORT} e \texttt{ENV\_FRONT\_IFACE} con i valori effettivi prelevati dall'ambiente (la seconda viene risolta dinamicamente interrogando la subnet \texttt{FRONT\_NET\_SUBNET} tramite il comando \texttt{ip}), carica le regole nel kernel tramite \texttt{nft delete table} seguito da \texttt{nft -f}, avvia il parser Go in background e infine mantiene il container attivo in foreground effettuando un tail del file di log.
 
 Il logging è gestito dal demone \texttt{ulogd}, configurato con uno stack di plugin che riceve gli eventi dal gruppo NFLOG numero 100, li arricchisce con metadati di rete e li scrive sul file \texttt{ulogd-syslogemu.log}. Il parser Go (\texttt{parser.go}) legge tale file in modalità \texttt{tail -F} (resistente alla rotazione dei log), estrae i campi chiave-valore dal formato syslog, identifica il prefisso del log (es.\ \texttt{fw-accept}, \texttt{fw-syn-flood-drop}, \texttt{fw-egress-drop}) e produce record JSON strutturati con campi \texttt{action} e \texttt{threat}, scritti in append sul file \texttt{firewall.jsonl} all'interno del volume condiviso con il Splunk Universal Forwarder.
 
 \section{Il sistema di rilevamento intrusioni con Snort}
 
-Sul medesimo stack di rete del firewall operano tre container Snort distinti, ciascuno collegato a una coda NFQUEUE specifica e dedicato a un livello di ispezione differente. I tre container sono denominati \texttt{ztaleaks\_snort} (coda 1), \texttt{ztaleaks\_snort\_internal} (coda 2) e \texttt{ztaleaks\_snort\_mid} (coda 3), e svolgono funzioni complementari nell'architettura di rilevamento.
+Sul medesimo stack di rete del firewall operano 3 container Snort distinti, ciascuno collegato a una coda NFQUEUE specifica e dedicato a un livello di ispezione differente. I 3 container sono denominati \texttt{ztaleaks\_snort} (coda 1), \texttt{ztaleaks\_snort\_internal} (coda 2) e \texttt{ztaleaks\_snort\_mid} (coda 3), e svolgono funzioni complementari nell'architettura di rilevamento.
 
-Tutte e tre le immagini sono costruite con un processo multi-stage: il primo stage compila in Go il parser degli alert, mentre il secondo stage installa Ubuntu 24.04 con Snort 2.9 dai repository ufficiali e incorpora il binario compilato. Snort viene avviato con i flag \texttt{-k none} per disabilitare la verifica dei checksum (necessaria sulle interfacce virtuali Docker), \texttt{-A fast} per il formato di output degli alert, e \texttt{--daq nfq --daq-var queue=N} per l'integrazione NFQUEUE.
+Tutte e 3 le immagini sono costruite con un processo multi-stage: il primo stage compila in Go il parser degli alert, mentre il secondo stage installa Ubuntu 24.04 con Snort 2.9 dai repository ufficiali e incorpora il binario compilato. Snort viene avviato con i flag \texttt{-k none} per disabilitare la verifica dei checksum (necessaria sulle interfacce virtuali Docker), \texttt{-A fast} per il formato di output degli alert, e \texttt{--daq nfq --daq-var queue=N} per l'integrazione NFQUEUE.
 
 \subsection*{Istanza esterna (coda 1): scansioni di porte}
 
-Il container \texttt{ztaleaks\_snort} monitora tutto il traffico in ingresso sull'interfaccia \texttt{front-net}. Il preprocessore \texttt{sfportscan} è abilitato con i parametri \texttt{proto \{all\}}, \texttt{memcap \{10000000\}} e \texttt{sense\_level \{low\}} per minimizzare i falsi positivi. L'unica regola nel file \texttt{portscan.rules} (SID 1000001) genera l'alert \textit{ZTA: TCP Port Scanning Detected} quando vengono rilevati più di cinque pacchetti TCP con flag SYN dalla stessa sorgente nell'arco di cinque secondi, con classificazione \texttt{attempted-recon}.
+Il container \texttt{ztaleaks\_snort} monitora tutto il traffico in ingresso sull'interfaccia \texttt{front-net}. Il preprocessore \texttt{sfportscan} è abilitato con i parametri \texttt{proto \{all\}}, \texttt{memcap \{10000000\}} e \texttt{sense\_level \{low\}} per minimizzare i falsi positivi. L'unica regola nel file \texttt{portscan.rules} (SID 1000001) genera l'alert \textit{ZTA: TCP Port Scanning Detected} quando vengono rilevati più di 5 pacchetti TCP con flag SYN dalla stessa sorgente nell'arco di 5 secondi, con classificazione \texttt{attempted-recon}.
 
 \subsection*{Istanza interna (coda 2): anomalie TLS}
 
-Il container \texttt{ztaleaks\_snort\_internal} monitora il traffico TCP diretto alla porta di Envoy, specializzandosi nell'ispezione dei record TLS. Il file \texttt{internal.rules} implementa un insieme articolato di regole suddivise in tre sezioni:
+Il container \texttt{ztaleaks\_snort\_internal} monitora il traffico TCP diretto alla porta di Envoy, specializzandosi nell'ispezione dei record TLS. Il file \texttt{internal.rules} implementa un insieme articolato di regole suddivise in 3 sezioni:
 
 \begin{itemize}
     \item \textit{Anomalie mTLS}: la regola SID 2000002 individua la violazione mTLS cercando il pattern binario \texttt{0B 00 00 03 00 00 00}, corrispondente a un messaggio Certificate di tipo \texttt{HandshakeType=11} con lista di certificati vuota, indicativo dell'assenza del certificato client. Una regola ICMP canary (SID 1000004) viene usata durante i test di integrazione per verificare che l'IDS sia attivo.
 
-    \item \textit{Versioni TLS legacy}: tre regole (SID 2000010--2000012) rilevano l'offerta di SSLv3, TLS 1.0 e TLS 1.1 nel campo \texttt{legacy\_version} del ClientHello (offset 9--10 del payload), scelto deliberatamente rispetto alla versione del record TLS (bytes 1--2) per evitare falsi positivi sulle connessioni TLS 1.3, che impostano la versione del record a \texttt{0x0301} per compatibilità. Tre ulteriori regole (SID 2000020--2000022) rilevano i corrispondenti attacchi di downgrade nel ServerHello.
+    \item \textit{Versioni TLS legacy}: 3 regole (SID 2000010--2000012) rilevano l'offerta di SSLv3, TLS 1.0 e TLS 1.1 nel campo \texttt{legacy\_version} del ClientHello (offset 9--10 del payload), scelto deliberatamente rispetto alla versione del record TLS (bytes 1--2) per evitare falsi positivi sulle connessioni TLS 1.3, che impostano la versione del record a \texttt{0x0301} per compatibilità. 3 ulteriori regole (SID 2000020--2000022) rilevano i corrispondenti attacchi di downgrade nel ServerHello.
 
-    \item \textit{Cipher suite deboli}: tre regole (SID 2000030--2000032) rilevano cipher suite RC4, 3DES e NULL/EXPORT/DH anonime offerte nel ClientHello, utilizzando espressioni regolari PCRE ancorate alla posizione relativa dopo l'intestazione del messaggio.
+    \item \textit{Cipher suite deboli}: 3 regole (SID 2000030--2000032) rilevano cipher suite RC4, 3DES e NULL/EXPORT/DH anonime offerte nel ClientHello, utilizzando espressioni regolari PCRE ancorate alla posizione relativa dopo l'intestazione del messaggio.
 
-    \item \textit{SYN flood}: la regola SID 2000006 genera un alert quando un singolo destinatario riceve più di trenta pacchetti SYN nell'arco di due secondi verso la porta di Envoy, con classificazione \texttt{attempted-dos}.
+    \item \textit{SYN flood}: la regola SID 2000006 genera un alert quando un singolo destinatario riceve più di 30 pacchetti SYN nell'arco di 2 secondi verso la porta di Envoy, con classificazione \texttt{attempted-dos}.
 \end{itemize}
 
 \subsection*{Istanza intermedia (coda 3): attacchi applicativi}
 
-Il container \texttt{ztaleaks\_snort\_mid} monitora il traffico TCP tra Envoy e il Security Orchestrator sulla porta 8081, ispezionando il canale \texttt{ext\_authz} in chiaro. Il file \texttt{mid.rules} implementa due categorie di rilevamento:
+Il container \texttt{ztaleaks\_snort\_mid} monitora il traffico TCP tra Envoy e il Security Orchestrator sulla porta 8081, ispezionando il canale \texttt{ext\_authz} in chiaro. Il file \texttt{mid.rules} implementa 2 categorie di rilevamento:
 
 \begin{itemize}
-    \item \textit{SQL Injection} (SID 3000001--3000004): quattro regole rilevano rispettivamente il pattern \texttt{UNION SELECT}, la tautologia \texttt{OR 1=1}, l'istruzione distruttiva \texttt{DROP TABLE} e la tautologia URL-encoded \texttt{\%27 OR ... \%3D}.
+    \item \textit{SQL Injection} (SID 3000001--3000004): 4 regole rilevano rispettivamente il pattern \texttt{UNION SELECT}, la tautologia \texttt{OR 1=1}, l'istruzione \texttt{DROP TABLE} e la tautologia URL-encoded \texttt{\%27 OR ... \%3D}.
 
-    \item \textit{Cross-Site Scripting} (SID 3000010--3000014): cinque regole rilevano i tag \texttt{<script>} in forma grezza e URL-encoded, lo schema URI \texttt{javascript:} e i gestori di eventi \texttt{onerror=} e \texttt{onload=}.
+    \item \textit{Cross-Site Scripting} (SID 3000010--3000014): 5 regole rilevano i tag \texttt{<script>} in forma grezza e URL-encoded, lo schema URI \texttt{javascript:} e i gestori di eventi \texttt{onerror=} e \texttt{onload=}.
 \end{itemize}
 
 \subsection*{Parser e integrazione con l'orchestratore}
 
-Ogni istanza Snort esegue in background un parser Go condiviso (\texttt{parser.go}) che legge il file degli alert in formato \texttt{fast} e applica un'espressione regolare per estrarre i campi strutturati di ciascun alert: timestamp, messaggio, classificazione, priorità, indirizzo e porta sorgente, indirizzo e porta di destinazione. Gli alert strutturati vengono scritti come JSON su un file JSONL specifico del container e trasmessi in tempo reale al Security Orchestrator tramite una connessione TCP persistente sulla porta 9000, dove vengono inseriti nella \texttt{SnortCache} con TTL di tre minuti per alimentare la valutazione del rischio.
+Ogni istanza Snort esegue in background un parser Go condiviso (\texttt{parser.go}) che legge il file degli alert in formato \texttt{fast} e applica un'espressione regolare per estrarre i campi strutturati di ciascun alert: timestamp, messaggio, classificazione, priorità, indirizzo e porta sorgente, indirizzo e porta di destinazione. Gli alert strutturati vengono scritti come JSON su un file JSONL specifico del container e trasmessi in tempo reale al Security Orchestrator tramite una connessione TCP persistente sulla porta 9000, dove vengono inseriti nella \texttt{SnortCache} con TTL di 3 minuti per alimentare la valutazione del rischio.
 
 \section{Envoy Proxy e la pipeline TLS}
 
@@ -94,21 +94,21 @@ Completato l'handshake TLS, il controllo passa al filtro di rete \texttt{http\_c
 
 La configurazione degli access log prevede un doppio output: uno verso lo standard output (per i log Docker) e uno verso il file \texttt{access.jsonl} all'interno del volume condiviso. Il formato dei log è JSON strutturato e include i campi per la correlazione: l'identificatore \texttt{request\_id} (propagato dall'header \texttt{X-Request-ID}), l'impronta JA3, l'indirizzo remoto, il cluster upstream, il certificato client e l'identità dell'utente autenticato.
 
-La sezione \texttt{request\_headers\_to\_add} inietta automaticamente tre header nelle richieste: \texttt{x-ja3-fingerprint} con il valore dell'impronta JA3, \texttt{x-original-uri} con il path originale della richiesta e \texttt{x-envoy-external-address} con l'indirizzo IP esterno del client, derivato dall'indirizzo downstream reale e non falsificabile dal client.
+La sezione \texttt{request\_headers\_to\_add} inietta automaticamente 3 header nelle richieste: \texttt{x-ja3-fingerprint} con il valore dell'impronta JA3, \texttt{x-original-uri} con il path originale della richiesta e \texttt{x-envoy-external-address} con l'indirizzo IP esterno del client, derivato dall'indirizzo downstream reale e non falsificabile dal client.
 
 Le rotte dell'identity access managment (\texttt{/api/v1/auth/}, \texttt{/.well-known/jwks.json}, \texttt{/login}, \texttt{/register}) vengono instradate direttamente al cluster \texttt{identity\_service\_cluster} senza passare per il filtro \texttt{ext\_authz}, poiché gestiscono richieste non autenticate. Tutte le altre rotte (prefisso \texttt{/api/v1/} e radice \texttt{/}) vengono instradate al cluster \texttt{business\_logic\_cluster} ma devono prima superare il filtro \texttt{ext\_authz}.
 
-La pipeline dei filtri HTTP comprende due elementi in sequenza. Il primo è il filtro \texttt{ext\_authz}, che effettua una chiamata sincrona di autorizzazione al Security Orchestrator sull'endpoint \texttt{/api/v1/evaluate} con un timeout di cinque secondi. La direttiva \texttt{failure\_mode\_allow: false} garantisce il comportamento fail-closed (Zero Trust). Il filtro trasmette al Security Orchestrator un insieme definito di header tra cui \texttt{authorization}, \texttt{x-forwarded-client-cert}, \texttt{x-ja3-fingerprint}, \texttt{x-original-uri}, \texttt{x-zone-id} e \texttt{x-envoy-external-address}, e riceve in risposta gli header \texttt{x-current-user}, \texttt{x-risk-score} e \texttt{x-envoy-external-address} che vengono propagati all'upstream. Il secondo filtro è il \texttt{router}, che completa l'instradamento.
+La pipeline dei filtri HTTP comprende 2 elementi in sequenza. Il primo è il filtro \texttt{ext\_authz}, che effettua una chiamata sincrona di autorizzazione al Security Orchestrator sull'endpoint \texttt{/api/v1/evaluate} con un timeout di 5 secondi. La direttiva \texttt{failure\_mode\_allow: false} garantisce il comportamento fail-closed (Zero Trust). Il filtro trasmette al Security Orchestrator un insieme definito di header tra cui \texttt{authorization}, \texttt{x-forwarded-client-cert}, \texttt{x-ja3-fingerprint}, \texttt{x-original-uri}, \texttt{x-zone-id} e \texttt{x-envoy-external-address}, e riceve in risposta gli header \texttt{x-current-user}, \texttt{x-risk-score} e \texttt{x-envoy-external-address} che vengono propagati all'upstream. Il secondo filtro è il \texttt{router}, che completa l'instradamento.
 
 \section{Il Security Orchestrator}
 
 Il Security Orchestrator costituisce il punto di raccordo decisionale del sistema, scritto in Go e strutturato per operare come server HTTP sulla porta \texttt{8081}. Il punto di ingresso si trova nel file \texttt{cmd/orchestrator/main.go}.
 
-All'avvio, il programma configura un logger JSON strutturato che scrive sia su stdout sia su file (\texttt{app.jsonl}) all'interno del volume dedicato, con il valore di provenienza pre-popolato \texttt{service: "security-orchestrator"}. Esso si connette al database di sicurezza leggendo i parametri di connessione dall'ambiente, inizializza i client per le varie componenti (verifier JWT, lookup TPM, client OPA, client AI) e crea la cache degli alert Snort con TTL di tre minuti.
+All'avvio, il programma configura un logger JSON strutturato che scrive sia su stdout sia su file (\texttt{app.jsonl}) all'interno del volume dedicato, con il valore di provenienza pre-popolato \texttt{service: "security-orchestrator"}. Esso si connette al database di sicurezza leggendo i parametri di connessione dall'ambiente, inizializza i client per le varie componenti (verifier JWT, lookup TPM, client OPA, client AI) e crea la cache degli alert Snort con TTL di 3 minuti.
 
-Il servizio espone tre handler principali: l'endpoint \texttt{/health} per la verifica dello stato di salute, l'endpoint \texttt{POST /api/v1/opa/logs} dedicato alla ricezione e memorizzazione in append dei log decisionali compressi provenienti da OPA all'interno del file \texttt{opa\_decision.jsonl} (che gestisce anche la decompressione gzip), e l'handler principale di valutazione montato su \texttt{/api/v1/evaluate} e come catch-all radice.
+Il servizio espone 3 handler principali: l'endpoint \texttt{/health} per la verifica dello stato di salute, l'endpoint \texttt{POST /api/v1/opa/logs} dedicato alla ricezione e memorizzazione in append dei log decisionali compressi provenienti da OPA all'interno del file \texttt{opa\_decision.jsonl} (che gestisce anche la decompressione gzip), e l'handler principale di valutazione montato su \texttt{/api/v1/evaluate} e come catch-all radice.
 
-In parallelo al server HTTP, viene avviato un listener TCP sulla porta \texttt{9000} (configurabile tramite la variabile \texttt{SNORT\_ALERTS\_TCP\_PORT}) tramite il modulo \texttt{snortlistener}. Questo listener riceve gli alert JSON line-delimited trasmessi in tempo reale dai parser Snort e li popola nella \texttt{SnortCache}, indicizzata per indirizzo IP sorgente con tre campi distinti: \texttt{AlertEdge} (coda 1), \texttt{AlertInternal} (coda 2) e \texttt{AlertMid} (coda 3).
+In parallelo al server HTTP, viene avviato un listener TCP sulla porta \texttt{9000} (configurabile tramite la variabile \texttt{SNORT\_ALERTS\_TCP\_PORT}) tramite il modulo \texttt{snortlistener}. Questo listener riceve gli alert JSON line-delimited trasmessi in tempo reale dai parser Snort e li popola nella \texttt{SnortCache}, indicizzata per indirizzo IP sorgente con 3 campi distinti: \texttt{AlertEdge} (coda 1), \texttt{AlertInternal} (coda 2) e \texttt{AlertMid} (coda 3).
 
 L'handler di valutazione, costruito tramite la funzione \texttt{BuildEvaluateHandler} definita in \texttt{handler.go}, esegue una sequenza strutturata di operazioni per ogni richiesta ricevuta:
 
@@ -125,7 +125,7 @@ L'handler di valutazione, costruito tramite la funzione \texttt{BuildEvaluateHan
 
     \item Conduce una verifica di conformità del dispositivo in modalità trasparente (Shadow Mode) tramite la funzione \texttt{evaluateStrictDeviceFingerprinting}: confronta CN e OU del certificato con i dati del database, controlla gli alert Snort attivi nella cache per l'IP del client (e per l'IP di Envoy, per gli alert di tipo \texttt{mid} sul canale \texttt{ext\_authz}), e registra ogni discrepanza senza bloccare il flusso operativo.
 
-    \item Costruisce l'evento AI con un vettore di feature che include la consistenza JA3, la presenza di alert Snort per ciascuna delle tre code, il metodo HTTP, il ruolo e il livello di clearance dell'utente e il tier di autenticazione. Invia l'evento al client del sistema di intelligenza artificiale (\texttt{aiscorer.Client}) tramite una chiamata HTTP all'endpoint \texttt{/infer} del microservizio \texttt{ai-inference} per ottenere lo score di anomalia. In caso di timeout o errore di rete il client restituisce un punteggio di fallback \texttt{0.99} con confidenza bassa. Se la decisione OPA è positiva, l'evento viene committato nel modello tramite una chiamata asincrona all'endpoint \texttt{/update} (meccanismo anti-poisoning).
+    \item Costruisce l'evento AI con un vettore di feature che include la consistenza JA3, la presenza di alert Snort per ciascuna delle 3 code, il metodo HTTP, il ruolo e il livello di clearance dell'utente e il tier di autenticazione. Invia l'evento al client del sistema di intelligenza artificiale (\texttt{aiscorer.Client}) tramite una chiamata HTTP all'endpoint \texttt{/infer} del microservizio \texttt{ai-inference} per ottenere lo score di anomalia. In caso di timeout o errore di rete il client restituisce un punteggio di fallback \texttt{0.99} con confidenza bassa. Se la decisione OPA è positiva, l'evento viene committato nel modello tramite una chiamata asincrona all'endpoint \texttt{/update} (meccanismo anti-poisoning).
 
     \item Compone il payload strutturato \texttt{opa.Input} includendo il metodo, il percorso, i claim del token, i flag di presenza del certificato e del TPM, i metadati geografici della risorsa (\texttt{zone\_id}), il punteggio e la confidenza dell'AI, e il contesto temporale e di rete (indirizzo IP del mittente, ora del giorno, giorno della settimana e anzianità della sessione in secondi).
 
@@ -136,37 +136,159 @@ L'handler di valutazione, costruito tramite la funzione \texttt{BuildEvaluateHan
 
 Il motore Open Policy Agent valuta la policy definita in \texttt{infra/opa/policy.rego}. La policy dichiara l'uso della sintassi recente tramite \texttt{import rego.v1} all'interno del package \texttt{envoy.authz}.
 
-La policy adotta un approccio fail-closed configurando come prima istruzione la direttiva \texttt{default allow := false}. L'architettura della policy è organizzata in quattro sezioni principali.
+La policy adotta un approccio fail-closed configurando come prima istruzione la direttiva \texttt{default allow := false}. L'architettura della policy è organizzata in 5 sezioni principali più il mapping tra i ruoli aziendali e i livelli e categorie del modello Bell-Lapadula.
 
-\textbf{Sezione 1 — Rotte pubbliche.} Un primo insieme di percorsi tecnici (\texttt{/health}, \texttt{/.well-known/jwks.json}, \texttt{/favicon.ico}) vengono autorizzati incondizionatamente senza alcuna valutazione AI. Un secondo insieme di percorsi pubblici (\texttt{public\_paths}), che include le rotte di autenticazione, le pagine UI e gli endpoint WebAuthn anonimi, viene autorizzato condizionalmente solo se il punteggio AI netto (score meno uno sconto di 0.2 applicato ai percorsi pubblici) rimane inferiore alla soglia di 0.6. Tutti i percorsi con prefisso \texttt{/static/} sono autorizzati senza restrizioni.
+\textbf{Sezione 1 — Rotte pubbliche.} Un primo insieme di percorsi tecnici (\texttt{/health}, \texttt{/.well-known/jwks.json}, \texttt{/favicon.ico}) vengono autorizzati incondizionatamente senza alcuna valutazione AI. Un secondo insieme di percorsi pubblici (\texttt{public\_paths}), che include le rotte di autenticazione, le pagine UI e gli endpoint WebAuthn anonimi, viene autorizzato condizionalmente solo se il beneficio(fissato a 0.8) meno il punteggio AI (fissato in caso di anomalie del modello a 0.99) è maggiore del beneficio minimo delle rotte pubbliche fissato a 0.4.
 
-\textbf{Sezione 2 — Matrice di sicurezza.} Per le risorse protette, l'autorizzazione si basa su una struttura dati \texttt{matrice\_sicurezza} che associa a ciascuna rotta base e metodo HTTP tre parametri: \texttt{ruoli\_ammessi} (lista dei ruoli abilitati), \texttt{benefici} (valore numerico che riduce il rischio effettivo) e \texttt{rischio\_accettato} (soglia massima di rischio netto). La struttura copre cinque categorie di risorse: personale (\texttt{/api/v1/personnel}), documenti (\texttt{/api/v1/documents}), materiali nucleari (\texttt{/api/v1/nuclear-materials}), parametri del reattore (\texttt{/api/v1/reactor-parameters}) e l'endpoint di cancellazione sanitizzata tramite Trusted Guard (\texttt{/api/v1/trusted-guard/sanitized-delete-personnel}). Sono incluse anche le rotte di enrollment WebAuthn protette (\texttt{/api/v1/auth/register/begin} e \texttt{/api/v1/auth/register/finish}).
+\textbf{Sezione 2 — Matrice di sicurezza.} Per le risorse protette, l'autorizzazione si basa su una struttura dati \texttt{matrice\_sicurezza} che associa a ciascuna rotta base  una classificazione(INTERNAL, SECRET ecc) e una categoria( hr, nuclear ecc) e per metodo HTTP disponibile 2 parametri: \texttt{benefici} (valore numerico che riduce il rischio effettivo) e \texttt{beneficio\_netto\_minimo} (soglia minima di beneficio)
 
 \textbf{Sezione 3 — Risoluzione dinamica della rotta.} La policy implementa un meccanismo di risoluzione della rotta base (\texttt{rotta\_base}) che gestisce le sottorotte con parametri di percorso: una richiesta verso \texttt{/api/v1/documents/abc123} viene ricondotta alla rotta base \texttt{/api/v1/documents} applicando un confronto per prefisso. In presenza di più rotte compatibili, viene selezionata quella con il prefisso più lungo (match più specifico).
 
-\textbf{Sezione 4 — Regola di autorizzazione.} La regola principale concede l'accesso se sono soddisfatte due condizioni: il ruolo dell'utente (\texttt{input.claims.role}) è presente nella lista \texttt{ruoli\_ammessi} per la combinazione rotta/metodo, e il rischio netto (score AI meno i \texttt{benefici} della rotta) è inferiore al \texttt{rischio\_accettato}. Questa formulazione integra nativamente il controllo basato sui ruoli (RBAC) con la valutazione del rischio contestuale fornita dall'AI, senza separare i due meccanismi.
+\textbf{Sezione 4 - Definizione Proprietà Bell-Lapadula}
+Vengono codificate le funzioni di controllo definite dal modello Bell-Lapadula: \texttt{*-Property} (No Write-Down standard) , \texttt{Simple Security Property} (No Read-Up) e l'eccezione per la rotta sanificata.
 
-Rispetto alla versione precedente, la policy ha abbandonato i concetti di Tier di dispositivo e clearance documentale come requisiti espliciti, sostituendoli con un modello unificato in cui il livello di autenticazione (presenza del certificato, verifica TPM) contribuisce implicitamente allo score AI come feature del modello, mentre il controllo degli accessi formale è ridotto al solo ruolo. Il rischio AI incorpora tutte le informazioni contestuali: ora del giorno, anzianità della sessione, alert Snort, metodo HTTP e sensibilità della risorsa.
+\textbf{Sezione 5 — Regola di autorizzazione.} La regola principale concede l'accesso se sono soddisfatte 3 condizioni:
+\begin{enumerate}
+    \item Controllo se l'utente possiede l'accesso alla risorsa tramite il campo categoria
+    \item Controllo delle proprieta del modello di Bell-Lapadula
+    \item Controllo Rischio AI tramite la formula:
+    (config\_metodo.benefici - ai\_score) >= config\_metodo.beneficio\_netto\_minimo
+     
+\end{enumerate}
 
 \section{Il servizio Identity}
 
-Il servizio Identity gestisce l'autenticazione a due fattori degli utenti e l'enrollment dei dispositivi hardware. Scritto in Go, il punto di avvio risiede in \texttt{cmd/identity/main.go}.
+Il servizio Identity gestisce l'autenticazione a 2 fattori degli utenti e l'enrollment dei dispositivi hardware. Scritto in Go, il punto di avvio risiede in \texttt{cmd/identity/main.go}.
 
-All'avvio, il servizio inizializza un logger JSON strutturato che scrive nel file \texttt{identity\_events.json} inserendo il tag di servizio \texttt{"identity-service"}, si connette al database di sicurezza tramite il modulo \texttt{config.LoadConfig()}, istanzia il gestore JWT (\texttt{crypto.JWTManager}) basato su chiavi RSA asimmetriche e configura il client SMTP per l'invio degli OTP. In background, un ticker ogni cinque minuti esegue la pulizia delle sessioni di rate limit scadute.
+All'avvio, il servizio inizializza un logger JSON strutturato che scrive nel file \texttt{identity\_events.json} inserendo il tag di servizio \texttt{"identity-service"}, si connette al database di sicurezza tramite il modulo \texttt{config.LoadConfig()}, istanzia il gestore JWT (\texttt{crypto.JWTManager}) basato su chiavi RSA asimmetriche e configura il client SMTP per l'invio degli OTP. In background, un ticker ogni 5 minuti esegue la pulizia delle sessioni di rate limit scadute.
 
-Il routing, descritto nel file \texttt{routes.go}, definisce la struttura degli endpoint del servizio: l'endpoint \texttt{/health} per la diagnostica, l'endpoint \texttt{/.well-known/jwks.json} per l'esposizione delle chiavi pubbliche RSA, le rotte UI per le pagine di login e registrazione, le API funzionali per l'accesso (\texttt{/api/v1/auth/register}, \texttt{/api/v1/auth/login} e \texttt{/api/v1/auth/verify-otp}) e gli endpoint delle cerimonie WebAuthn (\texttt{/api/v1/auth/register/begin}, \texttt{/api/v1/auth/register/finish}, \texttt{/api/v1/auth/login/begin}, \texttt{/api/v1/auth/login/finish}).
+Il routing, descritto nel file \texttt{routes.go}, definisce la struttura degli endpoint del servizio.
+
+\subsection{Autenticazione standard}
+\label{sec:autenticazionestandard}
 
 Il processo di autenticazione iniziale è implementato nell'handler \texttt{Login} contenuto in \texttt{login.go}:
 
 \begin{itemize}
     \item Riceve le credenziali dell'utente, estrae l'indirizzo IP del client dall'header \texttt{x-envoy-external-address} e verifica il rate limit per quell'indirizzo. Se il limite è superato, la richiesta viene rifiutata con \texttt{429 Too Many Requests}.
 
-    \item Analizza il certificato mTLS client dall'header \texttt{X-Forwarded-Client-Cert} tramite la funzione \texttt{extractCertFields}. Se il certificato è assente e il ruolo dell'utente nel database non è \texttt{guest}, la richiesta viene bloccata immediatamente con \texttt{403 Forbidden}: i ruoli non-guest richiedono sempre il certificato mTLS per autenticarsi. Se il certificato è presente, il Common Name deve coincidere con lo username (case-insensitive) e l'Organizational Unit deve corrispondere al ruolo dell'utente nel database. Qualora si rilevi una divergenza in uno dei due campi, la richiesta viene bloccata e il fallimento viene registrato nel contatore di rate limit.
+    \item Analizza il certificato mTLS client dall'header \texttt{X-Forwarded-Client-Cert} tramite la funzione \texttt{extractCertFields}. Se il certificato è assente e il ruolo dell'utente nel database non è \texttt{guest}, la richiesta viene bloccata immediatamente con \texttt{403 Forbidden}: i ruoli non-guest richiedono sempre il certificato mTLS per autenticarsi. Se il certificato è presente, il Common Name deve coincidere con lo username (case-insensitive) e l'Organizational Unit deve corrispondere al ruolo dell'utente nel database. Qualora si rilevi una divergenza in uno dei 2 campi, la richiesta viene bloccata e il fallimento viene registrato nel contatore di rate limit.
 
     \item Effettua la verifica della password con Argon2id. Se lo username non corrisponde ad alcun utente registrato, il sistema esegue un confronto fittizio con un hash di prova per bilanciare i tempi di computazione e neutralizzare i tentativi di enumerazione basati sulla misurazione delle latenze di risposta (timing attack).
 
-    \item A seguito della corretta validazione della password, genera un codice OTP a sei cifre, calcola l'hash HMAC-SHA256 dell'OTP usando il session token come chiave, crea una sessione OTP nel database con TTL di cinque minuti e limite massimo di tre tentativi, e avvia in background (goroutine con \texttt{recover}) l'invio dell'OTP tramite SMTP all'indirizzo email dell'utente. L'invio asincrono non blocca la risposta HTTP: la sessione è già salvata in DB e l'utente può riprovare in caso di errore di consegna.
+    \item A seguito della corretta validazione della password, genera un codice OTP a 6 cifre, calcola l'hash HMAC-SHA256 dell'OTP usando il session token come chiave, crea una sessione OTP nel database con TTL di 5 minuti e limite massimo di 3 tentativi, e avvia in background (goroutine con \texttt{recover}) l'invio dell'OTP tramite SMTP all'indirizzo email dell'utente. L'invio asincrono non blocca la risposta HTTP: la sessione è già salvata in DB e l'utente può riprovare in caso di errore di consegna.
 \end{itemize}
+
+\subsection{TPM con WebAuthn/FIDO2}
+
+\subsubsection{Protocollo FIDO2 e Ruolo del TPM}
+
+WebAuthn è uno standard W3C basato su FIDO2 che consente
+l'autenticazione senza password tramite autenticatori crittografici. Nel progetto il ruolo di authenticator è svolto dal \textbf{Trusted Platform Module (TPM)},un microcontrollore di sicurezza saldato alla scheda madre che genera e gestisce
+chiavi crittografiche in modo tale che la chiave privata non possa mai usciredal chip in forma leggibile.
+
+\subsubsection{Cerimonia di Registrazione — Fase 1: \texttt{/register/begin}}
+
+Il client, già autenticato (il JWT è stato verificato dall'Orchestratore che
+ha iniettato l'header \texttt{X-Current-User}), avvia la cerimonia di enrollment:
+
+\paragraph{Dettagli tecnici della fase begin.}
+
+\begin{itemize}
+  \item \textbf{Challenge da 256 bit}: generata tramite \texttt{crypto/rand}
+  \item \textbf{Session ID da 128 bit}: token opaco non deducibile dalla challenge,
+        che lega le 2 fasi della cerimonia
+  \item \textbf{CeremonyType: "registration"}: campo esplicito nella tabella
+        \texttt{webauthn\_challenges} che previene attacchi di \emph{ceremony
+        mix-up}
+  \item \textbf{attestation: "direct"}: richiede all'authenticator di includere
+        il suo certificato di attestazione nella risposta
+\end{itemize}
+
+Il TTL della challenge limita la finestra temporale utile per un attacco di replay.
+
+\subsubsection{Cerimonia di Registrazione — Fase 2: \texttt{/register/finish}}
+
+\paragraph{Validazione degli Input.} La fase finish applica 3 livelli di
+validazione degli input:
+
+\begin{enumerate}
+  \item \textbf{Struttura JSON}: decodifica corretta del body.
+  \item \textbf{Presenza campi}: \texttt{session\_id}, \texttt{credential\_id}
+        e \texttt{public\_key} sono obbligatori.
+  \item \textbf{Formato crittografico}: la chiave pubblica deve essere
+        correttamente codificata in Base64 standard
+\end{enumerate}
+
+\paragraph{Dati Persistiti.}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Campo} & \textbf{Descrizione} \\
+\midrule
+\texttt{CredentialID} & Identificatore opaco della credenziale, generato
+                        dall'authenticator. Unico per dispositivo. \\
+\texttt{PublicKey} & Chiave pubblica ECDSA/RSA in formato DER. La chiave
+                     privata rimane nel TPM e non viene mai trasmessa. \\
+\texttt{AAGUID} & Authenticator Attestation GUID — identifica il modello
+                  del chip TPM.  \\
+\texttt{AttestationType} & Tipo di attestazione (\texttt{"platform"} per TPM
+                           integrato, \texttt{"cross-platform"} per security key). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Il flag \texttt{has\_tpm = true} viene impostato sul profilo utente in MongoDB, nella collezione \texttt{identity\_users} del Security DB (descritta in dettaglio nella Sezione~\ref{sec:databasemongo}), che è la collezione in cui risiede il documento di profilo di ciascun utente.
+Questo campo viene letto dalla \texttt{evaluateStrictDeviceFingerprinting}
+dell'Orchestratore per correlare lo stato TPM del profilo con il risultato
+della verifica \texttt{tpm.Lookup}.
+
+
+\subsubsection{Cerimonia di Autenticazione — Fase 2: \texttt{/login/finish} e Clone Detection}
+
+\paragraph{Clone Detection — Analisi Tecnica.}
+
+Il meccanismo di clone detection sfrutta il \textbf{signature counter}, un
+contatore interno al TPM che viene incrementato ad ogni operazione di firma.
+Il protocollo WebAuthn specifica che questo contatore debba essere
+\emph{strettamente monotonicamente crescente}: se il server riceve un
+\texttt{sign\_count} inferiore o uguale al valore precedentemente memorizzato,
+ciò indica una delle seguenti condizioni:
+
+\begin{enumerate}
+  \item Il chip TPM fisico è stato clonato 
+  \item La risposta è un replay di una firma precedentemente catturata.
+  \item Il dispositivo è un software authenticator che non implementa
+        correttamente il contatore
+\end{enumerate}
+
+\paragraph{Validazione degli Input in \texttt{FinishLogin}.}
+
+\begin{itemize}
+  \item \textbf{Struttura JSON}: decodifica obbligatoria.
+  \item \textbf{Binding session-challenge}: il \texttt{session\_id} viene usato
+        come chiave di ricerca nel database; se non esiste o è scaduto, la
+        cerimonia viene annullata.
+  \item \textbf{Binding credenziale-utente}: il confronto \texttt{dev.UserID != challenge.UserID}
+        previene attacchi in cui un utente presenta la propria credenziale
+        valida per autenticarsi come un altro utente.
+  \item \textbf{Tipo cerimonia}: \texttt{CeremonyType == "authentication"} previene
+        l'uso di challenge di registrazione per completare un login.
+\end{itemize}
+
+
+\paragraph{Riepilogo del Flusso Completo WebAuthn}
+Il flusso di autenticazione TPM completo richiede il superamento di tre verifiche
+distinte e indipendenti:
+\begin{enumerate}
+  \item Firma crittografica della challenge con la chiave privata nel TPM.
+  \item Verifica del sign\_count crescente.
+  \item Binding credenziale-utente, ossia la corrispondenza tra la credenziale presentata e l'utente associato alla challenge, che impedisce a un utente di autenticarsi con una credenziale TPM valida ma appartenente a un altro profilo.
+\end{enumerate}
+
+
+\subsubsection{OTP}
 
 Il completamento dell'autenticazione avviene tramite l'handler \texttt{VerifyOTP} descritto in \texttt{verify\_otp.go}:
 
@@ -186,27 +308,18 @@ Il completamento dell'autenticazione avviene tramite l'handler \texttt{VerifyOTP
 
 Il servizio Business Logic implementa le API REST dedicate alla gestione delle risorse della centrale. Sviluppato in Go, il servizio configura un logger JSON strutturato con il tag \texttt{"business-logic"} per ogni evento registrato e instanzia i repository MongoDB per ciascun dominio applicativo.
 
-Il server configura le rotte applicative sfruttando le funzionalità introdotte in Go 1.22 per la definizione dei parametri di percorso all'interno del \texttt{ServeMux}. Le rotte sono organizzate in tre domini semantici:
+Il server configura le rotte applicative sfruttando le funzionalità introdotte in Go 1.22 per la definizione dei parametri di percorso all'interno del \texttt{ServeMux}.
 
-\begin{itemize}
-    \item \textit{Dominio gestione} (RBAC gerarchico standard): il servizio espone le operazioni di lettura e creazione per la risorsa \texttt{personnel} (accessibile da operator, manager e admin) e le operazioni di lettura, creazione e cancellazione per le risorse \texttt{documents} e \texttt{nuclear-materials} (accessibili da manager e admin).
-
-    \item \textit{Dominio reattore e nucleo} (Bell-LaPadula rigoroso): le operazioni di lettura, creazione e cancellazione per la risorsa \texttt{reactor-parameters} sono riservate al solo ruolo admin, implementando il principio di no-read-up per gli operatori e i manager.
-
-    \item \textit{Trusted Guard / Gateway di sanitizzazione}: la rotta \texttt{POST /api/v1/trusted-guard/sanitized-delete-personnel/\{id\}} consente all'admin di cancellare un record di personale (operazione che violerebbe formalmente Bell-LaPadula per write-down) attraverso un gateway di sanitizzazione. L'handler \texttt{TrustedGuardDeletePersonnel} risponde immediatamente con \texttt{202 Accepted} e delega l'effettiva cancellazione a una goroutine asincrona che introduce un jitter temporale casuale tra due e sei ore prima di eseguire la \texttt{DELETE} sul repository, usando un contesto indipendente dalla richiesta originale. Ogni fase è tracciata tramite \texttt{log\_action}.
-\end{itemize}
-
-Il middleware di logging \texttt{log\_action} intercetta ogni transazione: estrae dall'header \texttt{X-Current-User} l'identità dell'utente autenticata (iniettata da Envoy dopo la validazione del Security Orchestrator) e dall'header \texttt{X-Request-ID} il tracciante di correlazione, producendo una riga di log JSON strutturata con il nome dell'azione, il target, lo stato e l'eventuale errore.
+Il middleware di logging \texttt{log\_action} intercetta ogni transazione: estrae dall'header \texttt{X-Current-User} l'identità dell'utente autenticata  e dall'header \texttt{X-Request-ID} il tracciante di correlazione, producendo una riga di log JSON strutturata con il nome dell'azione, il target, lo stato e l'eventuale errore.
 
 Per garantire la protezione contro la manomissione diretta dei record nella base dati, ciascun repository applicativo implementa una convalida crittografica tramite la funzione \texttt{computeDataIntegrityHash}. All'atto dell'inserimento o della modifica di un documento, il repository calcola un hash SHA-256 concatenando i campi informativi del record separandoli con il carattere pipe. L'hash risultante viene memorizzato all'interno del campo \texttt{data\_integrity\_hash} dello stesso documento. Ad ogni successiva operazione di lettura, il repository ricalcola l'hash confrontandolo con quello memorizzato: un'eventuale divergenza blocca l'esposizione del record e restituisce un errore di violazione dell'integrità.
 
 \section{I database MongoDB}
+\label{sec:databasemongo}
 
-Il sistema impiega due istanze MongoDB separate per isolare le componenti di sicurezza dai dati applicativi della centrale.
+Il sistema impiega 2 istanze MongoDB separate per isolare le componenti di sicurezza dai dati applicativi della centrale.
 
-Il Business DB gestisce i dati applicativi ed è configurato abilitando l'autenticazione interna delle connessioni. Lo script di configurazione crea quattro utenze con privilegi rigidamente circoscritti: l'utenza \texttt{envoy\_service} dispone dei diritti di lettura e scrittura per le normali operazioni delle API, l'utenza \texttt{seed\_service} ha accesso completo per la popolazione iniziale delle collezioni, l'utenza \texttt{splunk\_reader} ha permessi di sola lettura per la raccolta dei log e l'utenza \texttt{pdp\_reader} dispone di accesso in sola lettura per consentire le verifiche del motore di policy.
-
-Tutte le collezioni del database sono protette da validatori JSON Schema che vincolano i tipi di dato, la presenza di attributi obbligatori e il formato degli identificatori tramite espressioni regolari. Inoltre, i documenti del personale e delle zone integrano i sotto-documenti \texttt{ztna\_metadata} e \texttt{ztna\_policy} per memorizzare in modo sicuro i punteggi di fiducia, le regole di ammissione e i parametri di conformità richiesti per l'accesso.
+Il Business DB gestisce i dati applicativi ed è configurato abilitando l'autenticazione interna delle connessioni. Lo script di configurazione crea 3 utenze con privilegi rigorosamente circoscritti: personnel, manager ed admin, ognuna delle quali ha privilegi di accesso in base alla collezione.
 
 Il Security DB ha una configurazione finalizzata alla gestione degli accessi: memorizza le credenziali Argon2id degli utenti nella collezione \texttt{identity\_users} (con campo \texttt{has\_tpm} per il flag WebAuthn e struttura \texttt{last\_login\_info} con IP, timestamp e impronta JA3) e i dati dei dispositivi hardware accreditati nella collezione \texttt{device\_fingerprints}, rimanendo inaccessibile a servizi esterni al piano di autenticazione e decisione.
 
@@ -230,22 +343,22 @@ Ciascun inserimento verifica preventivamente la presenza di record per evitare d
 
 \section{Il forwarder Splunk e l'osservabilità centralizzata}
 
-Il monitoraggio centralizzato si avvale di un'istanza Splunk Enterprise combinata con un Universal Forwarder (\texttt{splunk-uf}). La configurazione del forwarder è definita nel file \texttt{inputs.conf}, il quale monitora nove directory di volume distinte contenenti i log in formato JSON strutturato prodotti da tutti i componenti dell'infrastruttura: il firewall nftables, le tre istanze Snort (esterna, interna e intermedia), Envoy, il business-logic, MongoDB, l'identity service, il Security Orchestrator e OPA.
+Il monitoraggio centralizzato si avvale di un'istanza Splunk Enterprise combinata con un Universal Forwarder (\texttt{splunk-uf}). La configurazione del forwarder è definita nel file \texttt{inputs.conf}, il quale monitora 9 directory di volume distinte contenenti i log in formato JSON strutturato prodotti da tutti i componenti dell'infrastruttura: il firewall nftables, le 3 istanze Snort (esterna, interna e intermedia), Envoy, il business-logic, MongoDB, l'identity service, il Security Orchestrator e OPA.
 
 L'inoltro dei dati all'istanza Splunk avviene tramite la configurazione del file \texttt{outputs.conf} puntando alla porta standard del protocollo di indicizzazione. La correlazione end-to-end è realizzata propagando l'identificativo \texttt{X-Request-ID} generato da Envoy a tutti i componenti coinvolti: una singola ricerca in linguaggio SPL sul valore dell'identificatore consente di ricostruire la sequenza temporale di tutti gli eventi associati a una determinata richiesta, attraversando i log di Envoy, del Security Orchestrator, dell'OPA e del servizio business applicativo.
 
-\section{La suite di test e validazione automatizzata}
+% \section{La suite di test e validazione automatizzata}
 
-L'affidabilità e l'efficacia delle misure di sicurezza implementate sono verificate in modo continuo attraverso una suite integrata di test e strumenti di validazione, coordinati dallo script principale \texttt{tests/e2e/run\_all.sh}. La suite esegue sei pillar di test in sequenza e compila automaticamente il file di riepilogo \texttt{tests/e2e/REPORT.md} con una tabella riassuntiva e l'output dettagliato di ciascun pillar.
+% L'affidabilità e l'efficacia delle misure di sicurezza implementate sono verificate in modo continuo attraverso una suite integrata di test e strumenti di validazione, coordinati dallo script principale \texttt{tests/e2e/run\_all.sh}. La suite esegue 3 pillar di test in sequenza e compila automaticamente il file di riepilogo \texttt{tests/e2e/REPORT.md} con una tabella riassuntiva e l'output dettagliato di ciascun pillar.
 
-I sei pillar della suite coprono i seguenti aspetti:
+% I 3 pillar della suite coprono i seguenti aspetti:
 
-\begin{itemize}
-    \item \textit{auth}: verifica il flusso di autenticazione completo (login con credenziali, ricezione OTP, verifica OTP e ottenimento del JWT).
+% \begin{itemize}
+%     \item \textit{auth}: verifica il flusso di autenticazione completo (login con credenziali, ricezione OTP, verifica OTP e ottenimento del JWT).
 
-    \item \textit{pep}: verifica che il Policy Enforcement Point (Envoy + \texttt{ext\_authz}) blocchi le richieste non autorizzate e consenta quelle legittime.
+%     \item \textit{pep}: verifica che il Policy Enforcement Point (Envoy + \texttt{ext\_authz}) blocchi le richieste non autorizzate e consenta quelle legittime.
 
-    \item \textit{nftables}: valida il firewall attraverso sei sub-test automatizzati che verificano: l'accettazione del traffico legittimo verso Envoy, la corretta composizione della chain output con policy DROP e allow-list limitata alle porte dei servizi Go, la presenza del file JSONL prodotto dal parser Go con record \texttt{action} validi, e la presenza della regola di rate-limiting anti-SYN flood nella chain input.
-\end{itemize}
+%     \item \textit{nftables}: valida il firewall attraverso 6 sub-test automatizzati che verificano: l'accettazione del traffico legittimo verso Envoy, la corretta composizione della chain output con policy DROP e allow-list limitata alle porte dei servizi Go, la presenza del file JSONL prodotto dal parser Go con record \texttt{action} validi, e la presenza della regola di rate-limiting anti-SYN flood nella chain input.
+% \end{itemize}
 
-Una componente separata di test di simulazione è presente in \texttt{tests/clients/}, dove client scritti in Go e Python possono generare scansioni di porte (SYN su porte consecutive) e handshake TLS malformati per sollecitare i meccanismi di rilevamento di Snort, e in \texttt{tests/opa/} per gli unit test della policy Rego.
+% Una componente separata di test di simulazione è presente in \texttt{tests/clients/}, dove client scritti in Go e Python possono generare scansioni di porte (SYN su porte consecutive) e handshake TLS malformati per sollecitare i meccanismi di rilevamento di Snort, e in \texttt{tests/opa/} per gli unit test della policy Rego.

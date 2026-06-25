@@ -8,6 +8,16 @@
 \usepackage[italian]{babel}
 
 % ============================================================
+%  A CAPO AUTOMATICO PER \texttt (path, codice, identificatori lunghi)
+%  Evita che il testo a larghezza fissa (\texttt) sfori il margine destro.
+% ============================================================
+\usepackage[htt]{hyphenat}        % consente l'a-capo anche nei \texttt
+\sloppy                            % preferisce spaziatura più larga a sforare il margine
+
+% Crea un comando dedicato alle stringhe lunghe
+\newcommand{\code}[1]{\texttt{\seqsplit{#1}}}
+
+% ============================================================
 %  LAYOUT E GEOMETRIA
 % ============================================================
 \usepackage[
@@ -109,10 +119,10 @@
     citecolor   = black,
     filecolor   = black,
     urlcolor    = blue,
-    pdftitle    = {Rilevamento e diagnosi dei guasti su macchinari rotanti},
-    pdfauthor   = {Tempera, Marcianesi, Vianello},
-    pdfsubject  = {Tesi Magistrale — UNIVPM},
-    pdfkeywords = {fault detection, macchinari rotanti, machine learning}
+    pdftitle    = {Sviluppo di una Zero Trust Architecture per la gestione di un impianto di energia nucleare},
+    pdfauthor   = {Baldelli, Marcianesi, Tempera, Vianello},
+    pdfsubject  = {Tesina Advanced Cybersecurity for IT — UNIVPM},
+    pdfkeywords = {Sviluppo di una Zero Trust Architecture per la gestione di un impianto di energia nucleare}
 }
 
 % ============================================================
@@ -195,4 +205,6 @@
 \include{04}
 \include{05}
 \include{06}
+\include{07}
+\include{08}
 \end{document}

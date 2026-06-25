@@ -1,11 +1,11 @@
 \chapter{Architettura del sistema}
 
-L'architettura di ZTALeaks si fonda su un principio fondamentale: nessun elemento interno riceve fiducia implicita e ogni componente opera con responsabilità rigidamente confinate. Il sistema implementa concretamente la separazione tra Policy Enforcement Point (PEP) e Policy Decision Point (PDP) prescritta dalle linee guida dello standard NIST SP 800-207. Questa separazione viene realizzata tramite un ecosistema di microservizi isolati a livello di rete e containerizzati, i quali cooperano attraverso scambi protetti e log tracciabili in modo centralizzato.
+L'architettura di ZTALeaks si fonda su un principio fondamentale: nessun elemento interno riceve fiducia implicita e ogni componente opera con responsabilità rigorosamente delimitate. Il sistema implementa concretamente la separazione tra Policy Enforcement Point (PEP) e Policy Decision Point (PDP) prescritta dalle linee guida dello standard NIST SP 800-207. Questa separazione viene realizzata tramite un ecosistema di microservizi isolati a livello di rete e containerizzati, i quali cooperano attraverso scambi protetti e log tracciabili in modo centralizzato.
 
-\begin{figure}[h]
+\begin{figure}[ht!]
     \centering
-    \includegraphics[width=0.7\textwidth]{immagini/architettura.png}
-    \caption{Immagine architettura}
+    \includegraphics[width=0.95\textwidth]{immagini/architettura_white.png}
+    \caption{Schema dell'architettura generale del sistema.}
     \label{fig:immagine}
 \end{figure}
 
@@ -24,11 +24,9 @@ Il codice sorgente dell'infrastruttura è strutturato per rispecchiare la scompo
 
 \item \texttt{infra/}: ospita i file di configurazione dei servizi infrastrutturali, strutturandosi in \texttt{databases/} per MongoDB, \texttt{envoy/} per il proxy, \texttt{nftables/} per il firewall, \texttt{opa/} per le regole di accesso e \texttt{snort/} con \texttt{snort-internal/} per il rilevamento delle intrusioni;
 
-\item \texttt{services/}: comprende le implementazioni software dei servizi attivi, includendo \texttt{business-logic/} scritto in Go per la gestione dei dati applicativi, \texttt{frontend/} con le pagine statiche e l'interfaccia utente, e \texttt{security-orchestrator/} scritto in Go come coordinatore decisionale;
+\item \texttt{services/}: comprende le implementazioni software dei servizi attivi, includendo \texttt{business-logic/} scritto in Go per la gestione dei dati applicativi, \texttt{iam-service/} scritto in Go per la gestitone delle identità e degli aceessi, e \texttt{security-orchestrator/} scritto in Go come coordinatore decisionale;
 
-\item \texttt{tasks/}: contiene script e automazioni per l'esecuzione di operazioni periodiche e di manutenzione sul sistema;
-
-\item \texttt{tests/}: raccoglie gli strumenti per la convalida dei componenti, comprendendo la cartella \texttt{clients/} con simulatori in Python e Go per la generazione di traffico e la cartella \texttt{dashboard-app/} per la visualizzazione dei log;
+\item \texttt{tests/}: raccoglie gli strumenti per la convalida dei componenti, comprendendo la cartella \texttt{clients/} con simulatori in Python e Go per la generazione di traffico e attacchi;
 
 \item \texttt{tools/}: ospita utilità di supporto tra cui il seeder del database per la generazione di record coerenti.
 \end{itemize}
@@ -37,7 +35,7 @@ La radice della repository ospita il file \texttt{.env} con le chiavi di configu
 
 \section{La segmentazione di rete}
 
-La topologia di rete si articola in tre segmenti Docker isolati, applicando il controllo degli accessi a livello infrastrutturale. Questa compartimentazione assicura che un compromesso su un servizio non si propaghi ad altri domini.
+La topologia di rete si articola in 4 segmenti Docker isolati, applicando il controllo degli accessi a livello infrastrutturale. Questa compartimentazione assicura che un compromesso su un servizio non si propaghi ad altri domini.
 
 La \texttt{Front-Net} rappresenta l'unico canale rivolto all'esterno. In questo segmento risiedono il firewall di rete, il proxy Envoy e il Security Orchestrator. Qualsiasi richiesta in ingresso deve attraversare questo canale, venendo sottoposta ai controlli del firewall prima di poter raggiungere i servizi interni.
 
@@ -45,21 +43,23 @@ La \texttt{Auth-Net} costituisce il segmento privato dedicato alla determinazion
 
 La \texttt{Back-Net} è una rete protetta e riservata che unisce esclusivamente il servizio di business logic al relativo database di produzione. Questa separazione assicura che il database contenente i dati sensibili della centrale sia isolato sia dall'esterno sia dallo stesso piano di decisione delle policy, riducendo l'esposizione a tentativi di esfiltrazione. Il servizio Business Logic appartiene sia alla \texttt{Back-Net} sia alla \texttt{Auth-Net}, il che consente di esporre l'endpoint interno \texttt{/internal/session} al Security Orchestrator per l'arricchimento del contesto di autorizzazione, senza però esporre il database sottostante.
 
+La \texttt{Snort-Net} è dedicata esclusivamente al trasporto degli alert dalle 3 istanze Snort verso il Security Orchestrator, descritto nella Sezione~\ref{sec:idsorchestrator}, mantenendo il canale di telemetria delle intrusioni separato dai segmenti applicativi.
+
 \section{Il firewall e il punto di ingresso}
 
 Il container denominato \texttt{firewall} costituisce la barriera iniziale per il traffico in ingresso. Configurato tramite nftables su una distribuzione Alpine Linux, il firewall adotta una politica predefinita di tipo DROP per le catene di ingresso, transito e uscita.
 
 Per impedire che il traffico possa aggirare i controlli, il proxy Envoy e i sistemi di rilevamento delle intrusioni Snort condividono lo stack di rete del firewall tramite la configurazione \texttt{network\_mode} di Docker. Questa unione assicura che ogni pacchetto debba superare i controlli a livello kernel prima di essere intercettato da Envoy o ispezionato da Snort.
 
-La configurazione del firewall include regole per contrastare gli attacchi volumetrici di tipo SYN flood tramite una struttura dinamica denominata \texttt{syn\_meter}, la quale limita a venti pacchetti al secondo la frequenza per ogni indirizzo IP sorgente, respingendo le eccedenze con il log di avviso \texttt{fw-syn-flood-drop}. Inoltre, la catena di uscita implementa un filtraggio rigoroso che consente le sole comunicazioni dirette alle porte TCP di risoluzione dei nomi e ai microservizi interni, ossia le porte \texttt{53}, \texttt{8080}, \texttt{8081} e \texttt{8082}, scartando ogni altra richiesta in uscita sotto il log \texttt{fw-egress-drop}. Il demone \texttt{ulogd} raccoglie questi eventi tramite NFLOG e li scrive su un file in emulazione syslog. Un parser scritto in Go legge questo file e genera un log JSONL strutturato nel percorso \texttt{/var/log/ztaleaks/nftables/firewall.jsonl}, rendendolo disponibile per l'inoltro e l'indicizzazione centralizzata.
+La configurazione del firewall include regole per contrastare gli attacchi volumetrici di tipo SYN flood tramite una struttura dinamica denominata \texttt{syn\_meter}, la quale limita a 20 pacchetti al secondo la frequenza per ogni indirizzo IP sorgente, respingendo le eccedenze con il log di avviso \texttt{fw-syn-flood-drop}. Inoltre, la catena di uscita implementa un filtraggio rigoroso che consente le sole comunicazioni dirette alle porte TCP di risoluzione dei nomi e ai microservizi interni, ossia le porte \texttt{53}, \texttt{8080}, \texttt{8081} e \texttt{8082}, scartando ogni altra richiesta in uscita sotto il log \texttt{fw-egress-drop}. Il demone \texttt{ulogd} raccoglie questi eventi tramite NFLOG e li scrive su un file in emulazione syslog. Un parser scritto in Go legge questo file e genera un log JSONL strutturato nel percorso \texttt{/var/log/ztaleaks/nftables/firewall.jsonl}, rendendolo disponibile per l'inoltro e l'indicizzazione centralizzata.
 
 \section{Envoy Proxy come Policy Enforcement Point}
 
-Il proxy Envoy agisce come Policy Enforcement Point del sistema, operando sulla porta \texttt{8443}. Il listener impiega il filtro \texttt{tls\_inspector} per analizzare l'handshake in modo precoce, estraendo l'impronta JA3 del client e rendendola disponibile nei metadati di sessione.
+Il proxy Envoy agisce come Policy Enforcement Point del sistema, operando sulla porta \texttt{8443}. 
 
-Il canale TLS è configurato per richiedere la presentazione facoltativa di un certificato client, demandando la verifica del possesso e la validazione del certificato al livello applicativo. Envoy utilizza il filtro HTTP \texttt{ext\_authz} configurato tramite il blocco \texttt{http\_service} per inoltrare in modo sincrono i dettagli della richiesta al Security Orchestrator sull'endpoint \texttt{/api/v1/evaluate} tramite una chiamata HTTP. La direttiva \texttt{failure\_mode\_allow} è impostata su \texttt{false}, applicando una modalità di blocco a fronte di un eventuale guasto del coordinatore.
+Il canale TLS è configurato per richiedere la presentazione facoltativa di un certificato client, demandando la verifica del possesso e la validazione del certificato al Security Orchestrator tramite una chiamata HTTP. In caso di guasto del coordinatore, il sistema applica il principio \textit{Deny by default}. Va segnalata una conseguenza di questa configurazione che merita di essere chiarita rispetto a quanto descritto nella Sezione~\ref{sec:autenticazionestandard}: poiché a livello TLS il certificato è facoltativo, esiste una finestra in cui la connessione TCP/TLS viene stabilita senza alcun certificato client e la richiesta HTTP raggiunge effettivamente il servizio Identity prima che un certificato possa essere validato a livello di trasporto. Il controllo applicativo descritto in quella sezione mitiga il rischio principale: l'handler \texttt{Login} verifica la presenza del certificato come primo passo, prima della validazione della password, bloccando con \texttt{403 Forbidden} qualunque richiesta priva di certificato per i ruoli diversi da \texttt{guest}. Resta comunque un'esposizione residua intrinseca alla scelta architetturale: la connessione TLS viene comunque negoziata e la richiesta HTTP viene comunque ricevuta ed elaborata (seppur respinta) dal servizio applicativo prima che l'identità del client sia stata verificata a livello di trasporto, esponendo superficie d'attacco aggiuntiva (parsing della richiesta, rate limiting, logging) a un client non autenticato che in un'architettura mTLS strettamente enforced a livello TLS non raggiungerebbe mai l'applicazione.
 
-Le informazioni estratte dal certificato client e l'impronta JA3 vengono inserite negli header \texttt{x-forwarded-client-cert} e \texttt{x-ja3-fingerprint} prima di inviare la richiesta all'orchestratore. I log di accesso di Envoy sono scritti in formato JSONL includendo il valore letterale \texttt{service: "envoy"}, mentre i campi relativi a punteggi di rischio esterni o identificativi di zona geografica sono momentaneamente omessi in quanto non popolati dalle logiche attuali del sistema.
+Le informazioni estratte dal certificato client e l'impronta JA3 vengono inserite negli header prima di inviare la richiesta all'orchestratore. I log di accesso di Envoy sono scritti in formato JSONL includendo il valore letterale \texttt{service: "envoy"}.
 
 \section{Il Security Orchestrator come Policy Administrator}
 
@@ -78,11 +78,11 @@ All'avvio, il servizio configura un logger JSON strutturato che integra il valor
   Intelligenza Artificiale di tipo Temporal Graph Network (TGN), interrogato come microservizio
   esterno: il modello ricostruisce il grafo storico delle interazioni e restituisce un
   \textit{anomaly score} continuo nell'intervallo $[0,1]$. Per resistere ad attacchi di tipo
-  \textit{poisoning}, l'interrogazione segue un flusso in due fasi: l'orchestratore chiama prima
+  \textit{poisoning}, l'interrogazione segue un flusso in 2 fasi: l'orchestratore chiama prima
   l'endpoint \texttt{/infer} in sola lettura per ottenere lo score e, solo se la decisione
   finale di OPA è di consenso, conferma l'evento nella memoria del modello tramite l'endpoint
   \texttt{/update}, così che gli accessi negati non contribuiscano mai all'addestramento. In
-  caso di indisponibilità o timeout del servizio (cinque secondi), l'orchestratore adotta in
+  caso di indisponibilità o timeout del servizio (5 secondi), l'orchestratore adotta in
   modo conservativo uno score elevato pari a $0.99$ con confidenza \texttt{low}, traducendo
   l'incertezza in una postura più restrittiva;
 
@@ -97,9 +97,9 @@ Le decisioni emesse vengono registrate in un log dedicato denominato \texttt{opa
   in memoria degli alert generati dalle istanze Snort. Un listener TCP dedicato, in ascolto
   sulla porta \texttt{9000}, riceve dal parser degli IDS gli allarmi serializzati come JSON
   newline-delimited e li indicizza per indirizzo IP sorgente. Per ciascun IP la cache conserva
-  tre slot distinti, corrispondenti alle istanze \textit{edge} (\texttt{snort}), \textit{mid}
+  3 slot distinti, corrispondenti alle istanze \textit{edge} (\texttt{snort}), \textit{mid}
   (\texttt{snort-mid}) e \textit{internal} (\texttt{snort-internal}), associati a una scadenza
-  temporale (TTL) di tre minuti che viene rinnovata a ogni nuovo allarme. Al momento della
+  temporale (TTL) di 3 minuti che viene rinnovata a ogni nuovo allarme. Al momento della
   valutazione di una richiesta, l'orchestratore interroga la cache per l'IP del client e
   converte la presenza di allarmi recenti in feature binarie, passate al modello TGN insieme
   agli altri attributi della richiesta (corrispondenza del fingerprint JA3, metodo, ruolo e
@@ -109,7 +109,7 @@ Le decisioni emesse vengono registrate in un log dedicato denominato \texttt{opa
 
 \section{OPA come Policy Decision Point}
 
-La policy predefinita applica un approccio \textit{default deny}, bloccando qualsiasi richiesta non esplicitamente autorizzata. La valutazione autorizzativa si articola ad alto livello su una catena di controlli logici sequenziali: la verifica di eventuali esenzioni per le rotte pubbliche, l'assegnazione degli attributi di sicurezza in base all'identità (RBAC), la validazione matematica dell'appartenenza ai compartimenti richiesti (Categorie) e il controllo gerarchico di confidenzialità basato sulle direttive del modello Bell-LaPadula.
+La policy predefinita applica un approccio \textit{default deny}, bloccando qualsiasi richiesta non esplicitamente autorizzata. La valutazione autorizzativa si articola ad alto livello su una catena di controlli logici sequenziali: la verifica di eventuali esenzioni per le rotte pubbliche, l'assegnazione degli attributi di sicurezza in base all'identità aziendale, la validazione matematica dell'appartenenza ai compartimenti richiesti (Categorie) e il controllo gerarchico di confidenzialità basato sulle direttive del modello Bell-LaPadula.
 
 A valle dei controlli strutturali, la policy integra la valutazione continua del rischio generata in tempo reale dai sistemi di Intelligenza Artificiale. Invece di affidarsi a soglie di blocco fisse o a meccanismi di fallback statici, il sistema valuta ogni singola transazione attraverso il calcolo di un bilancio di rischio netto: l'accesso viene definitivamente autorizzato solo se il beneficio intrinseco dell'operazione, decurtato dello score di minaccia calcolato dall'AI, risulta superiore al livello di rischio accettato per quello specifico endpoint.
 
@@ -123,50 +123,38 @@ Un middleware intercetta le richieste in transito, estraendo gli header di tracc
 Per garantire la protezione contro tentativi di manomissione diretta della base dati, il servizio implementa una convalida dell'integrità: all'atto della creazione o dell'aggiornamento di un record sensibile, il sistema calcola un hash SHA-256 concatenando i campi informativi con un carattere di separazione pipe; questo hash viene memorizzato nel documento e ricalcolato a ogni lettura, bloccando la visualizzazione e sollevando un errore qualora si rilevi una divergenza.
 
 \section{Identity Access Management service}
-Il servizio Identity Access Management (\texttt{iam-service}) gestisce l'intero ciclo di vita dell'autenticazione e dell'identità. È scritto in Go, espone un server HTTP sulla porta  \texttt{8082} e popola i propri log integrando il campo \texttt{service: "iam-service"} per la correlazione automatica in Splunk.
-L'autenticazione segue un flusso a due fasi che incorpora un secondo fattore obbligatorio. Nella prima fase, la rotta \texttt{/api/v1/auth/login} verifica le credenziali confrontando la
-password con un hash \texttt{Argon2id} e controlla il certificato client propagato da Envoy controllando il campo CN deve corrispondere allo username e l'unità organizzativa al ruolo dichiarato. Superati questi controlli, il servizio genera un codice OTP a sei cifre, ne
-memorizza l'hash HMAC-SHA256 con una scadenza di cinque minuti e un massimo di tre tentativi,  e lo invia all'indirizzo email registrato. Nella seconda fase, la rotta  \texttt{/api/v1/auth/verify-otp} valida il codice e, solo in caso di esito positivo, rilascia
-il token di sessione.
-Il token emesso è un JWT firmato con algoritmo RS256, con chiave pubblica RSA corrispondente è pubblicata sull'endpoint  \texttt{/.well-known/jwks.json}, da cui il Security Orchestrator la recupera per verificare in  autonomia la firma di ogni token, senza dover condividere segreti con l'iam-service.
+Il servizio Identity Access Management (\texttt{iam-service}) gestisce l'intero ciclo di vita dell'autenticazione e dell'identità. È scritto in Go, espone un server HTTP sulla porta \texttt{8082} e popola i propri log integrando il campo \texttt{service: "iam-service"} per la correlazione automatica in Splunk.
 
-Il servizio gestisce inoltre l'elevazione del livello di fiducia del dispositivo. Attraverso le cerimonie WebAuthn/FIDO2  un utente può registrare un dispositivo tramite TPM: la credenziale viene salvata nella collezione \texttt{device\_fingerprints},
+L'autenticazione segue un flusso a 2 fasi che incorpora un secondo fattore obbligatorio. Nella prima fase, la rotta \texttt{/api/v1/auth/login} verifica le credenziali confrontando la password con un hash \texttt{Argon2id} e controlla il certificato client propagato da Envoy, verificando che il campo CN corrisponda allo username e che l'unità organizzativa corrisponda al ruolo dichiarato. Superati questi controlli, il servizio genera un codice OTP a 6 cifre, ne memorizza l'hash HMAC-SHA256 con una scadenza di 5 minuti e un massimo di 3 tentativi, e lo invia all'indirizzo email registrato. Nella seconda fase, la rotta \texttt{/api/v1/auth/verify-otp} valida il codice e, solo in caso di esito positivo, rilascia il token di sessione.
+
+Il token emesso è un JWT firmato con algoritmo RS256, la cui chiave pubblica RSA corrispondente è pubblicata sull'endpoint \texttt{/.well-known/jwks.json}, da cui il Security Orchestrator la recupera per verificare in autonomia la firma di ogni token, senza dover condividere segreti con l'iam-service.
+
+Il servizio gestisce inoltre l'elevazione del livello di fiducia del dispositivo. Attraverso le cerimonie WebAuthn/FIDO2, un utente può registrare un dispositivo tramite TPM: la credenziale viene salvata nella collezione \texttt{device\_fingerprints}.
 
 \section{I database}
 
-L'infrastruttura utilizza due database MongoDB separati per impedire la commistione tra dati di sicurezza e informazioni di produzione.
+L'infrastruttura utilizza 2 database MongoDB separati per impedire la commistione tra dati di sicurezza e informazioni di produzione.
 
-Il Business DB memorizza i dati del personale e della centrale. Il database abilita l'autenticazione obbligatoria e definisce quattro utenze a minimo privilegio, assegnando permessi distinti per le operazioni di scrittura applicativa, per il caricamento iniziale dei dati, per il motore PDP e per i lettori di monitoraggio. Ciascuna delle sette collezioni è protetta da un JSON Schema che valida i tipi di dato e la coerenza dei formati. I documenti del personale e delle zone includono rispettivamente i sotto-documenti \texttt{ztna\_metadata} e \texttt{ztna\_policy} per supportare le verifiche del Policy Decision Point.
+Il Business DB memorizza i dati del personale e della centrale. Il database abilita l'autenticazione obbligatoria e definisce 3 utenze (personnel, manager e admin, descritte in dettaglio nella Sezione~\ref{sec:databasemongo} del Capitolo 4). Nessuna di tali utenze è accessibile dal piano decisionale: né il Security Orchestrator né il motore PDP dispongono di credenziali proprie sul Business DB, in coerenza con il principio di complete mediation discusso nel Capitolo 2, secondo cui non deve esistere un percorso diretto dal piano decisionale verso il database applicativo. Ciascuna delle  collezioni è protetta da un JSON Schema che valida i tipi di dato e la coerenza dei formati. I documenti del personale e delle zone includono rispettivamente i sotto-documenti \texttt{ztna\_metadata} e \texttt{ztna\_policy} per supportare le verifiche del Policy Decision Point.
 
 Il Security DB è destinato esclusivamente al salvataggio delle impronte digitali dei dispositivi registrati nella collezione \texttt{device\_fingerprints} e degli utenti abilitati nel servizio di identità, rimanendo accessibile solo all'orchestratore e al servizio di identità.
 
 \section{Il sistema di rilevamento delle intrusioni}
 
-Il monitoraggio della sicurezza di rete si avvale di tre istanze distinte di Snort, posizionate strategicamente all'interno dell'infrastruttura per ispezionare il traffico a diversi livelli:
+Il monitoraggio della sicurezza di rete si avvale di 3 istanze distinte di Snort, posizionate strategicamente all'interno dell'infrastruttura per ispezionare il traffico a diversi livelli:
 
 \begin{itemize}
-    \item \textbf{Istanza Esterna (\texttt{snort}):} Analizza il traffico in ingresso sulla \texttt{Front-Net} e si concentra sull'individuazione di scansioni di porte tramite il modulo \texttt{sfportscan}, rilevando attività sospette a fronte di cinque pacchetti SYN ravvicinati provenienti dal medesimo mittente.
-    \item \textbf{Istanza Interna (\texttt{snort-internal}):} Analizza le transazioni interne dirette verso il proxy Envoy, cercando violazioni del canale TLS. Questo comprende l'individuazione di negoziazioni prive di certificato client, l'impiego di cifrari obsoleti o connessioni basate su versioni non sicure del protocollo.
-    \item \textbf{Istanza Mid (\texttt{snort-mid}):} Ispeziona il traffico applicativo in transito tra Envoy e il Security Orchestrator (sul canale \texttt{ext\_authz}). Questa istanza è specificamente configurata per rilevare e segnalare vettori di attacco di livello 7, come tentativi di SQL Injection e Cross-Site Scripting (XSS).
+    \item \textit{istanza esterna} (\texttt{snort}): analizza il traffico in ingresso sulla \texttt{Front-Net};
+    \item \textit{istanza interna} (\texttt{snort-internal}): analizza le transazioni interne dirette verso il proxy Envoy, cercando violazioni del canale TLS;
+    \item \textit{istanza mid} (\texttt{snort-mid}): ispeziona il traffico applicativo in transito tra Envoy e il Security Orchestrator (sul canale \texttt{ext\_authz}).
 \end{itemize}
 
-\subsection{Meccanismo di Inoltro degli Alert}
-Affinché le minacce vengano gestite tempestivamente, le istanze IDS sono collegate a un sistema di telemetria in tempo reale. Un parser personalizzato scritto in Go legge i log generati dalle tre istanze di Snort in modalità \textit{tailing}, normalizzandoli in formato JSONL. 
+\subsection{Meccanismo di inoltro degli alert}
+\label{sec:idsorchestrator}
+Affinché le minacce vengano gestite tempestivamente, le istanze IDS sono collegate a un sistema di telemetria in tempo reale. Un parser personalizzato scritto in Go legge i log generati dalle 3 istanze di Snort in modalità \textit{tailing}, normalizzandoli in formato JSONL. 
 
-Una volta normalizzato, ogni evento critico viene immediatamente inoltrato al Security Orchestrator attraverso una connessione socket TCP diretta (sulla porta 9000). Questo scambio avviene su una porzione di rete privata dedicata esclusivamente al trasporto degli allarmi (\texttt{snort-net}). L'utilizzo del socket TCP permette un invio a bassissima latenza, garantendo che gli eventi di sicurezza raggiungano il motore decisionale centrale nel momento esatto in cui vengono rilevati sul livello di rete, pronti per l'indicizzazione e per innescare eventuali risposte di mitigazione.
+Una volta normalizzato, ogni evento critico viene immediatamente inoltrato al Security Orchestrator.
 
-
-\section{Il frontend}
-
-L'interfaccia utente è costituita da un'applicazione web statica servita da Nginx. L'interfaccia comunica direttamente con l'API esposta da Envoy sulla porta \texttt{8443}.
-
-Il frontend gestisce in modo autonomo il token di autenticazione e richiede un token CSRF prima di intraprendere operazioni di scrittura. Sebbene la sicurezza sia garantita dal controllo delle policy eseguito dal PDP, il frontend implementa regole lato client per nascondere o disattivare elementi grafici non conformi ai privilegi dell'utente, migliorando la qualità dell'interazione.
-
-\section{Il seeder}
-
-Il seeder è uno strumento sviluppato in Go per popolare il Business DB. Per garantire la coerenza, l'applicazione inserisce i record rispettando rigorosamente le dipendenze referenziali tra le collezioni.
-
-Il seeder calcola preventivamente gli hash di integrità crittografica per i record inseriti, rendendo l'ambiente immediatamente verificabile e pronto all'uso fin dalla prima inizializzazione.
 
 \section{Il flusso di autorizzazione end-to-end}
 

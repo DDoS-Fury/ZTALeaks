@@ -6,9 +6,19 @@ Da questa consapevolezza nasce il modello Zero Trust, la cui idea fondante può 
 
 \section{Il progetto}
 
-Questo elaborato descrive la progettazione e l'implementazione di un'architettura Zero Trust basata su microservizi, sviluppata nell'ambito del corso di Advanced Cybersecurity for IT. Lo scenario scelto come dominio applicativo è quello di una centrale nucleare, un contesto volutamente estremo per quanto riguarda i requisiti di sicurezza: ruoli operativi con responsabilità nettamente distinte, informazioni classificate a vari livelli di sensibilità, accesso fisico e digitale strettamente correlati e conseguenze potenzialmente catastrofiche in caso di compromissione.
+Questo elaborato descrive la progettazione e l'implementazione di un'architettura Zero Trust basata su microservizi, sviluppata nell'ambito del corso di \textit{Advanced Cybersecurity for IT}. Lo scenario scelto come dominio applicativo è quello di una centrale nucleare, un contesto volutamente estremo per quanto riguarda i requisiti di sicurezza: ruoli operativi con responsabilità nettamente distinte, informazioni classificate a vari livelli di sensibilità, accesso fisico e digitale strettamente correlati e impatti potenzialmente critici in caso di compromissione.
 
-L'architettura è distribuita su sei container Docker — Envoy Proxy, Security Orchestrator, Open Policy Agent, Business Logic, Security Database e Business Database — e si conforma ai principi definiti dalla pubblicazione NIST Special Publication 800-207, il riferimento tecnico consolidato per le implementazioni Zero Trust. Il fulcro del progetto è la separazione netta tra il Policy Enforcement Point (PEP), responsabile dell'intercettazione del traffico e dell'applicazione delle decisioni, e il Policy Decision Point (PDP), che valuta le policy e produce il verdetto di accesso. Questa separazione garantisce che nessun componente concentri in sé sia la capacità di applicare le regole sia quella di definirle, riducendo la superficie di attacco e aumentando la chiarezza architetturale.
+L'architettura è distribuita su 7 componenti principali:
+\begin{enumerate}
+    \item PEP (Envoy PROXY)
+    \item PDP (Security Orchestrator, OPA, Modello AI, Security DB)
+    \item IAM 
+    \item Logica (Business Logic, Business DB)
+    \item Firewall
+    \item IDS 
+    \item SIEM (Splunk)
+\end{enumerate} 
+conforme ai principi definiti dalla pubblicazione NIST Special Publication 800-207, il riferimento tecnico consolidato per le implementazioni Zero Trust. Il fulcro del progetto è la separazione netta tra il Policy Enforcement Point (PEP), responsabile dell'intercettazione del traffico e dell'applicazione delle decisioni, e il Policy Decision Point (PDP), che valuta le policy e produce il verdetto di accesso. Questa separazione garantisce che nessun componente concentri in sé sia la capacità di applicare le regole sia quella di definirle, riducendo la superficie di attacco e aumentando la chiarezza architetturale.
 
 Il sistema implementa un controllo degli accessi adattivo e basato sul rischio, che va ben oltre la semplice validazione delle credenziali. Ogni richiesta viene analizzata tenendo conto dell'impronta TLS del client tramite JA3 fingerprinting, della presenza di un certificato client valido mediante mutual TLS, del trust score dell'identità richiedente calcolato a partire dall'analisi comportamentale e del livello di classificazione della risorsa richiesta. Il risultato è un sistema capace di prendere decisioni di accesso granulari, contestuali e dinamiche.
 
@@ -22,4 +32,4 @@ Sul piano della rilevazione delle intrusioni, il progetto integra un firewall di
 
 \section{Struttura dell'elaborato}
 
-L'elaborato è organizzato in modo da accompagnare il lettore dalla teoria alla pratica in modo progressivo. Il Capitolo 2 fornisce il quadro teorico completo, trattando i fondamenti della crittografia applicata, i modelli formali di controllo degli accessi, i principi di progettazione sicura e le tecnologie specifiche impiegate nel progetto. Il Capitolo 3 descrive l'architettura del sistema nei suoi componenti, flussi e scelte progettuali. Il Capitolo 4 entra nel dettaglio implementativo di ciascun modulo. Il Capitolo 5 presenta i test eseguiti, gli scenari di attacco simulati e i risultati osservati. Il Capitolo 6 conclude con una valutazione critica del lavoro svolto e le possibili evoluzioni future.
+L'elaborato è organizzato in modo da accompagnare il lettore dalla teoria alla pratica in modo progressivo. Il Capitolo 2 fornisce il quadro teorico completo, trattando i fondamenti della crittografia applicata, i modelli formali di controllo degli accessi, i principi di progettazione sicura e le tecnologie specifiche impiegate nel progetto. Il Capitolo 3 descrive l'architettura del sistema nei suoi componenti, flussi e scelte progettuali. Il Capitolo 4 entra nel dettaglio implementativo di ciascun modulo. Il Capitolo 5 presenta il modello di Intelligenza Artificiale di tipo Temporal Graph Network impiegato per la valutazione del rischio, descrivendone l'architettura, l'addestramento e i risultati ottenuti. Il Capitolo 6 conclude con i test di carico eseguiti sulle API del sistema.

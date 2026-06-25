@@ -103,15 +103,5 @@ db.createUser({
     roles: [{ role: "read", db: "nuclear_plant_db" }]
 });
 
-// ---------------------------------------------------------------------------
-// Read-only service account for the Policy Decision Point (OPA/PDP).
-// Used to query resource metadata (classification levels, zone requirements)
-// for policy evaluation without any write capability.
-// ---------------------------------------------------------------------------
-db.createUser({
-    user: "pdp_reader",
-    pwd: "pdpReaderPass2025!",
-    roles: [{ role: "read", db: "nuclear_plant_db" }]
-});
 
 print("[INIT] Database users created successfully with least-privilege roles");

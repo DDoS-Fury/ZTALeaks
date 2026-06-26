@@ -24,7 +24,7 @@ Il codice sorgente dell'infrastruttura è strutturato per rispecchiare la scompo
 
 \item \texttt{infra/}: ospita i file di configurazione dei servizi infrastrutturali, strutturandosi in \texttt{databases/} per MongoDB, \texttt{envoy/} per il proxy, \texttt{nftables/} per il firewall, \texttt{opa/} per le regole di accesso e \texttt{snort/} con \texttt{snort-internal/} per il rilevamento delle intrusioni;
 
-\item \texttt{services/}: comprende le implementazioni software dei servizi attivi, includendo \texttt{business-logic/} scritto in Go per la gestione dei dati applicativi, \texttt{iam-service/} scritto in Go per la gestitone delle identità e degli aceessi, e \texttt{security-orchestrator/} scritto in Go come coordinatore decisionale;
+\item \texttt{services/}: comprende le implementazioni software dei servizi attivi, includendo \texttt{business-logic/} scritto in Go per la gestione dei dati applicativi, \texttt{iam-service/} scritto in Go per la gestione delle identità e degli accessi, e \texttt{security-orchestrator/} scritto in Go come coordinatore decisionale;
 
 \item \texttt{tests/}: raccoglie gli strumenti per la convalida dei componenti, comprendendo la cartella \texttt{clients/} con simulatori in Python e Go per la generazione di traffico e attacchi;
 

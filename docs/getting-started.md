@@ -21,7 +21,7 @@ Create an `.env` file in the root directory and ensure the following variables a
 - Database passwords and credentials for both Security DB (device fingerprints) and Business DB (application data)
 
 ### AI Model Initialization
-In order to make the solution functionable, you MUST train Graphadata (to obtain the weights). That operation require only 2 minutes on a RTX 5070TI Blackwell, you must have (at least) 7GB of free VRAM; althought you must change some settings. If you have problem, let us know, so we can give you the weights. Below the commands.
+In order to make the solution functionable, you MUST train Graphagate OR or unpack and copy files within `docs/weights.zip` into `infra/ai-inference/public`. Training requires about 15 minutes on a RTX 5070TI Blackwell (CUDA 13 capable), you must have (at least) 15GB of free VRAM; althought you must change some settings. If you have problem, let us know, so we can help you. Below the commands.
 
 - enter the `infra/ai-inference/` .
 - launch the following compose command.
@@ -38,27 +38,29 @@ The system is deployed using Docker Compose, which sets up the necessary service
 
 To build and start all the services in detached mode, run:
 ```bash
-docker compose -f deployments/docker/docker-compose.yaml up -d --build
+docker compose -f deployments/docker/docker-compose.yml up -d --build
 ```
 
 ### Seeding the Database
 The database structure is created automatically on the first start, but it remains empty. The `seeder` service populates both the Business DB (personnel, documents, nuclear materials, reactor parameters) and the Security DB (default users `admin`/`manager1`/`operator1`, password `admin123`). It starts together with the stack, but you can (re-)run it explicitly at any time:
 ```bash
-docker compose -f deployments/docker/docker-compose.yaml up --build seeder
+docker compose -f deployments/docker/docker-compose.yml up --build seeder
 ```
 Re-running it is required after changing the default users (e.g., the role migration to `operator`/`manager`/`admin`): the seeder upserts roles and clearances onto existing users.
 
 ### Resetting the Databases
 To automatically wipe both databases (which will also clear all registered WebAuthn TPMs) and reapply the initial seed data, you can simply call the `reset-db` profile:
 ```bash
-docker compose -f deployments/docker/docker-compose.yaml --profile reset-db up
+docker compose -f deployments/docker/docker-compose.yml --profile reset-db up
 ```
 This command will drop both databases on the fly and immediately re-run the seeder to restore the factory state.
 
 To stop the environment:
 ```bash
-docker compose -f deployments/docker/docker-compose.yaml down
+docker compose -f deployments/docker/docker-compose.yml down
 ```
+
+**Note:** we recommend to re-train or restore model weights to sync model memory to DBs; otherwise, AI model can identify you or your test as an anomaly. 
 
 
 ## Testing the Solution
@@ -72,7 +74,7 @@ To thoroughly test the architecture, you need to simulate both legitimate traffi
    There is a dedicated testing docker-compose file available for isolated test runs or specific mock setups:
    
    ```bash
-   docker compose -f deployments/docker/docker-compose.test.yaml up -d --build
+   docker compose -f deployments/docker/docker-compose.test.yml up -d --build
    ```
 
 2. **Attack Scenarios**:

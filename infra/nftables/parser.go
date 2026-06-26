@@ -43,8 +43,6 @@ func main() {
 	}
 	defer out.Close()
 
-	jsonEncoder := json.NewEncoder(out)
-
 	// Follow the input file with "tail -F" (survives log rotation).
 	cmd    := exec.Command("tail", "-F", inputFile)
 	stdout, err := cmd.StdoutPipe()
@@ -76,9 +74,15 @@ func main() {
 
 		record := parseLine(line)
 
-		if err := jsonEncoder.Encode(record); err != nil {
+		b, err := json.Marshal(record)
+		if err != nil {
 			log.Printf("Failed to encode JSON record: %v", err)
+			continue
 		}
+		
+		timeStr := record["timestamp"].(string)
+		outStr := `{"time":"` + timeStr + `",` + string(b[1:])
+		out.WriteString(outStr + "\n")
 	}
 
 	// Wait for the tail subprocess to exit (should not happen in normal operation).

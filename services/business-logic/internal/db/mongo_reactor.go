@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -51,6 +52,7 @@ func (r *mongoReactorRepo) Create(ctx context.Context, rp *models.ReactorParamet
 		return fmt.Errorf("failed to create reactor parameter: %w", err)
 	}
 
+	slog.Info("Reactor parameter created successfully", "user_id", ctx.Value("user_id"), "req_id", ctx.Value("req_id"), "reactor_id", rp.ReactorID)
 	return nil
 }
 
@@ -63,6 +65,7 @@ func (r *mongoReactorRepo) GetByID(ctx context.Context, id string) (*models.Reac
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("reactor parameter not found")
 		}
+		slog.Error("Failed to get reactor parameter by id", "user_id", ctx.Value("user_id"), "req_id", ctx.Value("req_id"), "error", err)
 		return nil, fmt.Errorf("failed to get reactor parameter by id: %w", err)
 	}
 	return &rp, nil
@@ -83,6 +86,7 @@ func (r *mongoReactorRepo) GetAll(ctx context.Context) ([]*models.ReactorParamet
 
 		return nil, fmt.Errorf("failed to decode reactor parameters: %w", err)
 	}
+	slog.Info("Reactor parameters fetched successfully", "user_id", ctx.Value("user_id"), "req_id", ctx.Value("req_id"), "count", len(results))
 	return results, nil
 }
 
@@ -99,6 +103,7 @@ func (r *mongoReactorRepo) Update(ctx context.Context, rp *models.ReactorParamet
 
 		return fmt.Errorf("failed to update reactor parameter: %w", err)
 	}
+	slog.Info("Reactor parameter updated successfully", "user_id", ctx.Value("user_id"), "req_id", ctx.Value("req_id"), "reactor_id", rp.ReactorID)
 	return nil
 }
 
@@ -111,6 +116,7 @@ func (r *mongoReactorRepo) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete reactor parameter: %w", err)
 	}
 
+	slog.Info("Reactor parameter deleted successfully", "user_id", ctx.Value("user_id"), "req_id", ctx.Value("req_id"), "reactor_id", id)
 	if result.DeletedCount == 0 {
 		return fmt.Errorf("reactor parameter not found")
 	}

@@ -42,7 +42,7 @@ func (r *mongoPersonnelRepo) computeDataIntegrityHash(p *models.Personnel) strin
 
 func (r *mongoPersonnelRepo) Create(ctx context.Context, personnel *models.Personnel) error {
 	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Creating personnel record", "employee_id", personnel.EmployeeID, "req_id", reqID)
+	slog.Info("Creating personnel record", "employee_id", personnel.EmployeeID, "req_id", reqID, "user_id", ctx.Value("user_id"))
 
 	personnel.CreatedAt = time.Now()
 	personnel.UpdatedAt = time.Now()
@@ -50,7 +50,7 @@ func (r *mongoPersonnelRepo) Create(ctx context.Context, personnel *models.Perso
 
 	_, err := r.collection.InsertOne(ctx, personnel)
 	if err != nil {
-		slog.Error("Failed to insert personnel record", "error", err, "req_id", reqID)
+		slog.Error("Failed to insert personnel record", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return fmt.Errorf("failed to create personnel record: %w", err)
 	}
 
@@ -59,7 +59,7 @@ func (r *mongoPersonnelRepo) Create(ctx context.Context, personnel *models.Perso
 
 func (r *mongoPersonnelRepo) GetByID(ctx context.Context, id string) (*models.Personnel, error) {
 	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Fetching personnel record by ID", "employee_id", id, "req_id", reqID)
+	slog.Info("Fetching personnel record by ID", "employee_id", id, "req_id", reqID, "user_id", ctx.Value("user_id"))
 
 	var personnel models.Personnel
 	err := r.collection.FindOne(ctx, bson.M{"employee_id": id}).Decode(&personnel)
@@ -67,7 +67,7 @@ func (r *mongoPersonnelRepo) GetByID(ctx context.Context, id string) (*models.Pe
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("personnel record not found")
 		}
-		slog.Error("Failed to fetch personnel record", "error", err, "req_id", reqID)
+		slog.Error("Failed to fetch personnel record", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return nil, fmt.Errorf("failed to fetch personnel record: %w", err)
 	}
 
@@ -76,20 +76,20 @@ func (r *mongoPersonnelRepo) GetByID(ctx context.Context, id string) (*models.Pe
 
 func (r *mongoPersonnelRepo) GetAll(ctx context.Context) ([]*models.Personnel, error) {
 	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Fetching all personnel records", "req_id", reqID)
+	slog.Info("Fetching all personnel records", "req_id", reqID, "user_id", ctx.Value("user_id"))
 
 	// Sort by last name
 	opts := options.Find().SetSort(bson.D{{Key: "last_name", Value: 1}})
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
-		slog.Error("Failed to fetch personnel records", "error", err, "req_id", reqID)
+		slog.Error("Failed to fetch personnel records", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return nil, fmt.Errorf("failed to fetch personnel records: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	var personnel []*models.Personnel
 	if err = cursor.All(ctx, &personnel); err != nil {
-		slog.Error("Cursor decode error", "error", err, "req_id", reqID)
+		slog.Error("Cursor decode error", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return nil, fmt.Errorf("failed to decode personnel records: %w", err)
 	}
 
@@ -98,7 +98,7 @@ func (r *mongoPersonnelRepo) GetAll(ctx context.Context) ([]*models.Personnel, e
 
 func (r *mongoPersonnelRepo) Update(ctx context.Context, personnel *models.Personnel) error {
 	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Updating personnel record", "employee_id", personnel.EmployeeID, "req_id", reqID)
+	slog.Info("Updating personnel record", "employee_id", personnel.EmployeeID, "req_id", reqID, "user_id", ctx.Value("user_id"))
 
 	personnel.UpdatedAt = time.Now()
 	personnel.DataIntegrityHash = r.computeDataIntegrityHash(personnel)
@@ -109,7 +109,7 @@ func (r *mongoPersonnelRepo) Update(ctx context.Context, personnel *models.Perso
 		bson.M{"$set": personnel},
 	)
 	if err != nil {
-		slog.Error("Failed to update personnel record", "error", err, "req_id", reqID)
+		slog.Error("Failed to update personnel record", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return fmt.Errorf("failed to update personnel record: %w", err)
 	}
 
@@ -122,11 +122,11 @@ func (r *mongoPersonnelRepo) Update(ctx context.Context, personnel *models.Perso
 
 func (r *mongoPersonnelRepo) Delete(ctx context.Context, id string) error {
 	reqID, _ := ctx.Value("X-Request-ID").(string)
-	slog.Info("Deleting personnel record", "employee_id", id, "req_id", reqID)
+	slog.Info("Deleting personnel record", "employee_id", id, "req_id", reqID, "user_id", ctx.Value("user_id"))
 
 	result, err := r.collection.DeleteOne(ctx, bson.M{"employee_id": id})
 	if err != nil {
-		slog.Error("Failed to delete personnel record", "error", err, "req_id", reqID)
+		slog.Error("Failed to delete personnel record", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return fmt.Errorf("failed to delete personnel record: %w", err)
 	}
 

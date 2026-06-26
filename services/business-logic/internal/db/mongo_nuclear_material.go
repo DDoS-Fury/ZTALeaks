@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 
 	"ztaleaks/business-logic/internal/models"
 
@@ -33,6 +34,7 @@ func (r *mongoNuclearMaterialRepo) computeDataIntegrityHash(m *models.NuclearMat
 		m.Status,
 		m.SerialNumber,
 	)
+
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])
 }
@@ -45,7 +47,7 @@ func (r *mongoNuclearMaterialRepo) Create(ctx context.Context, material *models.
 	if err != nil {
 		return fmt.Errorf("failed to create nuclear material: %w", err)
 	}
-
+	slog.Info("Nuclear material created successfully", "user_id", ctx.Value("user_id"), "material_id", material.MaterialID)
 	return nil
 }
 
@@ -57,9 +59,11 @@ func (r *mongoNuclearMaterialRepo) GetByID(ctx context.Context, id string) (*mod
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("nuclear material not found")
 		}
+		slog.Error("Failed to fetch nuclear material", "error", err)
 		return nil, fmt.Errorf("failed to fetch nuclear material: %w", err)
 	}
 
+	slog.Info("Nuclear material fetched successfully", "material_id", material.MaterialID)
 	return &material, nil
 }
 
@@ -68,15 +72,18 @@ func (r *mongoNuclearMaterialRepo) GetAll(ctx context.Context) ([]*models.Nuclea
 	opts := options.Find().SetSort(bson.D{{Key: "material_id", Value: 1}})
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
+		slog.Error("Failed to fetch nuclear materials", "error", err)
 		return nil, fmt.Errorf("failed to fetch nuclear materials: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	var materials []*models.NuclearMaterial
 	if err = cursor.All(ctx, &materials); err != nil {
+		slog.Error("Failed to decode nuclear materials", "error", err)
 		return nil, fmt.Errorf("failed to decode nuclear materials: %w", err)
 	}
 
+	slog.Info("Nuclear materials fetched successfully", "user_id", ctx.Value("user_id"), "count", len(materials))
 	return materials, nil
 }
 
@@ -97,6 +104,7 @@ func (r *mongoNuclearMaterialRepo) Update(ctx context.Context, material *models.
 		return fmt.Errorf("nuclear material not found")
 	}
 
+	slog.Info("Nuclear material updated successfully", "user_id", ctx.Value("user_id"), "material_id", material.MaterialID)
 	return nil
 }
 
@@ -106,10 +114,11 @@ func (r *mongoNuclearMaterialRepo) Delete(ctx context.Context, id string) error 
 	if err != nil {
 		return fmt.Errorf("failed to delete nuclear material: %w", err)
 	}
+	slog.Info("Nuclear material deleted successfully", "user_id", ctx.Value("user_id"), "material_id", id)
 
 	if result.DeletedCount == 0 {
 		return fmt.Errorf("nuclear material not found")
 	}
-
+	slog.Info("Nuclear material deleted successfully", "user_id", ctx.Value("user_id"), "material_id", id)
 	return nil
 }

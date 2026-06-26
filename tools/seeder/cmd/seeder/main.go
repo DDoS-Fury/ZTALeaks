@@ -51,7 +51,7 @@ func main() {
 
 	// Establish connection to MongoDB
 	log.Println("[SEED] Connecting to MongoDB...")
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI).SetAppName("seeder"))
 	if err != nil {
 		log.Fatalf("[SEED] Failed to connect to MongoDB: %v", err)
 	}
@@ -94,7 +94,7 @@ func main() {
 	}
 
 	log.Println("[SEED] Connecting to Security MongoDB...")
-	secClient, err := mongo.Connect(ctx, options.Client().ApplyURI(securityMongoURI))
+	secClient, err := mongo.Connect(ctx, options.Client().ApplyURI(securityMongoURI).SetAppName("seeder"))
 	if err != nil {
 		log.Fatalf("[SEED] Failed to connect to Security MongoDB: %v", err)
 	}

@@ -48,7 +48,7 @@ func (r *mongoPersonnelRepo) Create(ctx context.Context, personnel *models.Perso
 	personnel.UpdatedAt = time.Now()
 	personnel.DataIntegrityHash = r.computeDataIntegrityHash(personnel)
 
-	_, err := r.collection.InsertOne(ctx, personnel)
+	_, err := r.collection.InsertOne(ctx, personnel, cInsert(ctx))
 	if err != nil {
 		slog.Error("Failed to insert personnel record", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return fmt.Errorf("failed to create personnel record: %w", err)
@@ -62,7 +62,7 @@ func (r *mongoPersonnelRepo) GetByID(ctx context.Context, id string) (*models.Pe
 	slog.Info("Fetching personnel record by ID", "employee_id", id, "req_id", reqID, "user_id", ctx.Value("user_id"))
 
 	var personnel models.Personnel
-	err := r.collection.FindOne(ctx, bson.M{"employee_id": id}).Decode(&personnel)
+	err := r.collection.FindOne(ctx, bson.M{"employee_id": id}, cFindOne(ctx)).Decode(&personnel)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("personnel record not found")
@@ -79,7 +79,7 @@ func (r *mongoPersonnelRepo) GetAll(ctx context.Context) ([]*models.Personnel, e
 	slog.Info("Fetching all personnel records", "req_id", reqID, "user_id", ctx.Value("user_id"))
 
 	// Sort by last name
-	opts := options.Find().SetSort(bson.D{{Key: "last_name", Value: 1}})
+	opts := options.Find().SetSort(bson.D{{Key: "last_name", Value: 1}}).SetComment(commentFor(ctx))
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
 		slog.Error("Failed to fetch personnel records", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
@@ -107,6 +107,7 @@ func (r *mongoPersonnelRepo) Update(ctx context.Context, personnel *models.Perso
 		ctx,
 		bson.M{"employee_id": personnel.EmployeeID},
 		bson.M{"$set": personnel},
+		cUpdate(ctx),
 	)
 	if err != nil {
 		slog.Error("Failed to update personnel record", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
@@ -124,7 +125,7 @@ func (r *mongoPersonnelRepo) Delete(ctx context.Context, id string) error {
 	reqID, _ := ctx.Value("X-Request-ID").(string)
 	slog.Info("Deleting personnel record", "employee_id", id, "req_id", reqID, "user_id", ctx.Value("user_id"))
 
-	result, err := r.collection.DeleteOne(ctx, bson.M{"employee_id": id})
+	result, err := r.collection.DeleteOne(ctx, bson.M{"employee_id": id}, cDelete(ctx))
 	if err != nil {
 		slog.Error("Failed to delete personnel record", "error", err, "req_id", reqID, "user_id", ctx.Value("user_id"))
 		return fmt.Errorf("failed to delete personnel record: %w", err)

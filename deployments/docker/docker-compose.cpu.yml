@@ -204,8 +204,8 @@ services:
 
   business-db:
     build:
-      context: ../../infra/databases/business
-      dockerfile: Dockerfile
+      context: ../../infra/databases
+      dockerfile: business/Dockerfile
     container_name: ztaleaks_business_db
     volumes:
        - business-db-data:/data/db
@@ -216,8 +216,8 @@ services:
 
   security-db:
     build:
-      context: ../../infra/databases/security
-      dockerfile: Dockerfile
+      context: ../../infra/databases
+      dockerfile: security/Dockerfile
     container_name: ztaleaks_security_db
     env_file:
       - ../../.env

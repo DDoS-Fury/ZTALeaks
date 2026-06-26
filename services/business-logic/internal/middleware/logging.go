@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -39,6 +40,16 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		user := r.Header.Get("X-Current-User")
 		ja3 := r.Header.Get("X-Ja3-Fingerprint")
+
+		// Propaga identita' e request-id nel context: i repository li leggono per
+		// il logging applicativo e per impostare il `comment` su ogni operazione
+		// Mongo (cosi' il profiler/DB registra l'impiegato finale). Senza questa
+		// iniezione ctx.Value("user_id") era sempre nil (bug latente).
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, "user_id", user)
+		ctx = context.WithValue(ctx, "req_id", reqID)
+		ctx = context.WithValue(ctx, "X-Request-ID", reqID)
+		r = r.WithContext(ctx)
 
 		// Wrappa il ResponseWriter per catturare lo status code finale
 		rw := &responseWriter{

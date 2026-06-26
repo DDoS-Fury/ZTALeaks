@@ -23,7 +23,8 @@ func Connect(uri, dbName string) (*MongoDB, error) {
 	slog.Info("Connessione al Security DB", "uri", uri, "db", dbName)
 
 	clientOptions := options.Client().ApplyURI(uri).
-		SetMaxPoolSize(50). // Pool di connessioni per gestire richieste concorrenti
+		SetAppName("iam-service"). // registrato nel profiler come campo `service`
+		SetMaxPoolSize(50).        // Pool di connessioni per gestire richieste concorrenti
 		SetMinPoolSize(10). // Pool minimo
 		SetMaxConnIdleTime(time.Minute * 5)
 

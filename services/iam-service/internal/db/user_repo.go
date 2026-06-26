@@ -26,7 +26,7 @@ func (r *UserRepository) FindByUsername(ctx context.Context, username string) (*
 	var u models.User
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	err := r.coll.FindOne(ctx, bson.M{"username": username}).Decode(&u)
+	err := r.coll.FindOne(ctx, bson.M{"username": username}, cFindOne(username)).Decode(&u)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, errors.New("utente non trovato")
@@ -45,7 +45,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.User,
 	var u models.User
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if err := r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&u); err != nil {
+	if err := r.coll.FindOne(ctx, bson.M{"_id": objID}, cFindOne(id)).Decode(&u); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, errors.New("utente non trovato")
 		}
@@ -64,7 +64,7 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		user.Status = "active"
 	}
 
-	count, err := r.coll.CountDocuments(ctx, bson.M{"username": user.Username})
+	count, err := r.coll.CountDocuments(ctx, bson.M{"username": user.Username}, cCount(user.Username))
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		return errors.New("username gia in uso")
 	}
 
-	res, err := r.coll.InsertOne(ctx, user)
+	res, err := r.coll.InsertOne(ctx, user, cInsert(user.Username))
 	if err != nil {
 		return err
 	}
@@ -95,6 +95,7 @@ func (r *UserRepository) UpdateLastLogin(ctx context.Context, userID string, inf
 			"last_login_info": info,
 			"updated_at":      time.Now(),
 		}},
+		cUpdate(userID),
 	)
 	return err
 }
@@ -115,6 +116,7 @@ func (r *UserRepository) MarkTPMEnrolled(ctx context.Context, userID string, tpm
 			"secure_enclave_valid": true,
 			"updated_at":      time.Now(),
 		}},
+		cUpdate(userID),
 	)
 	return err
 }

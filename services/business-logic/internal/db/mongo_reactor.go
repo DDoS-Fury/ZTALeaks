@@ -47,7 +47,7 @@ func (r *mongoReactorRepo) Create(ctx context.Context, rp *models.ReactorParamet
 	// Compute and set the data integrity hash before insertion
 	rp.DataIntegrityHash = computeDataIntegrityHash(rp)
 
-	_, err := r.collection.InsertOne(ctx, rp)
+	_, err := r.collection.InsertOne(ctx, rp, cInsert(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to create reactor parameter: %w", err)
 	}
@@ -60,7 +60,7 @@ func (r *mongoReactorRepo) Create(ctx context.Context, rp *models.ReactorParamet
 func (r *mongoReactorRepo) GetByID(ctx context.Context, id string) (*models.ReactorParameters, error) {
 
 	var rp models.ReactorParameters
-	err := r.collection.FindOne(ctx, bson.M{"reactor_id": id}).Decode(&rp)
+	err := r.collection.FindOne(ctx, bson.M{"reactor_id": id}, cFindOne(ctx)).Decode(&rp)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("reactor parameter not found")
@@ -74,7 +74,7 @@ func (r *mongoReactorRepo) GetByID(ctx context.Context, id string) (*models.Reac
 // GetAll retrieves all reactor parameters
 func (r *mongoReactorRepo) GetAll(ctx context.Context) ([]*models.ReactorParameters, error) {
 
-	cursor, err := r.collection.Find(ctx, bson.M{})
+	cursor, err := r.collection.Find(ctx, bson.M{}, cFind(ctx))
 	if err != nil {
 
 		return nil, fmt.Errorf("failed to query all reactor parameters: %w", err)
@@ -98,7 +98,7 @@ func (r *mongoReactorRepo) Update(ctx context.Context, rp *models.ReactorParamet
 	filter := bson.M{"reactor_id": rp.ReactorID, "timestamp": rp.Timestamp}
 	update := bson.M{"$set": rp}
 
-	_, err := r.collection.UpdateOne(ctx, filter, update)
+	_, err := r.collection.UpdateOne(ctx, filter, update, cUpdate(ctx))
 	if err != nil {
 
 		return fmt.Errorf("failed to update reactor parameter: %w", err)
@@ -110,7 +110,7 @@ func (r *mongoReactorRepo) Update(ctx context.Context, rp *models.ReactorParamet
 // Delete removes a reactor parameter by ID.
 func (r *mongoReactorRepo) Delete(ctx context.Context, id string) error {
 
-	result, err := r.collection.DeleteOne(ctx, bson.M{"reactor_id": id})
+	result, err := r.collection.DeleteOne(ctx, bson.M{"reactor_id": id}, cDelete(ctx))
 	if err != nil {
 
 		return fmt.Errorf("failed to delete reactor parameter: %w", err)

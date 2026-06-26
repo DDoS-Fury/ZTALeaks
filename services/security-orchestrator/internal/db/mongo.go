@@ -37,7 +37,7 @@ func Connect(ctx context.Context) (*Client, error) {
 	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	c, err := mongo.Connect(connectCtx, options.Client().ApplyURI(uri).SetMaxPoolSize(20))
+	c, err := mongo.Connect(connectCtx, options.Client().ApplyURI(uri).SetAppName("security-orchestrator").SetMaxPoolSize(20))
 	if err != nil {
 		return nil, err
 	}

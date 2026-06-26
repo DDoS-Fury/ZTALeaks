@@ -15,7 +15,9 @@ type MongoDBClient struct {
 
 // Connect establishes a connection to the MongoDB server using the provided URI.
 func Connect(ctx context.Context, uri string) (*MongoDBClient, error) {
-	clientOptions := options.Client().ApplyURI(uri)
+	// appName identifica il servizio nelle connessioni: MongoDB lo registra nel
+	// profiler (system.profile.appName), usato dal tailer come campo `service`.
+	clientOptions := options.Client().ApplyURI(uri).SetAppName("business-logic")
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return nil, err

@@ -43,7 +43,7 @@ func (r *mongoNuclearMaterialRepo) Create(ctx context.Context, material *models.
 
 	material.DataIntegrityHash = r.computeDataIntegrityHash(material)
 
-	_, err := r.collection.InsertOne(ctx, material)
+	_, err := r.collection.InsertOne(ctx, material, cInsert(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to create nuclear material: %w", err)
 	}
@@ -54,7 +54,7 @@ func (r *mongoNuclearMaterialRepo) Create(ctx context.Context, material *models.
 func (r *mongoNuclearMaterialRepo) GetByID(ctx context.Context, id string) (*models.NuclearMaterial, error) {
 
 	var material models.NuclearMaterial
-	err := r.collection.FindOne(ctx, bson.M{"material_id": id}).Decode(&material)
+	err := r.collection.FindOne(ctx, bson.M{"material_id": id}, cFindOne(ctx)).Decode(&material)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("nuclear material not found")
@@ -69,7 +69,7 @@ func (r *mongoNuclearMaterialRepo) GetByID(ctx context.Context, id string) (*mod
 
 func (r *mongoNuclearMaterialRepo) GetAll(ctx context.Context) ([]*models.NuclearMaterial, error) {
 
-	opts := options.Find().SetSort(bson.D{{Key: "material_id", Value: 1}})
+	opts := options.Find().SetSort(bson.D{{Key: "material_id", Value: 1}}).SetComment(commentFor(ctx))
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
 		slog.Error("Failed to fetch nuclear materials", "error", err)
@@ -95,6 +95,7 @@ func (r *mongoNuclearMaterialRepo) Update(ctx context.Context, material *models.
 		ctx,
 		bson.M{"material_id": material.MaterialID},
 		bson.M{"$set": material},
+		cUpdate(ctx),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update nuclear material: %w", err)
@@ -110,7 +111,7 @@ func (r *mongoNuclearMaterialRepo) Update(ctx context.Context, material *models.
 
 func (r *mongoNuclearMaterialRepo) Delete(ctx context.Context, id string) error {
 
-	result, err := r.collection.DeleteOne(ctx, bson.M{"material_id": id})
+	result, err := r.collection.DeleteOne(ctx, bson.M{"material_id": id}, cDelete(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to delete nuclear material: %w", err)
 	}

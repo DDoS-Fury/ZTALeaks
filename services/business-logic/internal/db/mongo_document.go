@@ -46,7 +46,7 @@ func (r *mongoDocumentRepo) Create(ctx context.Context, doc *models.Document) er
 	doc.UpdatedAt = now
 	doc.DataIntegrityHash = r.computeDataIntegrityHash(doc)
 
-	_, err := r.collection.InsertOne(ctx, doc)
+	_, err := r.collection.InsertOne(ctx, doc, cInsert(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to create document: %w", err)
 	}
@@ -59,7 +59,7 @@ func (r *mongoDocumentRepo) Create(ctx context.Context, doc *models.Document) er
 func (r *mongoDocumentRepo) GetByID(ctx context.Context, id string) (*models.Document, error) {
 
 	var doc models.Document
-	err := r.collection.FindOne(ctx, bson.M{"document_id": id}).Decode(&doc)
+	err := r.collection.FindOne(ctx, bson.M{"document_id": id}, cFindOne(ctx)).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, fmt.Errorf("document not found")
@@ -75,7 +75,7 @@ func (r *mongoDocumentRepo) GetByID(ctx context.Context, id string) (*models.Doc
 
 func (r *mongoDocumentRepo) GetAll(ctx context.Context) ([]*models.Document, error) {
 
-	opts := options.Find().SetSort(bson.D{{Key: "document_id", Value: 1}})
+	opts := options.Find().SetSort(bson.D{{Key: "document_id", Value: 1}}).SetComment(commentFor(ctx))
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
 		slog.Error("Failed to fetch documents", "user_id", ctx.Value("user_id"), "req_id", ctx.Value("req_id"), "error", err)
@@ -103,6 +103,7 @@ func (r *mongoDocumentRepo) Update(ctx context.Context, doc *models.Document) er
 		ctx,
 		bson.M{"document_id": doc.DocumentID},
 		bson.M{"$set": doc},
+		cUpdate(ctx),
 	)
 	if err != nil {
 
@@ -119,7 +120,7 @@ func (r *mongoDocumentRepo) Update(ctx context.Context, doc *models.Document) er
 
 func (r *mongoDocumentRepo) Delete(ctx context.Context, id string) error {
 
-	result, err := r.collection.DeleteOne(ctx, bson.M{"document_id": id})
+	result, err := r.collection.DeleteOne(ctx, bson.M{"document_id": id}, cDelete(ctx))
 	if err != nil {
 
 		return fmt.Errorf("failed to delete document: %w", err)

@@ -103,5 +103,28 @@ db.createUser({
     roles: [{ role: "read", db: "nuclear_plant_db" }]
 });
 
+// ---------------------------------------------------------------------------
+// Profiler reader: account least-privilege usato dal tailer interno al
+// container per leggere system.profile e produrre db_access.jsonl. Il ruolo
+// `read` NON include le collezioni di sistema, quindi serve un ruolo custom che
+// conceda esplicitamente `find` su nuclear_plant_db.system.profile.
+// Le credenziali combaciano con TAILER_URI nel Dockerfile di business-db.
+// ---------------------------------------------------------------------------
+db.createRole({
+    role: "profilerReaderRole",
+    privileges: [
+        {
+            resource: { db: "nuclear_plant_db", collection: "system.profile" },
+            actions: ["find"]
+        }
+    ],
+    roles: []
+});
+db.createUser({
+    user: "profiler_reader",
+    pwd: "profilerReaderPass2026!",
+    roles: [{ role: "profilerReaderRole", db: "nuclear_plant_db" }]
+});
+
 
 print("[INIT] Database users created successfully with least-privilege roles");

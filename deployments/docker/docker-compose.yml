@@ -175,6 +175,12 @@ services:
       - "--set=decision_logs.console=true"
       - "--set=services.orchestrator.url=http://security-orchestrator:8081/api/v1/opa"
       - "--set=decision_logs.service=orchestrator"
+      # Upload quasi-real-time delle decision log all'orchestrator: senza questi
+      # il plugin batcha con periodo adattivo 300-600s (default) -> opa_decision.jsonl
+      # si aggiorna a blocchi ogni 5-10 min e su Splunk sembra "fermo" tra un batch
+      # e l'altro. Con 5-10s le decisioni arrivano in coda quasi subito.
+      - "--set=decision_logs.reporting.min_delay_seconds=5"
+      - "--set=decision_logs.reporting.max_delay_seconds=10"
       - "/policy.rego"
       - "/data.json"
     restart: unless-stopped

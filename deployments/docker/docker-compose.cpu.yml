@@ -175,6 +175,9 @@ services:
       - "--set=decision_logs.console=true"
       - "--set=services.orchestrator.url=http://security-orchestrator:8081/api/v1/opa"
       - "--set=decision_logs.service=orchestrator"
+      # Upload quasi-real-time delle decision log all'orchestrator (default 300-600s).
+      - "--set=decision_logs.reporting.min_delay_seconds=5"
+      - "--set=decision_logs.reporting.max_delay_seconds=10"
       - "/policy.rego"
       - "/data.json"
     restart: unless-stopped

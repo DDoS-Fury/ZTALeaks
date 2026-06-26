@@ -351,6 +351,13 @@ services:
     depends_on:
       - splunk
     volumes:
+      # Stato persistente della UF su volumi NOMINATI: la fishbucket (checkpoint
+      # di lettura) vive in var/. Senza questi, Docker monta volumi anonimi che
+      # ad ogni recreate vengono ricreati vuoti -> la UF perde la posizione e
+      # rilegge ogni file da capo (eventi duplicati + replay del backlog ->
+      # gli eventi recenti restano fuori dalla finestra di ricerca su Splunk).
+      - splunk-uf-var:/opt/splunkforwarder/var
+      - splunk-uf-etc:/opt/splunkforwarder/etc
       - ../../infra/splunk-uf:/opt/splunkforwarder/etc/apps/ztaleaks_forwarder/local
       - firewall-logs:/var/log/ztaleaks/nftables:ro
       - envoy-logs:/var/log/ztaleaks/envoy:ro
@@ -414,3 +421,5 @@ volumes:
   opa-logs:
   splunk-etc:
   splunk-var:
+  splunk-uf-var:
+  splunk-uf-etc:

@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -23,8 +22,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-// OPALogsHandler processa i log decisionali di OPA e li appende al file indicato.
-func OPALogsHandler(opaLogFile *os.File) http.HandlerFunc {
+// OPALogsHandler processa i log decisionali di OPA e li appende al writer
+// indicato (ruotato a dimensione lato main). Accetta un io.Writer cosi' la
+// destinazione (file semplice o logger rotante) e' un dettaglio del chiamante.
+func OPALogsHandler(opaLog io.Writer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var reader io.Reader = r.Body
 		if r.Header.Get("Content-Encoding") == "gzip" {
@@ -42,8 +43,10 @@ func OPALogsHandler(opaLogFile *os.File) http.HandlerFunc {
 			return
 		}
 		for _, e := range entries {
-			if opaLogFile != nil {
-				_, _ = opaLogFile.Write(append([]byte(e), '\n'))
+			if _, err := opaLog.Write(append([]byte(e), '\n')); err != nil {
+				// Non perdere silenziosamente le decision-log: se la scrittura
+				// fallisce lo segnaliamo (prima l'errore veniva ignorato).
+				slog.Error("scrittura opa_decision.jsonl fallita", "error", err)
 			}
 		}
 		w.WriteHeader(http.StatusOK)

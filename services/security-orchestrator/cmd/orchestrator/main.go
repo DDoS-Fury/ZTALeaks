@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"time"
 
+	"gopkg.in/natefinch/lumberjack.v2"
+
 	"ztaleaks/security-orchestrator/internal/aiscorer"
 	"ztaleaks/security-orchestrator/internal/cache"
 	"ztaleaks/security-orchestrator/internal/db"
@@ -37,20 +39,23 @@ func main() {
 	logDir := "/var/log/ztaleaks/orchestrator"
 	_ = os.MkdirAll(logDir, 0755)
 
-	// JSON logger su file + stdout per Splunk forwarding
-	var logWriter io.Writer = os.Stdout
-	if f, err := os.OpenFile(filepath.Join(logDir, "app.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		logWriter = io.MultiWriter(os.Stdout, f)
-	}
+	// JSON logger su file + stdout per Splunk forwarding. Il file e' ruotato a
+	// dimensione: un singolo file mai ruotato cresce all'infinito e, se la
+	// Splunk-uf perde il checkpoint, deve rileggerlo tutto da capo.
+	appLog := newRotatingLog(filepath.Join(logDir, "app.jsonl"))
+	defer appLog.Close()
+	logWriter := io.MultiWriter(os.Stdout, appLog)
 	// Pre-popola l'attributo `service` sul default logger: ogni slog.X in
 	// tutto il package erediter automaticamente la provenienza.
 	slog.SetDefault(slog.New(slog.NewJSONHandler(logWriter, nil)).With("service", "security-orchestrator"))
 
 	port := getenv("SECURITY_ORCHESTRATOR_PORT", "8081")
 
-	// File log dedicato per le decision-logs di OPA (preservato dal master)
-	opaLogPath := filepath.Join(logDir, "opa_decision.jsonl")
-	opaLogFile, _ := os.OpenFile(opaLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// File log dedicato per le decision-logs di OPA (preservato dal master).
+	// Ruotato a dimensione come app.jsonl: i log restano INTERI, solo segmentati;
+	// la Splunk-uf monitora la directory e inoltra anche i segmenti ruotati.
+	opaLog := newRotatingLog(filepath.Join(logDir, "opa_decision.jsonl"))
+	defer opaLog.Close()
 
 	// --- Wiring dei moduli ---
 	ctx := context.Background()
@@ -81,7 +86,7 @@ func main() {
 	})
 
 	// Decision logs ricevuti da OPA (--set=services.orchestrator...) — preservato
-	mux.HandleFunc("POST /api/v1/opa/logs", handler.OPALogsHandler(opaLogFile))
+	mux.HandleFunc("POST /api/v1/opa/logs", handler.OPALogsHandler(opaLog))
 
 	// ext_authz endpoint chiamato da Envoy
 	evaluate := handler.BuildEvaluateHandler(verifier, tpmLookup, usersColl, opaClient, aiClient, snortCache)
@@ -126,6 +131,19 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// newRotatingLog crea un writer su file ruotato a dimensione. Mantiene i log
+// INTERI (nessun filtro/troncamento del contenuto): si limita a segmentare il
+// file per impedire che cresca illimitato. Cosi' un'eventuale rilettura della
+// Splunk-uf replaya al massimo il segmento corrente, non mesi di storico.
+func newRotatingLog(path string) *lumberjack.Logger {
+	return &lumberjack.Logger{
+		Filename:   path,
+		MaxSize:    50, // MB per segmento prima della rotazione
+		MaxBackups: 20, // segmenti ruotati conservati (tutti inoltrati a Splunk)
+		Compress:   false, // niente gzip: la Splunk-uf legge i segmenti come JSONL
+	}
 }
 
 func getenv(k, def string) string {

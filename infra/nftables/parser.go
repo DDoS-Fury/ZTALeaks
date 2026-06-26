@@ -113,10 +113,10 @@ func parseLine(line string) map[string]interface{} {
 			record["prefix"] = prefix
 
 			switch prefix {
-			case "fw-accept":
+			case "fw-accept", "fw-egress-accept":
 				record["action"] = "accept"
 
-			case "fw-drop":
+			case "fw-drop", "fw-input-drop":
 				record["action"] = "drop"
 
 			case "fw-syn-flood-drop":

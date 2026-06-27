@@ -2,10 +2,12 @@ package webauthn
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 
 	"ztaleaks/iam-service/internal/db"
 	"ztaleaks/iam-service/internal/models"
@@ -15,49 +17,10 @@ import (
 // /api/v1/auth/register/begin
 // ---------------------------------------------------------------------------
 
-type beginRegisterReq struct {
-	AccessToken string `json:"access_token"`
-	DeviceName  string `json:"device_name"`
-}
-
-type publicKeyCredentialCreationOptions struct {
-	Challenge        string       `json:"challenge"`
-	RP               relyingParty `json:"rp"`
-	User             userEntity   `json:"user"`
-	PubKeyCredParams []paramEntry `json:"pubKeyCredParams"`
-	Timeout          int          `json:"timeout"`
-	Attestation      string       `json:"attestation"`
-	SessionID        string       `json:"session_id"`
-}
-
-type relyingParty struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-type userEntity struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName"`
-}
-
-type paramEntry struct {
-	Type string `json:"type"`
-	Alg  int    `json:"alg"`
-}
-
-// BeginRegistration apre una cerimonia di enrollment: l'utente deve essere
-// gia' autenticato (il JWT e' stato verificato a monte dalla security-orchestrator,
-// che inietta X-Current-User come header upstream). Genera una challenge random
-// e la salva in webauthn_challenges con TTL 5 min.
+// BeginRegistration apre una cerimonia di enrollment. L'utente è già
+// autenticato: il middleware ha validato l'HMAC dell'header X-Current-User
+// (firmato dalla security-orchestrator) e l'ha riscritto al solo userID.
 func (h *Handler) BeginRegistration(w http.ResponseWriter, r *http.Request) {
-	var req beginRegisterReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		slog.Error("failed to decode begin registration request", "user_id", r.Header.Get("X-Current-User"), "error", err)
-		return
-	}
-
 	userID := r.Header.Get("X-Current-User")
 	if userID == "" {
 		http.Error(w, "missing authenticated user (X-Current-User)", http.StatusUnauthorized)
@@ -71,40 +34,42 @@ func (h *Handler) BeginRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	challenge := newChallenge()
-	sessionID := newSessionID()
-	if err := h.challenges.Create(r.Context(), models.WebAuthnChallenge{
-		SessionID:    sessionID,
-		Challenge:    challenge,
-		UserID:       user.ID,
-		CeremonyType: "registration",
-	}); err != nil {
-		slog.Error("failed to store challenge", "user_id", user.ID, "error", err)
-		http.Error(w, "failed to store challenge", http.StatusInternalServerError)
+	// Idrata le credenziali esistenti per escluderle (no doppio enroll dello
+	// stesso authenticator) e per implementare l'interfaccia webauthn.User.
+	devs, _ := h.devices.ListByUser(r.Context(), user.ID)
+	exclusions := make([]protocol.CredentialDescriptor, 0, len(devs))
+	for _, d := range devs {
+		user.Credentials = append(user.Credentials, d.Credential)
+		exclusions = append(exclusions, d.Credential.Descriptor())
+	}
+
+	creation, sessionData, err := h.wa.BeginRegistration(user,
+		webauthn.WithConveyancePreference(protocol.PreferDirectAttestation),
+		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
+			UserVerification: protocol.VerificationRequired,
+		}),
+		webauthn.WithExclusions(exclusions),
+	)
+	if err != nil {
+		http.Error(w, "failed to begin registration", http.StatusInternalServerError)
+		slog.Error("failed to begin registration", "user_id", user.ID, "error", err)
 		return
 	}
 
-	opts := publicKeyCredentialCreationOptions{
-		Challenge: challenge,
-		RP: relyingParty{
-			ID:   getenv("WEBAUTHN_RP_ID", "ztaleaks.local"),
-			Name: "ZTALeaks Nuclear Plant",
-		},
-		User: userEntity{
-			ID:          user.ID,
-			Name:        user.Username,
-			DisplayName: user.Username,
-		},
-		PubKeyCredParams: []paramEntry{
-			{Type: "public-key", Alg: -7},   // ES256
-			{Type: "public-key", Alg: -257}, // RS256
-		},
-		Timeout:     60000,
-		Attestation: "direct",
-		SessionID:   sessionID,
+	sessionID := newSessionID()
+	if err := h.challenges.Create(r.Context(), models.WebAuthnChallenge{
+		SessionID:    sessionID,
+		UserID:       user.ID,
+		CeremonyType: "registration",
+		SessionData:  *sessionData,
+	}); err != nil {
+		http.Error(w, "failed to store challenge", http.StatusInternalServerError)
+		slog.Error("failed to store challenge", "user_id", user.ID, "error", err)
+		return
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"publicKey":  opts,
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"publicKey":  creation.Response,
 		"session_id": sessionID,
 	})
 }
@@ -113,76 +78,71 @@ func (h *Handler) BeginRegistration(w http.ResponseWriter, r *http.Request) {
 // /api/v1/auth/register/finish
 // ---------------------------------------------------------------------------
 
-type finishRegisterReq struct {
-	SessionID       string `json:"session_id"`
-	CredentialID    string `json:"credential_id"`
-	PublicKey       string `json:"public_key"`       // base64 standard
-	AttestationType string `json:"attestation_type"` // es. "platform" / "cross-platform"
-	AAGUID          string `json:"aaguid"`
-}
-
-// FinishRegistration chiude la cerimonia di enrollment: salva la credential
-// in device_fingerprints, marca user.has_tpm=true e cancella la challenge.
+// FinishRegistration valida crittograficamente la risposta dell'authenticator
+// (attestation + clientDataJSON + challenge) via go-webauthn, poi salva la
+// credenziale verificata in device_fingerprints e marca user.has_tpm=true.
+// Il session_id viaggia in query string così il body resta il JSON-credenziale
+// standard atteso dalla libreria.
 func (h *Handler) FinishRegistration(w http.ResponseWriter, r *http.Request) {
-	var req finishRegisterReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		slog.Error("failed to decode finish registration request", "user_id", r.Header.Get("X-Current-User"), "error", err)
-		return
-	}
-	if req.SessionID == "" || req.CredentialID == "" || req.PublicKey == "" {
-		http.Error(w, "missing fields", http.StatusBadRequest)
-		slog.Error("missing fields in finish registration request")
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		slog.Error("missing session_id in finish registration")
 		return
 	}
 
-	challenge, err := h.challenges.FindBySessionID(r.Context(), req.SessionID)
+	ch, err := h.challenges.FindBySessionID(r.Context(), sessionID)
 	if err != nil {
 		if errors.Is(err, db.ErrChallengeNotFound) {
 			http.Error(w, "challenge not found or expired", http.StatusUnauthorized)
-			slog.Error("challenge not found or expired", "user_id", r.Header.Get("X-Current-User"), "session_id", req.SessionID)
+			slog.Error("challenge not found or expired", "session_id", sessionID)
 			return
 		}
 		http.Error(w, "challenge lookup failed", http.StatusInternalServerError)
-		slog.Error("failed to lookup challenge", "user_id", r.Header.Get("X-Current-User"), "error", err)
+		slog.Error("failed to lookup challenge", "error", err)
 		return
 	}
-	if challenge.CeremonyType != "registration" {
+	if ch.CeremonyType != "registration" {
 		http.Error(w, "wrong ceremony type", http.StatusBadRequest)
-		slog.Error("wrong ceremony type", "user_id", r.Header.Get("X-Current-User"), "ceremony_type", challenge.CeremonyType)
+		slog.Error("wrong ceremony type", "ceremony_type", ch.CeremonyType)
 		return
 	}
 
-	pubKey, err := base64.StdEncoding.DecodeString(req.PublicKey)
+	user, err := h.users.FindByID(r.Context(), ch.UserID)
 	if err != nil {
-		http.Error(w, "invalid public_key encoding", http.StatusBadRequest)
-		slog.Error("invalid public_key encoding", "error", err)
+		http.Error(w, "user not found", http.StatusUnauthorized)
+		slog.Error("failed to find user", "user_id", ch.UserID, "error", err)
 		return
 	}
 
+	cred, err := h.wa.FinishRegistration(user, ch.SessionData, r)
+	if err != nil {
+		http.Error(w, "registration verification failed", http.StatusBadRequest)
+		slog.Error("registration verification failed", "user_id", ch.UserID, "error", err)
+		return
+	}
+
+	credIDB64 := base64.RawURLEncoding.EncodeToString(cred.ID)
 	if err := h.devices.Create(r.Context(), models.DeviceCredential{
-		CredentialID:    req.CredentialID,
-		UserID:          challenge.UserID,
-		PublicKey:       pubKey,
-		AAGUID:          req.AAGUID,
-		AttestationType: req.AttestationType,
-		DeviceName:      "tpm-" + truncate(req.CredentialID, 8),
-		SignCount:       0,
+		CredentialID: credIDB64,
+		UserID:       ch.UserID,
+		DeviceName:   "tpm-" + truncate(credIDB64, 8),
+		Credential:   *cred,
 	}); err != nil {
 		http.Error(w, "credential already registered", http.StatusConflict)
-		slog.Error("credential already registered", "user_id", challenge.UserID, "credential_id", req.CredentialID)
+		slog.Error("credential already registered", "user_id", ch.UserID, "credential_id", credIDB64)
 		return
 	}
 
-	if err := h.users.MarkTPMEnrolled(r.Context(), challenge.UserID, req.PublicKey); err != nil {
+	if err := h.users.MarkTPMEnrolled(r.Context(), ch.UserID); err != nil {
 		http.Error(w, "failed to update user TPM flag", http.StatusInternalServerError)
-		slog.Error("failed to update user TPM flag", "user_id", challenge.UserID, "error", err)
+		slog.Error("failed to update user TPM flag", "user_id", ch.UserID, "error", err)
 		return
 	}
-	_ = h.challenges.Delete(r.Context(), req.SessionID)
+	_ = h.challenges.Delete(r.Context(), sessionID)
 
 	respondJSON(w, http.StatusOK, map[string]string{
 		"status":        "registered",
-		"credential_id": req.CredentialID,
+		"credential_id": credIDB64,
 	})
 }

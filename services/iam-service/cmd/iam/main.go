@@ -53,8 +53,10 @@ func main() {
 			JWT:        jwtMgr,
 			Mail:       mail,
 		},
-		WebAuthn: wa.NewHandler(repos.Users, repos.Devices, repos.Challenges, repos.OTP, mail),
-		JWT:      jwtMgr,
+		WebAuthn: wa.NewHandler(repos.Users, repos.Devices, repos.Challenges, repos.OTP, mail,
+			cfg.WebAuthn, repos.RateLimits, cfg.EnumSecret),
+		JWT:              jwtMgr,
+		UserHeaderSecret: cfg.UserHeaderSecret,
 	}
 
 	mux := http.NewServeMux()

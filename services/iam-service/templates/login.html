@@ -232,16 +232,27 @@
 
                 // 2. Chiedi al browser di firmare con la Security Key
                 const credential = await navigator.credentials.get({ publicKey: publicKeyOptions });
+                const resp = credential.response;
 
-                // 3. Manda firma al server per completare
-                const rFinish = await fetch('/api/v1/auth/login/finish', {
+                // 3. Manda l'assertion completa al server (formato standard
+                //    atteso da go-webauthn). session_id va in query string così
+                //    il body è la credenziale pura. La firma viene verificata
+                //    crittograficamente lato server con la chiave registrata.
+                const assertion = {
+                    id: credential.id,
+                    rawId: bufferToBase64url(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        authenticatorData: bufferToBase64url(resp.authenticatorData),
+                        clientDataJSON: bufferToBase64url(resp.clientDataJSON),
+                        signature: bufferToBase64url(resp.signature),
+                        userHandle: resp.userHandle ? bufferToBase64url(resp.userHandle) : null
+                    }
+                };
+                const rFinish = await fetch('/api/v1/auth/login/finish?session_id=' + encodeURIComponent(sessionID), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        session_id: sessionID,
-                        credential_id: credential.id,
-                        sign_count: 1 // Dummy sign_count for lab
-                    })
+                    body: JSON.stringify(assertion)
                 });
 
                 if (rFinish.ok) {

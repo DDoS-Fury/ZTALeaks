@@ -46,6 +46,28 @@ Il backend usando la libreria standard si aspetterà un payload JSON specifico c
 - **[MODIFY] `services/business-logic/templates/reserved.html`**:
   - Modificare la `fetch` per `/auth/register/finish`. Inviare `id`, `rawId`, `type`, e `response` (che deve contenere `attestationObject` e `clientDataJSON` veri, decodificati dal browser).
 
+### Hardening Aggiuntivo
+
+Oltre alla verifica crittografica (core), restano alcune debolezze non risolte dal solo switch a `go-webauthn`. Vanno affrontate per non lasciare residuo di attacco.
+
+- **[MODIFY] `services/iam-service/internal/webauthn/login.go` — User enumeration in `BeginLogin`**:
+  - Attualmente `begin` distingue `404 "user not found"` da `404 "no enrolled devices"`, rivelando esistenza/enrollment di un account. Restituire una risposta uniforme: per utenti sconosciuti o senza device, generare una `allowCredentials` **fittizia ma deterministica** (derivata in HMAC da username + secret server) e una challenge valida, così la risposta è indistinguibile dal caso reale. Mai 404 differenziati su `begin`.
+
+- **[MODIFY] `services/iam-service/internal/webauthn/login.go` / `register.go` — `UserVerification`**:
+  - Impostare `UserVerification: "required"` (non `"preferred"`) sia in login sia in registrazione: contesto centrale nucleare ZTA, il PIN/biometria sull'authenticator deve essere obbligatorio. Con `go-webauthn` si configura via `protocol.VerificationRequired` nelle opzioni della cerimonia.
+
+- **[VERIFY] Trust boundary su `X-Current-User` (`register/begin`)**:
+  - `BeginRegistration` si fida dell'header `X-Current-User` iniettato dalla security-orchestrator. Garantire a livello di network policy (k8s NetworkPolicy / config Envoy) che l'iam-service **non sia mai raggiungibile bypassando l'orchestrator**: altrimenti un attaccante spoofa l'header ed enrolla un device su un account arbitrario. Documentare/forzare il vincolo; in alternativa far validare all'iam-service un token interno firmato dall'orchestrator invece del semplice header.
+
+- **[MODIFY] Rate limiting su `login/{begin,finish}`**:
+  - Le rotte di login non hanno rate-limit (esiste la collection `rate_limits` con TTL ma non è usata in questo path). Aggiungere un limite per IP/username sulle cerimonie di login per impedire enumerazione e abuso scriptato.
+
+- **[MODIFY] `services/iam-service/internal/db/user_repo.go` — `MarkTPMEnrolled`**:
+  - Oggi salva sull'utente la **stringa base64** della public key mentre `devices.Create` salva i byte decodificati: incoerenza. Con il refactor a `go-webauthn` la public key vive nella `webauthn.Credential` dentro `device_fingerprints`; ridurre `MarkTPMEnrolled` al solo flag booleano `has_tpm=true` (niente duplicazione della chiave sull'utente) o allineare il formato.
+
+- **[NOTE] `AAGUID` / `attestation_type`**:
+  - Con la verifica dell'attestation reale, `AAGUID` e `attestation_type` provengono dall'`attestationObject` validato e non più da campi JSON arbitrari del client. Se in futuro si vuole una allowlist di modelli di authenticator, basarla solo sull'AAGUID estratto dall'attestation verificata, mai su input del client.
+
 ## Verification Plan
 
 ### Test Manuali
@@ -54,3 +76,9 @@ Il backend usando la libreria standard si aspetterà un payload JSON specifico c
 3. Fare il logout e provare il login tramite WebAuthn:
    - Verificare che inserendo credenziali fasulle o bypassando la firma Javascript, il server respinga la chiamata 400 Bad Request.
    - Verificare che il login reale funzioni e inneschi il fallback alla mail OTP, dimostrando che la crittografia ha funzionato correttamente.
+
+### Test Hardening Aggiuntivo
+4. **User enumeration:** chiamare `/login/begin` con uno username inesistente e uno esistente-ma-senza-device; verificare che le risposte (status code, presenza/forma di `allowCredentials`, timing) siano indistinguibili dal caso reale.
+5. **User Verification:** verificare che una cerimonia senza UV (authenticator senza PIN/biometria) venga rifiutata dal backend.
+6. **Trust boundary:** confermare che una richiesta diretta a `register/begin` con `X-Current-User` arbitrario (bypassando l'orchestrator) venga bloccata a livello di rete / token interno.
+7. **Rate limiting:** verificare che ripetute `login/begin` oltre soglia per IP/username vengano limitate (429).

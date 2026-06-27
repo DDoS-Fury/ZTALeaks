@@ -54,8 +54,11 @@ func main() {
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux)
 
-	// Inietta il Middleware di Logging per il tracciamento JSON Splunk
-	wrappedHandler := middleware.LoggingMiddleware(mux)
+	// Trust boundary: valida l'HMAC di X-Current-User e lo riduce al solo
+	// userID prima del logging/audit. Poi il Middleware di Logging (Splunk).
+	wrappedHandler := middleware.UserHeaderMiddleware(middleware.LoadUserHeaderSecret())(
+		middleware.LoggingMiddleware(mux),
+	)
 
 	// Start server with graceful shutdown
 	server := &http.Server{

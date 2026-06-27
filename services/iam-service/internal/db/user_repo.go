@@ -101,7 +101,10 @@ func (r *UserRepository) UpdateLastLogin(ctx context.Context, userID string, inf
 }
 
 // MarkTPMEnrolled è chiamato dal finish della cerimonia WebAuthn registration.
-func (r *UserRepository) MarkTPMEnrolled(ctx context.Context, userID string, tpmPubKeyB64 string) error {
+// Imposta solo i flag booleani: la chiave pubblica non viene più duplicata
+// sull'utente — vive nella webauthn.Credential dentro device_fingerprints
+// (unica source of truth crittografica).
+func (r *UserRepository) MarkTPMEnrolled(ctx context.Context, userID string) error {
 	objID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return err
@@ -111,10 +114,9 @@ func (r *UserRepository) MarkTPMEnrolled(ctx context.Context, userID string, tpm
 	_, err = r.coll.UpdateOne(ctx,
 		bson.M{"_id": objID},
 		bson.M{"$set": bson.M{
-			"has_tpm":         true,
-			"tpm_public_key":  tpmPubKeyB64,
+			"has_tpm":              true,
 			"secure_enclave_valid": true,
-			"updated_at":      time.Now(),
+			"updated_at":           time.Now(),
 		}},
 		cUpdate(userID),
 	)

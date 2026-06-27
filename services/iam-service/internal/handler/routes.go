@@ -14,6 +14,10 @@ type Router struct {
 	API      *IdentityAPI
 	WebAuthn *wa.Handler
 	JWT      *crypto.JWTManager
+
+	// UserHeaderSecret valida l'HMAC dell'header X-Current-User firmato
+	// dalla security-orchestrator (trust boundary sulle rotte di enrollment).
+	UserHeaderSecret []byte
 }
 
 // RegisterRoutes monta su mux:
@@ -33,8 +37,12 @@ func (r *Router) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/login", r.API.Login)
 	mux.HandleFunc("POST /api/v1/auth/verify-otp", r.API.VerifyOTP)
 
-	mux.HandleFunc("POST /api/v1/auth/register/begin", r.WebAuthn.BeginRegistration)
-	mux.HandleFunc("POST /api/v1/auth/register/finish", r.WebAuthn.FinishRegistration)
+	// Enrollment: l'identità arriva da X-Current-User → richiede HMAC valido.
+	requireUser := VerifyUserHeader(r.UserHeaderSecret)
+	mux.Handle("POST /api/v1/auth/register/begin", requireUser(http.HandlerFunc(r.WebAuthn.BeginRegistration)))
+	mux.Handle("POST /api/v1/auth/register/finish", requireUser(http.HandlerFunc(r.WebAuthn.FinishRegistration)))
+
+	// Login: cerimonie pre-autenticazione (nessun X-Current-User di fiducia).
 	mux.HandleFunc("POST /api/v1/auth/login/begin", r.WebAuthn.BeginLogin)
 	mux.HandleFunc("POST /api/v1/auth/login/finish", r.WebAuthn.FinishLogin)
 }

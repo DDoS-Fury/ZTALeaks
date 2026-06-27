@@ -7,6 +7,7 @@ import (
 
 	"ztaleaks/iam-service/internal/models"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -63,13 +64,17 @@ func (r *DeviceRepository) FindByCredentialID(ctx context.Context, credID string
 	return &d, nil
 }
 
-func (r *DeviceRepository) UpdateSignCount(ctx context.Context, credID string, signCount uint32) error {
+// UpdateCredential ripersiste la webauthn.Credential restituita da
+// FinishLogin (sign-count aggiornato dalla libreria, eventuale clone-warning)
+// e aggiorna last_used_at. Sostituisce il vecchio UpdateSignCount che si
+// fidava di un contatore auto-dichiarato dal client.
+func (r *DeviceRepository) UpdateCredential(ctx context.Context, credID string, cred webauthn.Credential) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	_, err := r.coll.UpdateOne(ctx,
 		bson.M{"credential_id": credID},
 		bson.M{"$set": bson.M{
-			"sign_count":   signCount,
+			"credential":   cred,
 			"last_used_at": time.Now(),
 		}},
 	)

@@ -371,7 +371,7 @@ func respondAllow(w http.ResponseWriter, allow bool, userID string, clientIP str
 	w.Header().Set("Content-Type", "application/json")
 	if allow {
 		if userID != "" {
-			w.Header().Set("x-current-user", userID)
+			w.Header().Set("x-current-user", signCurrentUser(userID))
 		}
 		if clientIP != "" {
 			w.Header().Set("x-envoy-external-address", clientIP)

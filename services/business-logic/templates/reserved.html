@@ -490,26 +490,6 @@
             for (let charCode of bytes) str += String.fromCharCode(charCode);
             return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         }
-        // Base64 STANDARD (con padding): il backend decodifica la public key
-        // con base64.StdEncoding (iam-service/internal/webauthn/register.go).
-        function bufferToBase64Std(buffer) {
-            const bytes = new Uint8Array(buffer);
-            let str = '';
-            for (let charCode of bytes) str += String.fromCharCode(charCode);
-            return btoa(str);
-        }
-        // AAGUID = byte 37..52 dell'authenticatorData (dopo rpIdHash[32] + flags[1] + counter[4]).
-        function extractAaguid(authData) {
-            try {
-                const b = new Uint8Array(authData).slice(37, 53);
-                if (b.length !== 16) return '00000000-0000-0000-0000-000000000000';
-                const hex = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-                return hex.slice(0,8) + '-' + hex.slice(8,12) + '-' + hex.slice(12,16) + '-' +
-                       hex.slice(16,20) + '-' + hex.slice(20);
-            } catch {
-                return '00000000-0000-0000-0000-000000000000';
-            }
-        }
         function base64urlToBuffer(base64url) {
             const padding = '='.repeat((4 - base64url.length % 4) % 4);
             const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -533,30 +513,32 @@
                 const options = await rBegin.json();
                 options.publicKey.challenge = base64urlToBuffer(options.publicKey.challenge);
                 options.publicKey.user.id = base64urlToBuffer(options.publicKey.user.id);
+                if (options.publicKey.excludeCredentials) {
+                    options.publicKey.excludeCredentials.forEach(item => {
+                        item.id = base64urlToBuffer(item.id);
+                    });
+                }
 
                 const credential = await navigator.credentials.create({ publicKey: options.publicKey });
+                const sessionID = options.SessionID || options.session_id;
 
-                // Chiave pubblica reale dell'authenticator (DER/SPKI) e AAGUID
-                // estratto dall'authenticatorData; niente piu' valori fittizi.
-                const pubKeyBuf = credential.response.getPublicKey
-                    ? credential.response.getPublicKey() : null;
-                if (!pubKeyBuf) {
-                    alert("Il browser non espone la chiave pubblica della credenziale (getPublicKey non supportato).");
-                    return;
-                }
-                const authData = credential.response.getAuthenticatorData
-                    ? credential.response.getAuthenticatorData() : null;
-
-                const rFinish = await fetch('/api/v1/auth/register/finish', {
+                // Inoltra l'attestation completa: il server CBOR-decodifica e
+                // verifica attestationObject + clientDataJSON e ne estrae chiave
+                // pubblica, AAGUID e attestation type. Niente piu' derivazioni
+                // lato client (getPublicKey/extractAaguid). session_id in query.
+                const attestation = {
+                    id: credential.id,
+                    rawId: bufferToBase64url(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        attestationObject: bufferToBase64url(credential.response.attestationObject),
+                        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON)
+                    }
+                };
+                const rFinish = await fetch('/api/v1/auth/register/finish?session_id=' + encodeURIComponent(sessionID), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
-                    body: JSON.stringify({
-                        session_id: options.SessionID || options.session_id,
-                        credential_id: credential.id,
-                        public_key: bufferToBase64Std(pubKeyBuf),
-                        attestation_type: credential.response.attestationObject ? "packed" : "none",
-                        aaguid: authData ? extractAaguid(authData) : "00000000-0000-0000-0000-000000000000"
-                    })
+                    body: JSON.stringify(attestation)
                 });
 
                 if (rFinish.ok) {

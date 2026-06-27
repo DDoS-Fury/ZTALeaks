@@ -63,8 +63,37 @@
             </header>
 
             <div class="landing-card">
+                <div class="plant-model" style="margin-bottom: 2rem;">
+                    <svg width="200" height="150" viewBox="0 0 200 150" xmlns="http://www.w3.org/2000/svg" style="display: block; margin: 0 auto;">
+                        <!-- Cooling tower 1 -->
+                        <path d="M 50 120 C 30 120 40 40 60 40 L 90 40 C 110 40 120 120 100 120 Z" fill="#475569" />
+                        <path d="M 60 40 L 90 40 L 95 30 L 55 30 Z" fill="#334155" />
+                        <!-- Cooling tower 2 -->
+                        <path d="M 110 120 C 90 120 100 50 120 50 L 140 50 C 160 50 170 120 150 120 Z" fill="#475569" />
+                        <path d="M 120 50 L 140 50 L 145 40 L 115 40 Z" fill="#334155" />
+                        <!-- Reactor dome -->
+                        <path d="M 20 120 L 20 90 A 30 30 0 0 1 80 90 L 80 120 Z" fill="#64748b" />
+                        <rect x="10" y="120" width="180" height="20" fill="#1e293b" />
+                        <rect x="15" y="140" width="170" height="5" fill="#0f172a" />
+                        <!-- Atom symbol overlay -->
+                        <g transform="translate(50, 90) scale(0.5)" stroke="#f59e0b" stroke-width="4" fill="none">
+                            <ellipse cx="0" cy="0" rx="30" ry="10" transform="rotate(0)" />
+                            <ellipse cx="0" cy="0" rx="30" ry="10" transform="rotate(60)" />
+                            <ellipse cx="0" cy="0" rx="30" ry="10" transform="rotate(120)" />
+                            <circle cx="0" cy="0" r="5" fill="#f59e0b" />
+                        </g>
+                    </svg>
+                </div>
                 <h2>Benvenuto in ZTALeaks</h2>
                 <p>Questa è la pagina base del servizio Business Logic e la tua area operativa principale. Per accedere in maniera sicura alle funzionalità del Reattore Nucleare e operare attraverso l'architettura Zero Trust, devi prima autenticarti con le tue credenziali valide e badge di accesso.</p>
+                <div style="margin-bottom: 2rem;">
+                    <a href="https://github.com/DDoS-Fury/ZTALeaks" target="_blank" style="display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; transition: color 0.2s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-muted)'">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink: 0;">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                        ZTALeaks Repository
+                    </a>
+                </div>
                 <button class="btn btn-primary" id="cta-btn" style="padding: 1rem 2rem; font-size: 1rem;" onclick="window.location.href='/login'">Procedi al Login in Area Sicura</button>
             </div>
         </main>
@@ -78,19 +107,33 @@
             if (!token || ZTA.isExpired(token)) return;
             const claims = ZTA.decodeJWT(token);
 
-            document.getElementById('nav-reserved').style.display = '';
+            if (claims && claims.role !== 'guest' && claims.role !== 'Guest') {
+                document.getElementById('nav-reserved').style.display = '';
+                
+                document.getElementById('header-actions').innerHTML =
+                    '<button class="btn btn-primary" onclick="window.location.href=\'/reserved\'">Vai alla Dashboard</button>' +
+                    '<button class="btn btn-secondary" onclick="ZTA.logout()">Logout</button>';
+
+                const cta = document.getElementById('cta-btn');
+                cta.textContent = 'Entra nella Dashboard (' + claims.role + ')';
+                cta.setAttribute('onclick', "window.location.href='/reserved'");
+            } else if (claims) {
+                // E' loggato ma è guest
+                document.getElementById('header-actions').innerHTML =
+                    '<button class="btn btn-secondary" onclick="ZTA.logout()">Logout</button>';
+                
+                const cta = document.getElementById('cta-btn');
+                cta.textContent = 'Accesso Dashboard Negato (Guest)';
+                cta.disabled = true;
+                cta.style.background = 'var(--bg-input)';
+                cta.style.color = 'var(--text-muted)';
+                cta.style.cursor = 'not-allowed';
+            }
+
             // La lista materiali interroga /api/v1/nuclear-materials (manager/admin).
             if (claims && ZTA.roleCan(claims.role, '/api/v1/nuclear-materials', 'GET')) {
                 document.getElementById('nav-materials').style.display = '';
             }
-
-            document.getElementById('header-actions').innerHTML =
-                '<button class="btn btn-primary" onclick="window.location.href=\'/reserved\'">Vai alla Dashboard</button>' +
-                '<button class="btn btn-secondary" onclick="ZTA.logout()">Logout</button>';
-
-            const cta = document.getElementById('cta-btn');
-            cta.textContent = claims ? ('Entra nella Dashboard (' + claims.role + ')') : 'Entra nella Dashboard';
-            cta.setAttribute('onclick', "window.location.href='/reserved'");
         })();
     </script>
 </body>

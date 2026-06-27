@@ -26,11 +26,11 @@ Le 3 catene IDS sono le seguenti:
 
 \subsection*{Catene di filtraggio}
 
-La catena \texttt{input} è configurata con policy di default DROP. Questa scelta rappresenta l'applicazione del principio di fail-safe defaults: in assenza di una regola esplicita di consenso, il pacchetto viene scartato silenziosamente. Le regole di consenso sono limitate al minimo necessario: viene accettato il traffico locale sull'interfaccia di loopback, il traffico appartenente a connessioni già stabilite o correlate (sfruttando il connection tracking del kernel) e il traffico TCP nuovo verso la porta di Envoy, loggato con il prefisso \texttt{fw-accept}.
+La catena \texttt{input} è configurata con policy di default DROP. Questa scelta rappresenta l'applicazione del principio di fail-safe defaults: in assenza di una regola esplicita di consenso, il pacchetto viene scartato silenziosamente. Le regole di consenso sono limitate al minimo necessario: viene accettato il traffico locale sull'interfaccia di loopback, il traffico appartenente a connessioni già stabilite o correlate (sfruttando il connection tracking del kernel) e il traffico TCP nuovo verso la porta di Envoy, loggato con il prefisso \texttt{fw-accept}. Il traffico non ammesso che raggiunge il fondo della catena viene scartato e registrato, con logging limitato in frequenza (\texttt{rate 10/second}), sotto il prefisso \texttt{fw-input-drop}.
 
 Un meccanismo di rilievo è rappresentato dal controllo anti-SYN flood: tramite un contatore dinamico denominato \texttt{syn\_meter}, le connessioni con flag SYN che superano la frequenza di 20 richieste al secondo per singolo indirizzo IP sorgente vengono scartate e registrate nei log con il prefisso \texttt{fw-syn-flood-drop}.
 
-La catena \texttt{output} implementa anch'essa una policy di default DROP per impedire connessioni non autorizzate verso l'esterno. La allow-list di uscita comprende il traffico di loopback, le connessioni già stabilite, le porte TCP dei servizi applicativi (8080, 8081, 8082), la porta del socket TCP Snort verso l'orchestratore (9000), le porte per la risoluzione DNS (53 TCP e UDP), la porta MongoDB (27017) e la porta syslog (1025). Ogni altra connessione in uscita viene rifiutata e registrata con il prefisso \texttt{fw-egress-drop}.
+La catena \texttt{output} implementa anch'essa una policy di default DROP per impedire connessioni non autorizzate verso l'esterno. La allow-list di uscita comprende il traffico di loopback, le connessioni già stabilite, le porte TCP dei servizi applicativi (8080, 8081, 8082), la porta del socket TCP Snort verso l'orchestratore (9000), le porte per la risoluzione DNS (53 TCP e UDP), la porta MongoDB (27017) e la porta syslog (1025). Le connessioni in uscita ammesse sono registrate con il prefisso \texttt{fw-egress-accept}, mentre ogni altra viene rifiutata e registrata sotto \texttt{fw-egress-drop}; entrambi i log sono limitati in frequenza per evitare flooding del log.
 
 La catena \texttt{forward} adotta una policy di default DROP, prevenendo qualsiasi instradamento non esplicitamente previsto tra le interfacce del container.
 
@@ -38,7 +38,7 @@ La catena \texttt{forward} adotta una policy di default DROP, prevenendo qualsia
 
 Lo script \texttt{entrypoint.sh} orchestra l'avvio del container in 6 fasi sequenziali: crea le directory di log, avvia \texttt{ulogd} in background, sostituisce nella configurazione le 2 variabili segnaposto \texttt{ENV\_ENVOY\_PORT} e \texttt{ENV\_FRONT\_IFACE} con i valori effettivi prelevati dall'ambiente (la seconda viene risolta dinamicamente interrogando la subnet \texttt{FRONT\_NET\_SUBNET} tramite il comando \texttt{ip}), carica le regole nel kernel tramite \texttt{nft delete table} seguito da \texttt{nft -f}, avvia il parser Go in background e infine mantiene il container attivo in foreground effettuando un tail del file di log.
 
-Il logging è gestito dal demone \texttt{ulogd}, configurato con uno stack di plugin che riceve gli eventi dal gruppo NFLOG numero 100, li arricchisce con metadati di rete e li scrive sul file \texttt{ulogd-syslogemu.log}. Il parser Go (\texttt{parser.go}) legge tale file in modalità \texttt{tail -F} (resistente alla rotazione dei log), estrae i campi chiave-valore dal formato syslog, identifica il prefisso del log (es.\ \texttt{fw-accept}, \texttt{fw-syn-flood-drop}, \texttt{fw-egress-drop}) e produce record JSON strutturati con campi \texttt{action} e \texttt{threat}, scritti in append sul file \texttt{firewall.jsonl} all'interno del volume condiviso con il Splunk Universal Forwarder.
+Il logging è gestito dal demone \texttt{ulogd}, configurato con uno stack di plugin che riceve gli eventi dal gruppo NFLOG numero 100, li arricchisce con metadati di rete e li scrive sul file \texttt{ulogd-syslogemu.log}. Il parser Go (\texttt{parser.go}) legge tale file in modalità \texttt{tail -F} (resistente alla rotazione dei log), estrae i campi chiave-valore dal formato syslog, identifica il prefisso del log (es.\ \texttt{fw-accept}, \texttt{fw-input-drop}, \texttt{fw-syn-flood-drop}, \texttt{fw-egress-accept}, \texttt{fw-egress-drop}) e produce record JSON strutturati con campi \texttt{action} e \texttt{threat}, scritti in append sul file \texttt{firewall.jsonl} all'interno del volume condiviso con il Splunk Universal Forwarder.
 
 \section{Il sistema di rilevamento intrusioni con Snort}
 
@@ -164,145 +164,372 @@ All'avvio, il servizio inizializza un logger JSON strutturato che scrive nel fil
 
 Il routing, descritto nel file \texttt{routes.go}, definisce la struttura degli endpoint del servizio.
 
-\subsection{Autenticazione standard}
-\label{sec:autenticazionestandard}
-
-Il processo di autenticazione iniziale è implementato nell'handler \texttt{Login} contenuto in \texttt{login.go}:
-
-\begin{itemize}
-    \item Riceve le credenziali dell'utente, estrae l'indirizzo IP del client dall'header \texttt{x-envoy-external-address} e verifica il rate limit per quell'indirizzo. Se il limite è superato, la richiesta viene rifiutata con \texttt{429 Too Many Requests}.
-
-    \item Analizza il certificato mTLS client dall'header \texttt{X-Forwarded-Client-Cert} tramite la funzione \texttt{extractCertFields}. Se il certificato è assente e il ruolo dell'utente nel database non è \texttt{guest}, la richiesta viene bloccata immediatamente con \texttt{403 Forbidden}: i ruoli non-guest richiedono sempre il certificato mTLS per autenticarsi. Se il certificato è presente, il Common Name deve coincidere con lo username (case-insensitive) e l'Organizational Unit deve corrispondere al ruolo dell'utente nel database. Qualora si rilevi una divergenza in uno dei 2 campi, la richiesta viene bloccata e il fallimento viene registrato nel contatore di rate limit.
-
-    \item Effettua la verifica della password con Argon2id. Se lo username non corrisponde ad alcun utente registrato, il sistema esegue un confronto fittizio con un hash di prova per bilanciare i tempi di computazione e neutralizzare i tentativi di enumerazione basati sulla misurazione delle latenze di risposta (timing attack).
-
-    \item A seguito della corretta validazione della password, genera un codice OTP a 6 cifre, calcola l'hash HMAC-SHA256 dell'OTP usando il session token come chiave, crea una sessione OTP nel database con TTL di 5 minuti e limite massimo di 3 tentativi, e avvia in background (goroutine con \texttt{recover}) l'invio dell'OTP tramite SMTP all'indirizzo email dell'utente. L'invio asincrono non blocca la risposta HTTP: la sessione è già salvata in DB e l'utente può riprovare in caso di errore di consegna.
-\end{itemize}
-
-\subsection{TPM con WebAuthn/FIDO2}
-
-\subsubsection{Protocollo FIDO2 e Ruolo del TPM}
-
-WebAuthn è uno standard W3C basato su FIDO2 che consente
-l'autenticazione senza password tramite autenticatori crittografici. Nel progetto il ruolo di authenticator è svolto dal \textbf{Trusted Platform Module (TPM)},un microcontrollore di sicurezza saldato alla scheda madre che genera e gestisce
-chiavi crittografiche in modo tale che la chiave privata non possa mai usciredal chip in forma leggibile.
-
-\subsubsection{Cerimonia di Registrazione — Fase 1: \texttt{/register/begin}}
-
-Il client, già autenticato (il JWT è stato verificato dall'Orchestratore che
-ha iniettato l'header \texttt{X-Current-User}), avvia la cerimonia di enrollment:
-
-\paragraph{Dettagli tecnici della fase begin.}
-
-\begin{itemize}
-  \item \textbf{Challenge da 256 bit}: generata tramite \texttt{crypto/rand}
-  \item \textbf{Session ID da 128 bit}: token opaco non deducibile dalla challenge,
-        che lega le 2 fasi della cerimonia
-  \item \textbf{CeremonyType: "registration"}: campo esplicito nella tabella
-        \texttt{webauthn\_challenges} che previene attacchi di \emph{ceremony
-        mix-up}
-  \item \textbf{attestation: "direct"}: richiede all'authenticator di includere
-        il suo certificato di attestazione nella risposta
-\end{itemize}
-
-Il TTL della challenge limita la finestra temporale utile per un attacco di replay.
-
-\subsubsection{Cerimonia di Registrazione — Fase 2: \texttt{/register/finish}}
-
-\paragraph{Validazione degli Input.} La fase finish applica 3 livelli di
-validazione degli input:
+Il sistema prevede due percorsi di autenticazione, selezionati sulla base del
+livello di privilegio dell'utente:
 
 \begin{enumerate}
-  \item \textbf{Struttura JSON}: decodifica corretta del body.
-  \item \textbf{Presenza campi}: \texttt{session\_id}, \texttt{credential\_id}
-        e \texttt{public\_key} sono obbligatori.
-  \item \textbf{Formato crittografico}: la chiave pubblica deve essere
-        correttamente codificata in Base64 standard
+  \item \textbf{Autenticazione di base}: credenziali
+    testuali (username e password) + OTP via email (2FA).
+  \item \textbf{Autenticazione avanzata}:username + firma crittografica hardware con chip TPM via
+    FIDO2/WebAuthn + OTP via email (step-up).
 \end{enumerate}
 
-\paragraph{Dati Persistiti.}
+\subsection{Autenticazione di base}
+Dopo che il client invia le credenziali(Username e Password) il server esegue le seguenti operazioni:
+\begin{enumerate}
+  \item \textbf{Controllo del rate limit}: il server recupera l'IP reale
+    del client dall'intestazione \texttt{X-Envoy-External-Address}
+    (iniettata e non falsificabile da Envoy). In caso di superamento della
+    soglia di tentativi falliti, la richiesta è rifiutata con
+    \texttt{HTTP 429 Too Many Requests}.
+
+  \item \textbf{Ricerca dell'utente nel database}: se l'utente non è
+    trovato, il server esegue comunque l'hashing di una password fittizia
+    (\emph{dummy}) con Argon2id, al fine di rendere il tempo di risposta
+    indistinguibile da quello di un utente esistente con password errata
+    (\emph{timing attack mitigation}).
+
+  \item \textbf{Verifica del certificato mTLS}: il server esamina
+    l'intestazione \texttt{X-Forwarded-Client-Cert}, iniettata da Envoy
+    in seguito all'handshake TLS mutuale. Si distinguono due casi:
+    \begin{itemize}
+      \item \emph{Certificato assente}: accettato solo se l'utente ha
+        ruolo \texttt{guest}. Per ruoli elevati, il login è immediatamente
+        rifiutato con \texttt{HTTP 403 Forbidden}.
+      \item \emph{Certificato presente}: il server estrae il
+        \emph{Common Name} (CN) e la \emph{Organizational Unit} (OU) dal
+        Subject del certificato. Verifica che:
+        \begin{enumerate}
+          \item \texttt{CN} coincida con l'username (case-insensitive);
+          \item \texttt{OU} coincida con il ruolo dell'utente nel database
+            (case-insensitive).
+        \end{enumerate}
+        Il mancato rispetto di uno dei due vincoli causa il rifiuto con
+        \texttt{HTTP 403 Forbidden}.
+    \end{itemize}
+
+  \item \textbf{Verifica della password}: il server decodifica i parametri
+    Argon2id dall'hash MCF memorizzato, ricalcola il digest con il sale
+    originale e confronta il risultato con il valore atteso mediante
+    \texttt{subtle.ConstantTimeCompare}, che opera in tempo costante
+    rispetto al contenuto degli operandi, prevenendo attacchi di tipo
+    timing.
+
+  \item \textbf{Generazione e invio dell'OTP}: in caso di successo, viene
+    generato un codice OTP a 6 cifre e un \texttt{session\_token} opaco
+    che correla questa fase con la verifica successiva. L'OTP è inviato
+    via email all'utente in modo asincrono.
+
+  \item \textbf{Reset del rate limit}
+\end{enumerate}
+
+\paragraph{Risposta del Server (Server \textrightarrow\ Client)}
 
 \begin{center}
-\begin{tabularx}{\linewidth}{l X}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Campo} & \textbf{Tipo} & \textbf{Descrizione} \\
+\midrule
+\texttt{status}         & \texttt{string} & Valore fisso \texttt{"otp\_required"} \\
+\texttt{session\_token}  & \texttt{string} & Token opaco per correlare la fase OTP \\
+\texttt{message}        & \texttt{string} & Messaggio informativo \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Verifica OTP ed Emissione del JWT}
+
+Il client invia \texttt{session\_token} e codice OTP (ricevuto via email)
+all'endpoint \texttt{POST /api/v1/auth/verify-otp}. Il server verifica
+l'OTP in modo atomico, prevenendo race condition sul contatore dei tentativi.
+In caso di successo recupera l'eventuale \texttt{credential\_id} TPM
+dell'utente e procede all'emissione del JWT (descritta nella
+sezione~\ref{sec:jwt}).
+
+\subsection{Registrazione TPM}
+
+ Il client, già autenticato tramite Autenticazione base, invia una richiesta al server.La richiesta non trasporta un corpo JSON. L'identità dell'utente è
+ricavata dall'intestazione \texttt{X-Current-User}, iniettata e firmata
+in \emph{HMAC} dalla Security Orchestrator dopo aver validato il JWT Bearer.
+
+Il server esegue i seguenti controlli:
+\begin{enumerate}
+  \item Il server recupera il profilo utente dal database e carica
+    le eventuali credenziali WebAuthn già registrate, al fine di
+    costruire la lista di esclusione (\emph{excludeCredentials}), che
+    impedisce il doppio enrollment dello stesso autenticatore.
+
+  \item Il server invoca la libreria \texttt{go-webauthn} in modalità
+    \texttt{BeginRegistration} con le seguenti impostazioni:
+    \begin{itemize}
+      \item \texttt{AttestationConveyancePreference}: \texttt{direct}
+        (il client deve restituire un attestation object completo,
+        che permette di verificare il produttore e il modello
+        dell'autenticatore hardware).
+      \item \texttt{UserVerification}: \texttt{required} (il chip TPM
+        deve verificare localmente l'utente, ad esempio tramite PIN o
+        biometria).
+    \end{itemize}
+
+  \item La libreria genera una \textbf{challenge} casuale a 256 bit, la incapsula in un oggetto
+    \texttt{SessionData} e la associa a un identificativo di sessione
+    (\texttt{session\_id}) opaco da 128 bit. Tali dati sono persistiti
+    nel database con TTL di 5 minuti.
+    \item Il server manda PublicKeyCredentialCreationOptions
+(include challenge, rpId, userId, timeout,
+excludeCredentials, authenticatorSelection) e il
+session\_id
+\end{enumerate}
+
+\subsubsection*{Elaborazione del Chip TPM (lato client)}
+
+Dopo aver ricevuto la risposta del \emph{begin}, il browser (tramite le
+\emph{Web Authentication API}) delega la generazione della coppia di chiavi
+al chip TPM. Il TPM esegue le seguenti operazioni interne:
+
+\begin{enumerate}
+  \item \textbf{Generazione della coppia di chiavi}: il TPM genera una
+    coppia di chiavi asimmetrica (tipicamente ECDSA su P-256 o RSA)
+    all'interno del proprio confine crittografico sicuro. La chiave
+    privata non lascia mai il chip in forma leggibile: è protetta dalla
+    \emph{Endorsement Key} (EK) e dalla \emph{Storage Root Key} (SRK)
+    della gerarchia TPM.
+
+  \item \textbf{Calcolo dell'\texttt{authenticatorData}}: il TPM costruisce
+    la struttura \texttt{authenticatorData}, che include:
+    \begin{itemize}
+      \item hash SHA-256 del \emph{Relying Party ID} (\texttt{rpIdHash});
+      \item \emph{flags}: \texttt{UP} (User Present), \texttt{UV}
+        (User Verified, richiesto dalla policy del server);
+      \item \emph{signCount}: contatore monotonico di utilizzo,
+        incrementato ad ogni firma, che consente il rilevamento di
+        authenticatori clonati;
+      \item \emph{AAGUID}: identificativo del modello di autenticatore
+        (16 byte), che consente di verificare il produttore;
+      \item chiave pubblica in formato COSE (\emph{CBOR Object Signing
+        and Encryption}).
+    \end{itemize}
+
+  \item \textbf{Costruzione dell'Attestation Object}: il TPM produce un
+    \emph{attestation object} in formato CBOR, contenente:
+    \begin{itemize}
+      \item \texttt{fmt}: formato dell'attestazione (es. \texttt{"packed"});
+      \item \texttt{authData}: l'authenticatorData sopra descritto;
+      \item \texttt{attStmt}: la firma dell'attestazione, calcolata dal
+        TPM sull'hash SHA-256 della concatenazione
+        $\texttt{authData} \| \texttt{SHA256(clientDataJSON)}$
+        usando la chiave privata di attestazione del chip.
+    \end{itemize}
+
+  \item \textbf{Costruzione del \texttt{clientDataJSON}}: il browser
+    (non il TPM) costruisce un oggetto JSON contenente il tipo
+    dell'operazione (\texttt{"webauthn.create"}), la challenge
+    ricevuta in base64url e l'origin della richiesta. Questo oggetto
+    lega la risposta crittograficamente alla sessione specifica e
+    impedisce attacchi di replay.
+\end{enumerate}
+
+\subsubsection*{Richiesta del Client (Client \textrightarrow\ Server)}
+
+Il client invia al server, nel corpo della richiesta, un oggetto
+\texttt{AuthenticatorAttestationResponse} in formato JSON (standard W3C
+WebAuthn), contenente:
+
+\begin{center}
+\begin{tabular}{@{}lp{9cm}@{}}
 \toprule
 \textbf{Campo} & \textbf{Descrizione} \\
 \midrule
-\texttt{CredentialID} & Identificatore opaco della credenziale, generato
-                        dall'authenticator. Unico per dispositivo. \\
-\texttt{PublicKey} & Chiave pubblica ECDSA/RSA in formato DER. La chiave
-                     privata rimane nel TPM e non viene mai trasmessa. \\
-\texttt{AAGUID} & Authenticator Attestation GUID — identifica il modello
-                  del chip TPM.  \\
-\texttt{AttestationType} & Tipo di attestazione (\texttt{"platform"} per TPM
-                           integrato, \texttt{"cross-platform"} per security key). \\
+\texttt{id}               & Credential ID in base64url \\
+\texttt{rawId}            & Credential ID in binario  \\
+\texttt{response.clientDataJSON} & JSON che include tipo, challenge e origin \\
+\texttt{response.attestationObject} & Attestation object CBOR-codificato \\
+\texttt{type}             & Valore fisso \texttt{"public-key"} \\
 \bottomrule
-\end{tabularx}
+\end{tabular}
 \end{center}
 
-Il flag \texttt{has\_tpm = true} viene impostato sul profilo utente in MongoDB, nella collezione \texttt{identity\_users} del Security DB (descritta in dettaglio nella Sezione~\ref{sec:databasemongo}), che è la collezione in cui risiede il documento di profilo di ciascun utente.
-Questo campo viene letto dalla \texttt{evaluateStrictDeviceFingerprinting}
-dell'Orchestratore per correlare lo stato TPM del profilo con il risultato
-della verifica \texttt{tpm.Lookup}.
+\subsubsection*{Elaborazione Server-Side e Verifica Crittografica}
 
-
-\subsubsection{Cerimonia di Autenticazione — Fase 2: \texttt{/login/finish} e Clone Detection}
-
-\paragraph{Clone Detection — Analisi Tecnica.}
-
-Il meccanismo di clone detection sfrutta il \textbf{signature counter}, un
-contatore interno al TPM che viene incrementato ad ogni operazione di firma.
-Il protocollo WebAuthn specifica che questo contatore debba essere
-\emph{strettamente monotonicamente crescente}: se il server riceve un
-\texttt{sign\_count} inferiore o uguale al valore precedentemente memorizzato,
-ciò indica una delle seguenti condizioni:
+Il server delega la verifica alla libreria \texttt{go-webauthn},
+che esegue la seguente sequenza di controlli:
 
 \begin{enumerate}
-  \item Il chip TPM fisico è stato clonato 
-  \item La risposta è un replay di una firma precedentemente catturata.
-  \item Il dispositivo è un software authenticator che non implementa
-        correttamente il contatore
+  \item Recupero del \texttt{session\_id} dalla query string e verifica
+    dell'esistenza della challenge corrispondente nel database.
+  \item Decodifica CBOR dell'attestation object.
+  \item Verifica che il tipo del \texttt{clientDataJSON} sia
+    \texttt{"webauthn.create"} e che la challenge al suo interno
+    corrisponda a quella generata in fase \emph{begin}.
+  \item Verifica dell'origin e dell'rpIdHash.
+  \item Verifica della firma dell'attestazione sul payload
+    $\texttt{authData} \| \texttt{SHA256(clientDataJSON)}$.
+  \item Verifica dell'\emph{attestation statement}: il server accerta
+    che la chiave di attestazione sia genuina e riferibile al
+    produttore dell'autenticatore, tramite la catena di certificati
+    dell'\emph{Attestation Certificate} (formato \emph{packed}).
 \end{enumerate}
 
-\paragraph{Validazione degli Input in \texttt{FinishLogin}.}
+  
 
-\begin{itemize}
-  \item \textbf{Struttura JSON}: decodifica obbligatoria.
-  \item \textbf{Binding session-challenge}: il \texttt{session\_id} viene usato
-        come chiave di ricerca nel database; se non esiste o è scaduto, la
-        cerimonia viene annullata.
-  \item \textbf{Binding credenziale-utente}: il confronto \texttt{dev.UserID != challenge.UserID}
-        previene attacchi in cui un utente presenta la propria credenziale
-        valida per autenticarsi come un altro utente.
-  \item \textbf{Tipo cerimonia}: \texttt{CeremonyType == "authentication"} previene
-        l'uso di challenge di registrazione per completare un login.
-\end{itemize}
+\subsection{Login TPM}(Autenticazione Avanzata)
 
 
-\paragraph{Riepilogo del Flusso Completo WebAuthn}
-Il flusso di autenticazione TPM completo richiede il superamento di tre verifiche
-distinte e indipendenti:
+
+Il client invia l'username ed il server applica il controllo del rate limit sull'IP del client. Ricerca
+l'utente nel database e carica le credenziali WebAuthn registrate.
+
+\medskip
+\noindent\textbf{Protezione anti user-enumeration}: se l'utente non esiste,
+non è attivo o non ha dispositivi enrollati, il server non restituisce un
+errore differenziato. Genera invece una \emph{cerimonia fittizia} (``decoy'')
+strutturalmente identica a quella reale, impedendo l'enumerazione delle
+identità tramite analisi delle risposte. La sessione sarà rifiutata nel
+\emph{finish} come una firma errata.
+\medskip
+
+In caso di utente valido con dispositivi registrati, il server invoca
+\texttt{go-webauthn.BeginLogin} con \texttt{UserVerification: required},
+genera una challenge casuale a 256 bit, la persiste nel database
+(\texttt{ceremony\_type: "authentication"}, TTL 5 minuti) e associa
+un \texttt{session\_id} opaco.
+
+\paragraph{Risposta del Server (Server \textrightarrow\ Client)}
+
+\begin{center}
+\begin{tabular}{@{}lp{8.5cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Descrizione} \\
+\midrule
+\texttt{publicKey}   & Struttura \texttt{PublicKeyCredentialRequestOptions} \\
+                     & (include challenge, rpId, timeout, \\
+                     & allowCredentials, userVerification) \\
+\texttt{session\_id} & Token opaco per correlare begin e finish \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{ Firma Hardware e Completamento (Finish)}
+
+\paragraph{Elaborazione del Chip TPM (lato client)}
+
+Dopo aver ricevuto la challenge dal server, il browser delega l'operazione
+al chip TPM. Il TPM esegue le seguenti operazioni interne:
+
 \begin{enumerate}
-  \item Firma crittografica della challenge con la chiave privata nel TPM.
-  \item Verifica del sign\_count crescente.
-  \item Binding credenziale-utente, ossia la corrispondenza tra la credenziale presentata e l'utente associato alla challenge, che impedisce a un utente di autenticarsi con una credenziale TPM valida ma appartenente a un altro profilo.
+  \item \textbf{Selezione della chiave privata}: il TPM individua la
+    chiave privata corrispondente al Credential ID incluso in
+    \texttt{allowCredentials}, protetta all'interno del confine
+    crittografico del chip. La chiave privata non è mai esportata.
+
+  \item \textbf{Calcolo dell'\texttt{authenticatorData}}: il TPM
+    costruisce la struttura che include:
+    \begin{itemize}
+      \item \texttt{rpIdHash}: SHA-256 del Relying Party ID;
+      \item \emph{flags}: \texttt{UP} (User Present) e \texttt{UV}
+        (User Verified), attestando che l'utente ha superato la
+        verifica locale (PIN, biometria);
+      \item \texttt{signCount}: incrementato di uno rispetto all'ultima
+        autenticazione registrata, consentendo il rilevamento di clonazione.
+    \end{itemize}
+
+  \item \textbf{Costruzione e firma dell'assertion}: il TPM firma
+    crittograficamente il payload:
+    \[
+      \sigma = \mathrm{Sign}_{\mathit{sk}}\!\left(\texttt{authData}\ \|\ \mathrm{SHA256}(\texttt{clientDataJSON})\right)
+    \]
+    dove $\mathit{sk}$ è la chiave privata associata alla credenziale
+    e $\texttt{clientDataJSON}$ include la challenge ricevuta dal server,
+    il tipo (\texttt{"webauthn.get"}) e l'origin. La firma lega in modo
+    crittograficamente verificabile la risposta alla specifica challenge,
+    impedendo attacchi di replay.
 \end{enumerate}
 
+\paragraph{Richiesta del Client (Client \textrightarrow\ Server)}
 
-\subsubsection{OTP}
+Il client invia un oggetto \texttt{AuthenticatorAssertionResponse}
+contenente:
 
-Il completamento dell'autenticazione avviene tramite l'handler \texttt{VerifyOTP} descritto in \texttt{verify\_otp.go}:
+\begin{center}
+\begin{tabular}{@{}lp{9cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Descrizione} \\
+\midrule
+\texttt{id}               & Credential ID (base64url) \\
+\texttt{rawId}            & Credential ID in binario (base64url) \\
+\texttt{response.clientDataJSON}    & JSON con tipo, challenge, origin (base64url) \\
+\texttt{response.authenticatorData} & Struttura authenticatorData (base64url) \\
+\texttt{response.signature}         & Firma digitale del TPM (base64url) \\
+\texttt{response.userHandle}        & User handle opaco (base64url, opzionale) \\
+\texttt{type}             & Valore fisso \texttt{"public-key"} \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-\begin{itemize}
-    \item Riceve il codice di sessione e il valore dell'OTP.
+\paragraph{Elaborazione Server-Side e Verifica Crittografica}
 
-    \item Esegue un'operazione atomica sul database (\texttt{ConsumeAttempt}) che incrementa il contatore dei tentativi filtrando contemporaneamente sui criteri \{token, attempts\textless MAX\}, garantendo la protezione contro attacchi a condizioni di concorrenza (race condition tra verifica del limite e incremento).
+\begin{enumerate}
+  \item Il server recupera la challenge associata al \texttt{session\_id}
+    e verifica che il tipo di cerimonia sia \texttt{"authentication"} e
+    che la sessione non sia marcata come fittizia.
 
-    \item Verifica l'OTP confrontandolo con l'hash HMAC-SHA256 memorizzato, usando il session token come chiave di autenticazione. Se la verifica fallisce, comunica il numero di tentativi rimanenti.
+  \item Carica le credenziali WebAuthn dell'utente e delega la verifica
+    a \texttt{go-webauthn.FinishLogin}, che esegue:
+    \begin{enumerate}
+      \item Verifica del tipo e dell'origin nel \texttt{clientDataJSON};
+      \item Verifica che la challenge nel \texttt{clientDataJSON}
+        corrisponda a quella generata in fase \emph{begin};
+      \item Verifica del \texttt{rpIdHash} nell'\texttt{authenticatorData};
+      \item \textbf{Verifica della firma}: ricalcola
+        $\mathrm{SHA256}(\texttt{clientDataJSON})$,
+        concatena con \texttt{authData} e verifica la firma
+        $\sigma$ usando la chiave pubblica memorizzata (registrata
+        in fase di enrollment).
+      \item \textbf{Controllo del signCount}: verifica che il contatore
+        sia strettamente maggiore del valore registrato. Un contatore
+        non crescente indica una possibile clonazione dell'autenticatore
+        (\texttt{CloneWarning}), che causa il rifiuto immediato.
+    \end{enumerate}
 
-    \item Se l'OTP corrisponde, cancella la sessione provvisoria, recupera i dettagli dell'utente, interroga il database per recuperare il più recente dispositivo WebAuthn registrato (per ottenere il \texttt{device\_id} da incorporare nel JWT) ed emette il token JWT firmato con algoritmo RS256, all'interno del quale vengono incorporati l'identificativo dell'utente, il ruolo, il livello di clearance, l'impronta JA3 e il \texttt{device\_id}, con durata configurata tramite la costante \texttt{AccessTokenTTL}.
+  \item La credenziale verificata (con il nuovo signCount) è aggiornata
+    nel database.
 
-    \item Aggiorna in background i dettagli dell'ultimo accesso memorizzando l'indirizzo IP, il timestamp e l'impronta JA3.
-\end{itemize}
+  \item Viene avviata la fase di step-up OTP: generazione OTP,
+    hashing HMAC-SHA256, invio email, persistenza della sessione OTP.
+\end{enumerate}
+
+\subsection{Emissione JWT}
+\label{sec:jwt}
+\begin{enumerate}
+    \item \textbf{Emissione del JWT RS256}: il server genera un token
+    JWT firmato con la chiave privata RSA-2048 dell'IAM Service,
+    con i seguenti claim:
+
+    \begin{center}
+    \begin{tabular}{@{}lll@{}}
+    \toprule
+    \textbf{Claim} & \textbf{Tipo} & \textbf{Descrizione} \\
+    \midrule
+    \texttt{sub}             & \texttt{string} & User ID \\
+    \texttt{role}            & \texttt{string} & Ruolo dell'utente \\
+    \texttt{clearance\_level} & \texttt{string} & Livello di clearance \\
+    \texttt{mfa\_verified}   & \texttt{bool}   & Sempre \texttt{true} dopo OTP \\
+    \texttt{device\_id}      & \texttt{string} & Credential ID TPM (se presente) \\
+    \texttt{ja3}             & \texttt{string} & Fingerprint TLS JA3 (se presente) \\
+    \texttt{iss}             & \texttt{string} & \texttt{"iam-service.ztaleaks.local"} \\
+    \texttt{iat}, \texttt{nbf}, \texttt{exp} & \texttt{NumericDate} & Emissione, validità, scadenza (15 min) \\
+    \texttt{jti}             & \texttt{string} & Identificativo univoco del token (UUID) \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+  \item \textbf{Aggiornamento del \texttt{last\_login\_info}}: in modo
+    asincrono, il server aggiorna il record dell'utente con timestamp,
+    IP e fingerprint JA3 dell'ultimo accesso.
+
+  \item \textbf{Eliminazione della sessione OTP}: il record temporaneo
+    è cancellato.
+\end{enumerate}
 
 \section{Il servizio Business Logic}
 
@@ -343,9 +570,11 @@ Ciascun inserimento verifica preventivamente la presenza di record per evitare d
 
 \section{Il forwarder Splunk e l'osservabilità centralizzata}
 
-Il monitoraggio centralizzato si avvale di un'istanza Splunk Enterprise combinata con un Universal Forwarder (\texttt{splunk-uf}). La configurazione del forwarder è definita nel file \texttt{inputs.conf}, il quale monitora 9 directory di volume distinte contenenti i log in formato JSON strutturato prodotti da tutti i componenti dell'infrastruttura: il firewall nftables, le 3 istanze Snort (esterna, interna e intermedia), Envoy, il business-logic, MongoDB, l'identity service, il Security Orchestrator e OPA.
+Il monitoraggio centralizzato si avvale di un'istanza Splunk Enterprise combinata con un Universal Forwarder (\texttt{splunk-uf}). La configurazione del forwarder è definita nel file \texttt{inputs.conf}, il quale monitora 10 directory di volume distinte contenenti i log in formato JSON strutturato prodotti da tutti i componenti dell'infrastruttura: il firewall nftables, le 3 istanze Snort (esterna, interna e intermedia), Envoy, il business-logic, MongoDB, l'identity service, il Security Orchestrator e OPA.
 
 L'inoltro dei dati all'istanza Splunk avviene tramite la configurazione del file \texttt{outputs.conf} puntando alla porta standard del protocollo di indicizzazione. La correlazione end-to-end è realizzata propagando l'identificativo \texttt{X-Request-ID} generato da Envoy a tutti i componenti coinvolti: una singola ricerca in linguaggio SPL sul valore dell'identificatore consente di ricostruire la sequenza temporale di tutti gli eventi associati a una determinata richiesta, attraversando i log di Envoy, del Security Orchestrator, dell'OPA e del servizio business applicativo.
+
+Oltre ai log applicativi, ciascun container di database produce un audit trail a livello di base dati. Con il profiler MongoDB attivo texttt{operationProfiling.mode=all}), un tailer interno al container (\texttt{profile-tailer}) emette, per ogni operazione sui dati, una riga JSON(campi \texttt{timestamp}, \texttt{service}, \texttt{utente\_connesso}, \texttt{tipo\_operazione}, \texttt{collezione}, \texttt{X-Current-User}. Ogni operazione è così attribuibile non solo al microservizio chiamante ma anche all'utente finale autenticato, completando il logging applicativo con un controllo incrociato a livello di persistenza.
 
 % \section{La suite di test e validazione automatizzata}
 

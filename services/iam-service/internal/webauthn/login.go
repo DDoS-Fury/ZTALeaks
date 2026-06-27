@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -55,6 +56,32 @@ func (h *Handler) BeginLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil || len(devs) == 0 {
 		h.beginFakeLogin(w, r, req.Username)
 		return
+	}
+
+	// === Verifica Certificato mTLS ===
+	certHeader := r.Header.Get("X-Forwarded-Client-Cert")
+	cn, ou, certPresent := extractCertFields(certHeader)
+
+	if !certPresent {
+		if strings.EqualFold(user.Role, "admin") || strings.EqualFold(user.Role, "manager") {
+			slog.Warn("webauthn login begin fallito: certificato mancante per admin/manager", "username", user.Username, "role", user.Role)
+			_ = h.rateLimits.RecordFailure(r.Context(), ip)
+			h.beginFakeLogin(w, r, req.Username)
+			return
+		}
+	} else {
+		if !strings.EqualFold(cn, req.Username) {
+			slog.Warn("webauthn login begin fallito: mismatch CN-Username", "cn", cn, "username", user.Username)
+			_ = h.rateLimits.RecordFailure(r.Context(), ip)
+			h.beginFakeLogin(w, r, req.Username)
+			return
+		}
+		if !strings.EqualFold(ou, user.Role) {
+			slog.Warn("webauthn login begin fallito: mismatch OU-Role", "ou", ou, "role", user.Role)
+			_ = h.rateLimits.RecordFailure(r.Context(), ip)
+			h.beginFakeLogin(w, r, req.Username)
+			return
+		}
 	}
 
 	for _, d := range devs {
@@ -235,4 +262,37 @@ func (h *Handler) authFail(w http.ResponseWriter, ctx context.Context, ip, reaso
 	_ = h.rateLimits.RecordFailure(ctx, ip)
 	slog.Error("webauthn login failed", "reason", reason, "ip", ip, "error", err)
 	http.Error(w, "authentication failed", http.StatusBadRequest)
+}
+
+// extractCertFields processa l'header 'x-forwarded-client-cert' generato da Envoy.
+func extractCertFields(header string) (cn string, ou string, present bool) {
+	if header == "" {
+		return "", "", false
+	}
+	present = true
+	parts := strings.Split(header, ";")
+	for _, part := range parts {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(kv[0])) == "subject" {
+			subject := strings.Trim(strings.TrimSpace(kv[1]), `"`)
+			subParts := strings.Split(subject, ",")
+			for _, sp := range subParts {
+				skv := strings.SplitN(strings.TrimSpace(sp), "=", 2)
+				if len(skv) == 2 {
+					key := strings.ToUpper(strings.TrimSpace(skv[0]))
+					val := strings.TrimSpace(skv[1])
+					switch key {
+					case "CN":
+						cn = val
+					case "OU":
+						ou = val
+					}
+				}
+			}
+		}
+	}
+	return cn, ou, present
 }

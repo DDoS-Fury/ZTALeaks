@@ -80,9 +80,9 @@ func (api *IdentityAPI) Login(w http.ResponseWriter, r *http.Request) {
 	cn, ou, certPresent := extractCertFields(certHeader)
 
 	if !certPresent {
-		// 1. Se il certificato non è presente, l'utente DEVE avere il ruolo guest
-		if !strings.EqualFold(user.Role, "guest") {
-			slog.Warn("login fallito: certificato mancante per non-guest", "username", user.Username, "role", user.Role, "src_ip", r.Header.Get("x-envoy-external-address"))
+		// 1. Se il certificato non è presente, l'utente NON DEVE essere admin o manager
+		if strings.EqualFold(user.Role, "admin") || strings.EqualFold(user.Role, "manager") {
+			slog.Warn("login fallito: certificato mancante per admin/manager", "username", user.Username, "role", user.Role, "src_ip", r.Header.Get("x-envoy-external-address"))
 			if err := api.RateLimits.RecordFailure(r.Context(), ip); err != nil {
 				slog.Error("errore recording rate limit", "error", err)
 			}

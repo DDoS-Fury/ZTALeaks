@@ -554,8 +554,13 @@
         // === Guardia di autenticazione ed Event Listeners globali =================
         const claims = ZTA.requireAuth();
         if (claims) {
-            ZTA.renderIdentity(document.getElementById('identity'));
-            buildDashboard(claims.role);
+            if (claims.role === 'guest' || claims.role === 'Guest') {
+                alert("Accesso negato: il tuo ruolo (Guest) non ha i permessi per visualizzare questa dashboard.");
+                window.location.href = '/';
+            } else {
+                ZTA.renderIdentity(document.getElementById('identity'));
+                buildDashboard(claims.role);
+            }
         }
         document.getElementById('logout-btn').addEventListener('click', ZTA.logout);
     </script>

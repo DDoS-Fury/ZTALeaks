@@ -166,7 +166,28 @@ blp_elabora_regola("POST", 4, 3, "/api/v1/trusted-guard/sanitized-delete-personn
 # Section 5 : Final Authorization Rule
 # =======================================================
 
+cert_ou := lower(trim_space(split(trim_space(part), "=")[1])) if {
+    input.cert_present
+    some part in split(input.cert_subject, ",")
+    startswith(trim_space(part), "OU=")
+}
+
+cert_mismatch if {
+    input.cert_present
+    input.claims.role
+    cert_ou != lower(input.claims.role)
+}
+
+cert_required_missing if {
+    lower(input.claims.role) in {"admin", "manager"}
+    not input.cert_present
+}
+
 allow if {
+    # 0. Anti-Privilege Escalation: Controllo coerenza JWT vs Certificato
+    not cert_mismatch
+    not cert_required_missing
+
     # 1. Estrazione configurazione metodo (Senza il finto sotto-blocco .metodi)
     config_metodo := matrice_sicurezza[rotta_base][input.request.method]
     

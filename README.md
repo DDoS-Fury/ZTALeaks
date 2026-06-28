@@ -12,12 +12,28 @@
   <img src="https://img.shields.io/badge/envoy-%23242424.svg?style=for-the-badge&logo=envoyproxy&logoColor=white" alt="Envoy" />
   <img src="https://img.shields.io/badge/OPA-%23323D47.svg?style=for-the-badge&logo=open-policy-agent&logoColor=white" alt="Open Policy Agent" />
   <img src="https://img.shields.io/badge/splunk-%23000000.svg?style=for-the-badge&logo=splunk&logoColor=white" alt="Splunk" />
+  <img src="https://img.shields.io/badge/JWT-black?style=for-the-badge&logo=JSON%20web%20tokens" alt="JWT" />
+  <img src="https://img.shields.io/badge/pytest-%23ffffff.svg?style=for-the-badge&logo=pytest&logoColor=2f9fe3" alt="Pytest" />
+  <img src="https://img.shields.io/badge/Visual%20Studio%20Code-0078d7.svg?style=for-the-badge&logo=visual-studio-code&logoColor=white" alt="VS Code" />
+  <img src="https://img.shields.io/badge/GoLand-000000.svg?style=for-the-badge&logo=goland&logoColor=white" alt="GoLand" />
+  <img src="https://img.shields.io/badge/nVIDIA-%2376B900.svg?style=for-the-badge&logo=nVIDIA&logoColor=white" alt="Nvidia" />
+  <img src="https://img.shields.io/badge/Windows%2011-%230079d5.svg?style=for-the-badge&logo=Windows%2011&logoColor=white" alt="Windows 11" />
+  <img src="https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0" alt="MacOS" />
+  <img src="https://img.shields.io/badge/Ubuntu%2026-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" alt="Ubuntu 26" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License: MIT" />
 </div>
 
 <br/>
 
 **ZTALeaks** is a microservices-based reference implementation of a **Zero Trust Architecture (ZTA)** compliant with NIST SP 800-207. It simulates the management system of a nuclear power plant, focusing on strict network segmentation, risk-based access control, and continuous policy evaluation.
+
+## ✨ Key Features
+
+- **Dynamic Risk-Based Access Control**: Continuous risk evaluation using an AI model (Temporal Graph Network) to block threats like stealthy lateral movements.
+- **Hardware-Backed Authentication**: Support for FIDO2/WebAuthn and TPM chips for advanced step-up authentication.
+- **Network Segmentation & Micro-segmentation**: Strict separation between Front-Net, Auth-Net, Back-Net, and Snort-Net.
+- **Advanced Threat Detection**: Integration of Envoy (JA3 TLS fingerprinting) and Snort (NIDS) with fail-safe policies.
+- **Centralized Observability**: End-to-end traceability with `X-Request-ID` propagation and Splunk monitoring.
 
 ## 🏗️ Architecture
 
@@ -84,6 +100,21 @@ The project includes test clients and alert generation suites to validate the Ze
    pip install -r requirements.txt
    pytest
    ```
+
+## 📚 Documentation
+
+For a detailed analysis of the formal models (e.g., Bell-LaPadula), the trust algorithm, TLS pipelines, and the *Graphagate* AI model, please refer to the complete project report (in Italian):
+📄 [Advanced Cybersecurity Thesis](docs/advanced_cybersecurity_thesis.pdf)
+
+## 👥 Authors & Acknowledgments
+
+This project was developed for the **Advanced Cybersecurity** course (Academic Year 2025-2026) at the **Università Politecnica delle Marche** (Faculty of Engineering), under the supervision of Prof. Luca Spalazzi.
+
+**Development Team:**
+- Fabio Tempera
+- Luca Marcianesi
+- Gabriele Vianello
+- Gianluca Baldelli
 
 ---
 *MIT License - Copyright (c) 2026 DDoS-Fury*

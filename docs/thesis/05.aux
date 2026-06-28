@@ -1,0 +1,99 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\@writefile{toc}{\contentsline {chapter}{\numberline {5}Il modello Graphagate: Temporal Graph Network per la Zero Trust Architecture}{43}{chapter.5}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\@writefile{toc}{\contentsline {section}{\numberline {5.1}Introduzione}{43}{section.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.2}Il modello base: Temporal Graph Network (v3)}{43}{section.5.2}\protected@file@percent }
+\newlabel{sec:v3}{{5.2}{43}{Il modello base: Temporal Graph Network (v3)}{section.5.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.1}Architettura del sistema}{43}{subsection.5.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Componenti principali}{43}{subsubsection*.15}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.1}{\ignorespaces Schema dei layer del modello: i 3 hop di \textit  {GraphAttentionEmbedding} e le 2 teste (\textit  {Feature} e \textit  {Structural}) del \textit  {Dual Head Scorer}.}}{45}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:layers}{{5.1}{45}{Schema dei layer del modello: i 3 hop di \textit {GraphAttentionEmbedding} e le 2 teste (\textit {Feature} e \textit {Structural}) del \textit {Dual Head Scorer}}{figure.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.2}Fase di addestramento e calibrazione}{46}{subsection.5.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Negative sampling e funzione di loss}{46}{subsubsection*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Calibrazione della soglia (cost-sensitive instradata sul segnale)}{46}{subsubsection*.18}\protected@file@percent }
+\newlabel{sec:threshold}{{5.2.2}{46}{Calibrazione della soglia (cost-sensitive instradata sul segnale)}{subsubsection*.18}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.3}Tipologie di anomalie rilevate in produzione}{47}{subsection.5.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2.4}Valutazione sperimentale e confronto con le baseline}{47}{subsection.5.2.4}\protected@file@percent }
+\newlabel{sec:eval}{{5.2.4}{47}{Valutazione sperimentale e confronto con le baseline}{subsection.5.2.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.1}{\ignorespaces Confronto sul test set sintetico tra TGN e baseline non relazionali (3 seed \texttt  {[42,7,123]}, soglia globale all'1\% FPR); il riferimento supervisionato XGBoost (upper-bound fuori categoria) non è incluso qui ed è discusso nel testo e nel quadro riepilogativo (Tab.~\ref {tab:summary}).}}{48}{table.caption.19}\protected@file@percent }
+\newlabel{tab:baselines}{{5.1}{48}{Confronto sul test set sintetico tra TGN e baseline non relazionali (3 seed \texttt {[42,7,123]}, soglia globale all'1\% FPR); il riferimento supervisionato XGBoost (upper-bound fuori categoria) non è incluso qui ed è discusso nel testo e nel quadro riepilogativo (Tab.~\ref {tab:summary})}{table.caption.19}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Cost-sensitive routing}{48}{subsubsection*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.3}L'evoluzione: il nodo \textit  {Configuration} (schema v4)}{48}{section.5.3}\protected@file@percent }
+\newlabel{sec:v4}{{5.3}{48}{L'evoluzione: il nodo \textit {Configuration} (schema v4)}{section.5.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.1}Motivazione}{48}{subsection.5.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.2}Architettura del nodo \textit  {Configuration}}{49}{subsection.5.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Topologia: la catena causale a 5 archi}{49}{subsubsection*.21}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5.2}{\ignorespaces Catena causale dello schema v4, con il nodo \textit  {config} inserito tra \textit  {source} e \textit  {device} e il \textit  {binding} \textit  {config}$\rightarrow $\textit  {user}; gli archi tratteggiati sono \textit  {binding} a messaggio-zero, il solo \textit  {access} \textit  {user}$\rightarrow $\textit  {resource} porta il messaggio a 7 dimensioni.}}{49}{figure.caption.22}\protected@file@percent }
+\newlabel{fig:v4chain}{{5.2}{49}{Catena causale dello schema v4, con il nodo \textit {config} inserito tra \textit {source} e \textit {device} e il \textit {binding} \textit {config}$\rightarrow $\textit {user}; gli archi tratteggiati sono \textit {binding} a messaggio-zero, il solo \textit {access} \textit {user}$\rightarrow $\textit {resource} porta il messaggio a 7 dimensioni}{figure.caption.22}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.2}{\ignorespaces Edge set per richiesta nello schema v4 (config sempre presente lato serving), con l'ordine di commit in memoria identico in training/replay/serving.}}{49}{table.caption.23}\protected@file@percent }
+\newlabel{tab:v4edges}{{5.2}{49}{Edge set per richiesta nello schema v4 (config sempre presente lato serving), con l'ordine di commit in memoria identico in training/replay/serving}{table.caption.23}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.3}Risultati: il contributo del nodo config}{50}{subsection.5.3.3}\protected@file@percent }
+\newlabel{sec:v4results}{{5.3.3}{50}{Risultati: il contributo del nodo config}{subsection.5.3.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Confronto v3 $\rightarrow $ v4 (\textit  {keying} per-cookie)}{50}{subsubsection*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Validazione mirata: il furto di credenziali}{50}{subsubsection*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Sweep architetturale}{50}{subsubsection*.28}\protected@file@percent }
+\newlabel{sec:archsweep}{{5.3.3}{50}{Sweep architetturale}{subsubsection*.28}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.3}{\ignorespaces Confronto v3 vs v4 (\textit  {keying} per-cookie) sul medesimo test set sintetico, decisione cost-sensitive instradata (3 seed \texttt  {[42,7,123]}, media $\pm $ dev.std); $^{\dagger }$ marca i $\Delta $ entro la banda di rumore multi-seed, quindi non significativi.}}{51}{table.caption.25}\protected@file@percent }
+\newlabel{tab:v3v4}{{5.3}{51}{Confronto v3 vs v4 (\textit {keying} per-cookie) sul medesimo test set sintetico, decisione cost-sensitive instradata (3 seed \texttt {[42,7,123]}, media $\pm $ dev.std); $^{\dagger }$ marca i $\Delta $ entro la banda di rumore multi-seed, quindi non significativi}{table.caption.25}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.4}{\ignorespaces Validazione mirata del nodo config su stream \emph  {theft-rich} (3 \texttt  {seed} [42,7,123], \texttt  {save=False}): il modello v4 completo contro la v3 a parità di dati (percorso legacy \textit  {source}$\rightarrow $\textit  {device}, $\approx $v3).}}{51}{table.caption.27}\protected@file@percent }
+\newlabel{tab:theft}{{5.4}{51}{Validazione mirata del nodo config su stream \emph {theft-rich} (3 \texttt {seed} [42,7,123], \texttt {save=False}): il modello v4 completo contro la v3 a parità di dati (percorso legacy \textit {source}$\rightarrow $\textit {device}, $\approx $v3)}{table.caption.27}{}}
+\@writefile{toc}{\contentsline {subsubsection}{Sintesi}{51}{subsubsection*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3.4}Esperimento: granularità dell'identità del dispositivo (nodo \texttt  {dev:guest})}{52}{subsection.5.3.4}\protected@file@percent }
+\newlabel{sec:guestdev}{{5.3.4}{52}{Esperimento: granularità dell'identità del dispositivo (nodo \texttt {dev:guest})}{subsection.5.3.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.5}{\ignorespaces Esperimento sull'identità del device: \textit  {keying} per-cookie vs collasso su \texttt  {dev:guest} (3 \texttt  {seed} [42,7,123], stream \emph  {theft-rich}, \texttt  {save=False}); confronto distribuzionale, non appaiato evento-per-evento.}}{52}{table.caption.30}\protected@file@percent }
+\newlabel{tab:guestdev}{{5.5}{52}{Esperimento sull'identità del device: \textit {keying} per-cookie vs collasso su \texttt {dev:guest} (3 \texttt {seed} [42,7,123], stream \emph {theft-rich}, \texttt {save=False}); confronto distribuzionale, non appaiato evento-per-evento}{table.caption.30}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.6}{\ignorespaces Identità del device sullo \emph  {stream standard} (200k/15ep, decisione instradata): \textit  {keying} per-cookie vs collasso su \texttt  {dev:guest} (3 \texttt  {seed}, \texttt  {save=False}, confronto appaiato per seed). A differenza del regime theft-rich (Tab.~\ref {tab:guestdev}), qui il guest è una lieve regressione: lo split di test standard non contiene furto né cookie-wipe.}}{53}{table.caption.31}\protected@file@percent }
+\newlabel{tab:gueststd}{{5.6}{53}{Identità del device sullo \emph {stream standard} (200k/15ep, decisione instradata): \textit {keying} per-cookie vs collasso su \texttt {dev:guest} (3 \texttt {seed}, \texttt {save=False}, confronto appaiato per seed). A differenza del regime theft-rich (Tab.~\ref {tab:guestdev}), qui il guest è una lieve regressione: lo split di test standard non contiene furto né cookie-wipe}{table.caption.31}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.4}Deployment e specifiche hardware/software}{53}{section.5.4}\protected@file@percent }
+\newlabel{sec:deploy}{{5.4}{53}{Deployment e specifiche hardware/software}{section.5.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.1}Piattaforma HW/SW (addestramento e inferenza)}{54}{subsection.5.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.2}Serving e latenza di inferenza}{54}{subsection.5.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4.3}Parametri di inferenza forniti dal Security Orchestrator}{54}{subsection.5.4.3}\protected@file@percent }
+\newlabel{sec:apiparams}{{5.4.3}{54}{Parametri di inferenza forniti dal Security Orchestrator}{subsection.5.4.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.7}{\ignorespaces Campi del payload JSON inviato dal Security Orchestrator al microservizio TGN (endpoint \texttt  {/infer} e \texttt  {/update}).}}{55}{table.caption.32}\protected@file@percent }
+\newlabel{tab:apipayload}{{5.7}{55}{Campi del payload JSON inviato dal Security Orchestrator al microservizio TGN (endpoint \texttt {/infer} e \texttt {/update})}{table.caption.32}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.8}{\ignorespaces Composizione del vettore \texttt  {features} a 7 dimensioni (\texttt  {msg\_dim}=7), nell'ordine esatto con cui l'orchestrator lo costruisce.}}{56}{table.caption.33}\protected@file@percent }
+\newlabel{tab:features7}{{5.8}{56}{Composizione del vettore \texttt {features} a 7 dimensioni (\texttt {msg\_dim}=7), nell'ordine esatto con cui l'orchestrator lo costruisce}{table.caption.33}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5.5}Limiti del modello}{56}{section.5.5}\protected@file@percent }
+\newlabel{sec:limiti}{{5.5}{56}{Limiti del modello}{section.5.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.1}Assenza di scalabilità orizzontale}{56}{subsection.5.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.2}La sfida del lateral movement}{57}{subsection.5.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5.3}Anti-poisoning gate nel live stream}{57}{subsection.5.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5.6}Quadro riepilogativo: confronto di tutti i modelli}{58}{section.5.6}\protected@file@percent }
+\newlabel{sec:summary}{{5.6}{58}{Quadro riepilogativo: confronto di tutti i modelli}{section.5.6}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5.9}{\ignorespaces Quadro riepilogativo di tutti i modelli e varianti: \textbf  {sono validi solo i confronti intra-pannello} (protocolli diversi). \textit  {Lat.\ Recall} e \textit  {agg Recall} sono a soglia globale 1\% FPR nel Pannello~A e a decisione instradata nei Pannelli~B/C. $^{\dagger }$ recall spurio (GNN, AUC$\approx $caso); $^{\ddagger }$ XGBoost supervisionato (upper-bound fuori categoria). $^{\ast }$ riga \texttt  {dev:guest} (modello deployato) da un run appaiato successivo con codice aggiornato: i suoi valori assoluti non sono direttamente confrontabili con le righe v3/v4 soprastanti (prodotte prima di alcune migliorie); il confronto valido col per-cookie è il $\Delta $ appaiato di Tab.~\ref {tab:gueststd} ($-0.030$ lat AUC), non la differenza con questa tabella.}}{58}{table.caption.34}\protected@file@percent }
+\newlabel{tab:summary}{{5.9}{58}{Quadro riepilogativo di tutti i modelli e varianti: \textbf {sono validi solo i confronti intra-pannello} (protocolli diversi). \textit {Lat.\ Recall} e \textit {agg Recall} sono a soglia globale 1\% FPR nel Pannello~A e a decisione instradata nei Pannelli~B/C. $^{\dagger }$ recall spurio (GNN, AUC$\approx $caso); $^{\ddagger }$ XGBoost supervisionato (upper-bound fuori categoria). $^{\ast }$ riga \texttt {dev:guest} (modello deployato) da un run appaiato successivo con codice aggiornato: i suoi valori assoluti non sono direttamente confrontabili con le righe v3/v4 soprastanti (prodotte prima di alcune migliorie); il confronto valido col per-cookie è il $\Delta $ appaiato di Tab.~\ref {tab:gueststd} ($-0.030$ lat AUC), non la differenza con questa tabella}{table.caption.34}{}}
+\@setckpt{05}{
+\setcounter{page}{59}
+\setcounter{equation}{0}
+\setcounter{enumi}{3}
+\setcounter{enumii}{5}
+\setcounter{enumiii}{0}
+\setcounter{enumiv}{0}
+\setcounter{footnote}{0}
+\setcounter{mpfootnote}{0}
+\setcounter{part}{0}
+\setcounter{chapter}{5}
+\setcounter{section}{6}
+\setcounter{subsection}{0}
+\setcounter{subsubsection}{0}
+\setcounter{paragraph}{0}
+\setcounter{subparagraph}{0}
+\setcounter{figure}{2}
+\setcounter{table}{9}
+\setcounter{lastpagecount}{0}
+\setcounter{section@level}{0}
+\setcounter{Item}{55}
+\setcounter{Hfootnote}{0}
+\setcounter{bookmark@seq@number}{84}
+\setcounter{float@type}{4}
+\setcounter{caption@flags}{2}
+\setcounter{continuedfloat}{0}
+\setcounter{subfigure}{0}
+\setcounter{subtable}{0}
+\setcounter{LT@tables}{0}
+\setcounter{LT@chunks}{0}
+\setcounter{parentequation}{0}
+}

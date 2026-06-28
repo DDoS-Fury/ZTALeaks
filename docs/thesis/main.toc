@@ -1,0 +1,119 @@
+\babel@toc {italian}{}\relax 
+\babel@toc {italian}{}\relax 
+\contentsline {chapter}{\numberline {1}Introduzione}{5}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Il progetto}{5}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Obiettivi}{6}{section.1.2}%
+\contentsline {section}{\numberline {1.3}Struttura dell'elaborato}{6}{section.1.3}%
+\contentsline {chapter}{\numberline {2}Fondamenti teorici}{7}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Il modello Zero Trust}{7}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}Principi fondamentali secondo NIST 800-207}{7}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Policy Enforcement Point e Policy Decision Point}{8}{subsection.2.1.2}%
+\contentsline {section}{\numberline {2.2}Modelli formali di controllo degli accessi}{8}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Controllo degli accessi basato su ruoli}{8}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Controllo degli accessi basato su attributi}{9}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}Il modello Bell-LaPadula}{9}{subsection.2.2.3}%
+\contentsline {subsubsection}{Esempio di sanificazione}{10}{subsubsection*.3}%
+\contentsline {subsection}{\numberline {2.2.4}Algoritmo di fiducia}{10}{subsection.2.2.4}%
+\contentsline {subsubsection}{Controllo degli Attributi: Modello Bell-LaPadula}{10}{subsubsection*.5}%
+\contentsline {subsubsection}{Controllo basato sul punteggio: valutazione dinamica del rischio}{10}{subsubsection*.6}%
+\contentsline {section}{\numberline {2.3}Principi di progettazione sicura}{11}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Economy of mechanism}{11}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}Fail-safe defaults}{12}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}Complete mediation}{12}{subsection.2.3.3}%
+\contentsline {subsection}{\numberline {2.3.4}Separation of privilege}{12}{subsection.2.3.4}%
+\contentsline {subsection}{\numberline {2.3.5}Least privilege}{13}{subsection.2.3.5}%
+\contentsline {subsection}{\numberline {2.3.6}Open design}{13}{subsection.2.3.6}%
+\contentsline {subsection}{\numberline {2.3.7}Psychological acceptability}{13}{subsection.2.3.7}%
+\contentsline {section}{\numberline {2.4}Crittografia applicata e TLS}{14}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}Transport Layer Security}{14}{subsection.2.4.1}%
+\contentsline {subsection}{\numberline {2.4.2}Mutual TLS}{14}{subsection.2.4.2}%
+\contentsline {subsection}{\numberline {2.4.3}JA3 fingerprinting}{15}{subsection.2.4.3}%
+\contentsline {section}{\numberline {2.5}Componenti tecnologici}{15}{section.2.5}%
+\contentsline {subsection}{\numberline {2.5.1}nftables}{15}{subsection.2.5.1}%
+\contentsline {subsection}{\numberline {2.5.2}Snort}{16}{subsection.2.5.2}%
+\contentsline {subsection}{\numberline {2.5.3}Envoy Proxy}{16}{subsection.2.5.3}%
+\contentsline {subsection}{\numberline {2.5.4}Open Policy Agent e Rego}{17}{subsection.2.5.4}%
+\contentsline {subsection}{\numberline {2.5.5}Splunk}{17}{subsection.2.5.5}%
+\contentsline {subsection}{\numberline {2.5.6}MongoDB}{17}{subsection.2.5.6}%
+\contentsline {subsection}{\numberline {2.5.7}Docker e Docker Compose}{18}{subsection.2.5.7}%
+\contentsline {subsection}{\numberline {2.5.8}Go}{18}{subsection.2.5.8}%
+\contentsline {chapter}{\numberline {3}Architettura del sistema}{20}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Struttura della repository}{21}{section.3.1}%
+\contentsline {section}{\numberline {3.2}La segmentazione di rete}{21}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Il firewall e il punto di ingresso}{22}{section.3.3}%
+\contentsline {section}{\numberline {3.4}Envoy Proxy come Policy Enforcement Point}{23}{section.3.4}%
+\contentsline {section}{\numberline {3.5}Il Security Orchestrator come Policy Administrator}{23}{section.3.5}%
+\contentsline {subsection}{\numberline {3.5.1}Alert provenienti dagli Snort}{24}{subsection.3.5.1}%
+\contentsline {section}{\numberline {3.6}OPA come Policy Decision Point}{24}{section.3.6}%
+\contentsline {section}{\numberline {3.7}Il Business Logic service}{24}{section.3.7}%
+\contentsline {section}{\numberline {3.8}Identity Access Management service}{25}{section.3.8}%
+\contentsline {section}{\numberline {3.9}I database}{25}{section.3.9}%
+\contentsline {section}{\numberline {3.10}Il sistema di rilevamento delle intrusioni}{26}{section.3.10}%
+\contentsline {subsection}{\numberline {3.10.1}Meccanismo di inoltro degli alert}{26}{subsection.3.10.1}%
+\contentsline {section}{\numberline {3.11}Il flusso di autorizzazione end-to-end}{26}{section.3.11}%
+\contentsline {chapter}{\numberline {4}Implementazione dei componenti}{27}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Il firewall di rete con nftables}{27}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Il sistema di rilevamento intrusioni con Snort}{28}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Envoy Proxy e la pipeline TLS}{30}{section.4.3}%
+\contentsline {section}{\numberline {4.4}Il Security Orchestrator}{31}{section.4.4}%
+\contentsline {section}{\numberline {4.5}Open Policy Agent e la policy in Rego}{33}{section.4.5}%
+\contentsline {section}{\numberline {4.6}Il servizio Identity}{34}{section.4.6}%
+\contentsline {subsection}{\numberline {4.6.1}Autenticazione di base}{34}{subsection.4.6.1}%
+\contentsline {paragraph}{Risposta del Server (Server \textrightarrow \ Client)}{35}{paragraph*.8}%
+\contentsline {subsubsection}{Verifica OTP ed Emissione del JWT}{35}{subsubsection*.9}%
+\contentsline {subsection}{\numberline {4.6.2}Registrazione TPM}{35}{subsection.4.6.2}%
+\contentsline {subsection}{\numberline {4.6.3}Login TPM}{37}{subsection.4.6.3}%
+\contentsline {paragraph}{Risposta del Server (Server \textrightarrow \ Client)}{38}{paragraph*.10}%
+\contentsline {subsubsection}{ Firma Hardware e Completamento (Finish)}{38}{subsubsection*.11}%
+\contentsline {paragraph}{Elaborazione del Chip TPM (lato client)}{38}{paragraph*.12}%
+\contentsline {paragraph}{Richiesta del Client (Client \textrightarrow \ Server)}{39}{paragraph*.13}%
+\contentsline {paragraph}{Elaborazione Server-Side e Verifica Crittografica}{39}{paragraph*.14}%
+\contentsline {subsection}{\numberline {4.6.4}Emissione JWT}{39}{subsection.4.6.4}%
+\contentsline {section}{\numberline {4.7}Il servizio Business Logic}{40}{section.4.7}%
+\contentsline {section}{\numberline {4.8}I database MongoDB}{40}{section.4.8}%
+\contentsline {section}{\numberline {4.9}Il seeder del Business DB}{41}{section.4.9}%
+\contentsline {section}{\numberline {4.10}Il forwarder Splunk e l'osservabilità centralizzata}{41}{section.4.10}%
+\contentsline {chapter}{\numberline {5}Il modello Graphagate: Temporal Graph Network per la Zero Trust Architecture}{43}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Introduzione}{43}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Il modello base: Temporal Graph Network (v3)}{43}{section.5.2}%
+\contentsline {subsection}{\numberline {5.2.1}Architettura del sistema}{43}{subsection.5.2.1}%
+\contentsline {subsubsection}{Componenti principali}{43}{subsubsection*.15}%
+\contentsline {subsection}{\numberline {5.2.2}Fase di addestramento e calibrazione}{46}{subsection.5.2.2}%
+\contentsline {subsubsection}{Negative sampling e funzione di loss}{46}{subsubsection*.17}%
+\contentsline {subsubsection}{Calibrazione della soglia (cost-sensitive instradata sul segnale)}{46}{subsubsection*.18}%
+\contentsline {subsection}{\numberline {5.2.3}Tipologie di anomalie rilevate in produzione}{47}{subsection.5.2.3}%
+\contentsline {subsection}{\numberline {5.2.4}Valutazione sperimentale e confronto con le baseline}{47}{subsection.5.2.4}%
+\contentsline {subsubsection}{Cost-sensitive routing}{48}{subsubsection*.20}%
+\contentsline {section}{\numberline {5.3}L'evoluzione: il nodo \textit {Configuration} (schema v4)}{48}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}Motivazione}{48}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}Architettura del nodo \textit {Configuration}}{49}{subsection.5.3.2}%
+\contentsline {subsubsection}{Topologia: la catena causale a 5 archi}{49}{subsubsection*.21}%
+\contentsline {subsection}{\numberline {5.3.3}Risultati: il contributo del nodo config}{50}{subsection.5.3.3}%
+\contentsline {subsubsection}{Confronto v3 $\rightarrow $ v4 (\textit {keying} per-cookie)}{50}{subsubsection*.24}%
+\contentsline {subsubsection}{Validazione mirata: il furto di credenziali}{50}{subsubsection*.26}%
+\contentsline {subsubsection}{Sweep architetturale}{50}{subsubsection*.28}%
+\contentsline {subsubsection}{Sintesi}{51}{subsubsection*.29}%
+\contentsline {subsection}{\numberline {5.3.4}Esperimento: granularità dell'identità del dispositivo (nodo \texttt {dev:guest})}{52}{subsection.5.3.4}%
+\contentsline {section}{\numberline {5.4}Deployment e specifiche hardware/software}{53}{section.5.4}%
+\contentsline {subsection}{\numberline {5.4.1}Piattaforma HW/SW (addestramento e inferenza)}{54}{subsection.5.4.1}%
+\contentsline {subsection}{\numberline {5.4.2}Serving e latenza di inferenza}{54}{subsection.5.4.2}%
+\contentsline {subsection}{\numberline {5.4.3}Parametri di inferenza forniti dal Security Orchestrator}{54}{subsection.5.4.3}%
+\contentsline {section}{\numberline {5.5}Limiti del modello}{56}{section.5.5}%
+\contentsline {subsection}{\numberline {5.5.1}Assenza di scalabilità orizzontale}{56}{subsection.5.5.1}%
+\contentsline {subsection}{\numberline {5.5.2}La sfida del lateral movement}{57}{subsection.5.5.2}%
+\contentsline {subsection}{\numberline {5.5.3}Anti-poisoning gate nel live stream}{57}{subsection.5.5.3}%
+\contentsline {section}{\numberline {5.6}Quadro riepilogativo: confronto di tutti i modelli}{58}{section.5.6}%
+\contentsline {chapter}{\numberline {6}Validazione e Test del Sistema}{59}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Test Prestazionali e di Carico (Postman)}{59}{section.6.1}%
+\contentsline {subsection}{\numberline {6.1.1}Ambiente di Test e Premessa Metodologica}{59}{subsection.6.1.1}%
+\contentsline {subsection}{\numberline {6.1.2}Analisi dei Risultati e Scenari di Carico}{59}{subsection.6.1.2}%
+\contentsline {subsubsection}{PC portatile}{60}{subsubsection*.35}%
+\contentsline {subsubsection}{PC fisso}{60}{subsubsection*.37}%
+\contentsline {subsubsection}{Considerazioni Tecniche}{61}{subsubsection*.41}%
+\contentsline {section}{\numberline {6.2}Test di Sicurezza e Modello Zero Trust}{62}{section.6.2}%
+\contentsline {subsection}{\numberline {6.2.1}Scenari di Attacco Simulati}{62}{subsection.6.2.1}%
+\contentsline {subsection}{\numberline {6.2.2}L'Intervento dell'AI Scorer}{62}{subsection.6.2.2}%
+\contentsline {chapter}{\numberline {7}Conclusioni e sviluppi futuri}{64}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Risultati ottenuti}{64}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Limiti e sviluppi futuri}{65}{section.7.2}%
+\contentsline {chapter}{Bibliografia}{67}{section*.42}%

@@ -4,7 +4,7 @@ Prima di addentrarsi nei dettagli implementativi dell'architettura realizzata, �
 
 \section{Il modello Zero Trust}
 
-Il termine Zero Trust fu coniato da John Kindervag nel 2010, durante il suo lavoro presso Forrester Research; le radici concettuali del modello affondano tuttavia in una critica più antica al modello perimetrale. L'idea tradizionale di sicurezza informatica era quella del castello con il fossato: una rete interna considerata sicura, protetta da un perimetro difensivo verso l'esterno. Tutto ciò che si trovava all'interno del perimetro godeva di un livello implicito di fiducia. Questa assunzione si è rivelata pericolosa: una volta violato il perimetro, un attaccante poteva muoversi lateralmente attraverso la rete con scarsa resistenza.
+Il termine Zero Trust fu coniato da John Kindervag nel 2010, durante il suo lavoro presso Forrester Research; le radici concettuali del modello affondano tuttavia in una critica più antica al modello perimetrale. L'idea tradizionale di sicurezza informatica era quella del castello con il fossato: una rete interna considerata sicura, protetta da un perimetro difensivo verso l'esterno.
 
 Il modello Zero Trust rovescia questa logica in modo radicale. Nessuna entità, né utente, né dispositivo, né servizio, è considerata affidabile per default, indipendentemente dalla sua posizione nella rete. Ogni accesso deve essere esplicitamente autenticato, autorizzato e continuamente validato. La rete stessa smette di essere un elemento di fiducia e diventa semplicemente un mezzo di trasporto.
 
@@ -52,7 +52,7 @@ Il modello Attribute-Based Access Control (ABAC) estende RBAC introducendo la va
 
 Nell'implementazione realizzata, l'approccio ABAC permette di superare i limiti di un'autorizzazione puramente statica valutando il contesto di ogni singola richiesta in tempo reale. Agli attributi dell'oggetto (come il percorso specifico dell'endpoint e il metodo HTTP) vengono associati metadati quantitativi intrinseci di rischio. 
 
-L'elemento architetturale chiave introdotto in questa fase è la valutazione degli attributi ambientali, rappresentati specificamente da uno \textit{score di rischio} continuo. Attraverso questo scambio di attributi, l'ABAC realizza concretamente il principio della valutazione continua del rischio.
+L'elemento architetturale chiave introdotto in questa fase è la valutazione degli attributi ambientali, rappresentati specificamente da uno \textit{score di rischio} continuo generato dal modello di AI. Attraverso questo scambio di attributi, l'ABAC realizza concretamente il principio della valutazione continua del rischio.
 
 \subsection{Il modello Bell-LaPadula}
 
@@ -60,10 +60,10 @@ Il modello Bell-LaPadula, proposto da David Elliott Bell e Leonard J. LaPadula n
 
 Il modello introduce il concetto di livello di sicurezza, originariamente costituito da 2 dimensioni che formano una struttura a reticolo: una gerarchia totalmente ordinata e un insieme non gerarchico di compartimenti o categorie. Nel progetto realizzato, i livelli gerarchici adottati sono 5: PUBLIC, INTERNAL, CONFIDENTIAL, SECRET e TOP\_SECRET, in ordine crescente di sensibilità. A questi si affiancano specifiche categorie (es. \textit{nuclear, security}). Un accesso è consentito solo se, oltre a soddisfare i vincoli di livello, il soggetto possiede un insieme di categorie che include (superset) tutte quelle richieste dall'oggetto.
 
-Il modello formale completo si fonda su 3 proprietà fondamentali del Mandatory Access Control (MAC). La \textit{Simple Security Property} (o proprietà \textit{no read-up}) stabilisce che un soggetto può leggere un oggetto solo se il suo livello di autorizzazione domina quello dell'oggetto. La \textit{Star Property} (o proprietà \textit{no write-down}) stabilisce che un soggetto non può scrivere su un oggetto con livello di classificazione inferiore al proprio, impedendo il declassamento illecito delle informazioni. La terza proprietà, la \textit{Discretionary Security Property} (ds-property), regola gli accessi discrezionali tramite una matrice degli accessi sovrapposta al controllo obbligatorio basato sui livelli: un soggetto può accedere a un oggetto solo se, oltre a soddisfare le 2 proprietà precedenti, la matrice degli accessi discrezionali autorizza esplicitamente quella particolare combinazione di soggetto, oggetto e modalità di accesso. Il progetto implementa le prime 2 proprietà; la ds-property non è oggetto di un'implementazione dedicata, costituendo una lacuna teorica rispetto alla formulazione completa del modello.
+Il modello formale completo si fonda su 2 proprietà fondamentali del Mandatory Access Control (MAC). La \textit{Simple Security Property} (o proprietà \textit{no read-up}) stabilisce che un soggetto può leggere un oggetto solo se il suo livello di autorizzazione domina quello dell'oggetto. La \textit{Star Property} (o proprietà \textit{no write-down}) stabilisce che un soggetto non può scrivere su un oggetto con livello di classificazione inferiore al proprio, impedendo il declassamento illecito delle informazioni.
 
 \subsubsection{Esempio di sanificazione}
-Tuttavia, l'implementazione in OPA estende questo concetto introducendo la figura del \textit{Trusted Subject}: viene definita una deroga controllata alla \textit{Star Property} per consentire a un utente \texttt{admin} (TOP\_SECRET) di scrivere su una specifica rotta sanitizzata di livello inferiore (SECRET), permettendo così una de-classificazione sicura delle informazioni.
+L'implementazione  in OPA estende questo concetto introducendo la figura del \textit{Trusted Subject}: viene definita una deroga controllata alla \textit{Star Property} per consentire a un utente \texttt{admin} (TOP\_SECRET) di scrivere su una specifica rotta sanitizzata di livello inferiore (SECRET), permettendo così una de-classificazione sicura delle informazioni.
 
 \begin{figure}[h]
     \centering
@@ -77,7 +77,8 @@ Tuttavia, l'implementazione in OPA estende questo concetto introducendo la figur
 L'algoritmo di fiducia implementato nel file \texttt{policy.rego} di OPA si distingue per la sua architettura \textit{ibrida}, che fonde metodologie di controllo rigido degli attributi (tipiche dei sistemi Mandatory Access Control) con meccanismi di controllo basato sul punteggio.
 
 \subsubsection{Controllo degli Attributi: Modello Bell-LaPadula}
-La componente deterministica dell'algoritmo si basa su un'implementazione del modello di confidenzialità Bell-LaPadula (BLP).
+La componente deterministica dell'algoritmo si basa sull'implementazione del modello di confidenzialità Bell-LaPadula (BLP) spiegato in precedenza.
+
 \subsubsection{Controllo basato sul punteggio: valutazione dinamica del rischio}
 A valle del controllo deterministico, l'algoritmo ibrido introduce una fase di computazione algoritmica basata sulla somma e sottrazione di attributi di rischio continuo. Questo garantisce che credenziali compromesse (ma formalmente valide nel modello BLP) non siano sufficienti per finalizzare un attacco.
 
@@ -123,7 +124,12 @@ L'architettura del progetto garantisce la complete mediation attraverso la topol
 
 Il principio di separation of privilege afferma che un sistema non dovrebbe concedere l'accesso o eseguire un'operazione sulla base di un'unica condizione, ma richiedere la soddisfazione di più condizioni indipendenti. La separazione dei privilegi riduce il rischio che la compromissione di un singolo fattore sia sufficiente a violare la sicurezza del sistema.
 
-Nel progetto, la decisione di accesso richiede la soddisfazione simultanea di più condizioni: l'utente deve avere un livello di clearance adeguato alla classificazione della risorsa, un trust score superiore alla soglia minima richiesta dalla zona, l'enrollment MFA dove richiesto, un dispositivo di tipo consentito e una provenienza di rete autorizzata. La compromissione di un solo fattore, ad esempio il furto di credenziali, non è sufficiente a ottenere l'accesso se il dispositivo utilizzato non corrisponde all'impronta JA3 attesa o se il trust score è al di sotto della soglia.
+Nel progetto questo principio è applicato nel controllo degli accessi attraverso le seguenti verifiche:
+\begin{enumerate}
+    \item il ruolo nel certificato e nel jwt devono coincidere
+    \item il certificato è obbligatorio per i ruoli admin/manager
+    \item nel Open Policy Agent vengono valutati gli attributi : categoria, livello BLP e rischio associato alla richiesta
+\end{enumerate}
 
 \subsection{Least privilege}
 
@@ -135,13 +141,13 @@ L'applicazione di questo principio è pervasiva nell'architettura. Il servizio B
 
 Il principio di open design afferma che la sicurezza di un sistema non deve dipendere dalla segretezza del suo meccanismo di protezione, ma esclusivamente dalla segretezza delle chiavi o delle credenziali. Un sistema la cui sicurezza dipende dall'oscurità della propria implementazione risulta strutturalmente debole: qualora il meccanismo venga scoperto, l'efficacia della protezione viene del tutto compromessa.
 
-Nel progetto, i meccanismi di protezione sono basati su standard aperti e ampiamente verificati: TLS 1.3 per la cifratura delle comunicazioni, X.509 per i certificati, SHA-256 per gli hash di integrità. La sicurezza risiede nella segretezza delle chiavi private, non nella segretezza degli algoritmi. Le policy OPA sono espresse in Rego, un linguaggio leggibile e auditabile, la cui correttezza può essere verificata in modo indipendente; il documento non include tuttavia il codice Rego della policy né nel corpo del testo né in appendice, il che rende di fatto impossibile per il lettore verificare l'affermazione di auditabilità sulla base del materiale presentato.
+Nel progetto, i meccanismi di protezione sono basati su standard aperti e ampiamente verificati: TLS 1.3 per la cifratura delle comunicazioni, X.509 per i certificati, SHA-256 per gli hash di integrità. La sicurezza risiede nella segretezza delle chiavi private, non nella segretezza degli algoritmi.
 
 \subsection{Psychological acceptability}
 
 Il principio di psychological acceptability afferma che i meccanismi di sicurezza devono essere progettati in modo da non creare ostacoli eccessivi agli utenti legittimi. Se i controlli di sicurezza sono troppo onerosi, gli utenti troveranno modi per aggirarli. La sicurezza deve essere praticabile, non solo teoricamente corretta.
 
-In un'architettura Zero Trust, questo principio si traduce nella trasparenza dei controlli: l'autenticazione e l'autorizzazione avvengono in modo il più possibile automatico, senza richiedere azioni aggiuntive all'utente se non nei casi in cui il rischio lo giustifichi. Nell'implementazione realizzata, tuttavia, l'autenticazione a più fattori è richiesta a ogni singolo login, indipendentemente dal livello di rischio della sessione: dopo la verifica di username e password, il sistema emette sempre un codice OTP monouso inviato via email che l'utente deve confermare prima che venga rilasciato il token di sessione. Questa scelta è in tensione diretta con il principio appena enunciato, che prevede l'introduzione di attriti aggiuntivi solo quando il rischio lo giustifica e non in modo incondizionato; va inoltre osservato che l'OTP via email è generalmente considerato in letteratura un secondo fattore relativamente debole, una caratteristica rilevante per un sistema che protegge un impianto nucleare.
+In un'architettura Zero Trust, questo principio si traduce nella trasparenza dei controlli: l'autenticazione e l'autorizzazione avvengono in modo il più possibile automatico. Nell'implementazione realizzata l'autenticazione a più fattori è richiesta a ogni singolo login dopo la verifica di username e password, il sistema emette sempre un codice OTP monouso inviato via email che l'utente deve confermare prima che venga rilasciato il token di sessione. 
 
 \section{Crittografia applicata e TLS}
 
@@ -159,17 +165,17 @@ Nel progetto, Envoy termina le connessioni TLS in ingresso, gestendo il processo
 
 Il mutual TLS (mTLS) è un'estensione del protocollo TLS in cui entrambe le parti, client e server, si autenticano reciprocamente mediante certificati digitali X.509. Nel TLS standard, solo il server presenta un certificato per autenticarsi al client; nell'mTLS, anche il client è tenuto a presentare un certificato valido, firmato da una Certificate Authority (CA) fidata dal server.
 
-Questo meccanismo è particolarmente adatto agli ambienti Zero Trust, perché fornisce un'autenticazione forte basata su crittografia a chiave pubblica, indipendente da credenziali riutilizzabili come username e password. Un client che non disponga di un certificato valido firmato dalla CA interna non può stabilire una connessione, indipendentemente da qualsiasi altra credenziale. Va segnalato che il progetto non prevede alcun meccanismo di revoca dei certificati, né tramite Certificate Revocation List (CRL) né tramite Online Certificate Status Protocol (OCSP): in un'architettura Zero Trust la capacità di revocare rapidamente un certificato compromesso costituisce un requisito fondamentale, che in questo caso resta privo di copertura. Una mitigazione parziale, non implementata nella versione corrente del progetto ma proponibile come lavoro futuro, consisterebbe nell'adozione di certificati a vita molto breve (short-lived certificates, tipicamente con validità di ore) rilasciati da una CA interna automatizzata: questo approccio, diffuso in architetture Zero Trust moderne, riduce drasticamente la finestra di esposizione di un certificato compromesso senza richiedere l'infrastruttura aggiuntiva di un servizio CRL o OCSP, spostando di fatto il problema della revoca verso quello, più gestibile, del rinnovo automatico frequente.
+Questo meccanismo è particolarmente adatto agli ambienti Zero Trust, perché fornisce un'autenticazione forte basata su crittografia a chiave pubblica, indipendente da credenziali riutilizzabili come username e password. Un client che non disponga di un certificato valido firmato dalla CA interna non può stabilire una connessione, indipendentemente da qualsiasi altra credenziale. 
 
-Nel progetto, Envoy è configurato con \texttt{require\_client\_certificate: false}, rendendo facoltativa la presentazione di un certificato client firmato dalla CA interna. I certificati sono generati tramite OpenSSL con il parametro di estensione \texttt{extendedKeyUsage=client Auth}, garantendo che possano essere utilizzati esclusivamente per l'autenticazione del client. Al termine dell'handshake, quando un certificato è presente, Envoy ne inietta i metadati nell'header \texttt{X-Forwarded-Client-Cert}; il Security Orchestrator li interpreta per risolvere l'identità del soggetto richiedente in modo crittograficamente verificato e li inoltra al livello di policy. Questa configurazione è in tensione con la filosofia Zero Trust dichiarata per il progetto: rendere facoltativo il certificato a livello TLS significa demandare per intero la verifica al Security Orchestrator e, più a valle, al servizio Identity (si veda la discussione al Capitolo 3 e alla Sezione~\ref{sec:autenticazionestandard}), introducendo un punto di fiducia implicita su Envoy. Sebbene il controllo applicativo successivo blocchi correttamente le richieste prive di certificato per i ruoli che lo richiedono, l'assenza di enforcement a livello di trasporto resta una scelta architetturale che meriterebbe un'analisi critica più esplicita nel documento, dato che espone comunque superficie applicativa a un client non ancora autenticato a livello TLS.
+Nel progetto, Envoy è configurato con \texttt{require\_client\_certificate: false}, rendendo facoltativa la presentazione di un certificato client firmato dalla CA interna. I certificati sono generati tramite OpenSSL con il parametro di estensione \texttt{extendedKeyUsage=client Auth}, garantendo che possano essere utilizzati esclusivamente per l'autenticazione del client. Al termine dell'handshake, quando un certificato è presente, Envoy ne inietta i metadati nell'header \texttt{X-Forwarded-Client-Cert}; il Security Orchestrator li interpreta per risolvere l'identità del soggetto richiedente in modo crittograficamente verificato e li inoltra al livello di policy. 
 
 \subsection{JA3 fingerprinting}
 
 Il JA3 fingerprinting è una tecnica di identificazione del client basata sui parametri dell'handshake TLS. Sviluppata da John Althouse, Jeff Atkinson e Josh Atkins presso Salesforce nel 2017, costruisce una firma identificativa del client a partire da 5 campi dell'handshake: la versione TLS proposta, le cipher suite supportate, le estensioni TLS incluse, i gruppi di curve ellittiche e i formati di punto ellittico.
 
-Questi 5 campi vengono concatenati in una stringa con separatori definiti e poi sottoposti a hashing MD5, producendo un identificatore di 32 caratteri esadecimali che è caratteristico della combinazione di libreria TLS e configurazione utilizzata dal client. Client diversi, anche se usano le stesse credenziali, produrranno hash JA3 differenti se il loro stack TLS è diverso. Questo rende il JA3 uno strumento utile per rilevare impersonificazioni, bot e client anomali anche quando le credenziali presentate sono valide. La tecnica presenta tuttavia limiti ben noti che il progetto non affronta esplicitamente: un tasso di collisione non trascurabile tra client diversi che condividono la stessa libreria e versione TLS, la possibilità di spoofing intenzionale dell'impronta da parte di un attaccante che ne conosca i parametri di calcolo, e una progressiva perdita di efficacia con l'adozione di TLS 1.3, dove la riduzione della variabilità osservabile dell'handshake limita la distintività delle impronte, fino all'inutilizzabilità completa quando il client adotta l'estensione Encrypted Client Hello (ECH), che cifra interamente i parametri dell'handshake altrimenti usati per il calcolo del fingerprint.
+Questi 5 campi vengono concatenati in una stringa con separatori definiti e poi sottoposti a hashing MD5, producendo un identificatore di 32 caratteri esadecimali che è caratteristico della combinazione di libreria TLS e configurazione utilizzata dal client. Client diversi, anche se usano le stesse credenziali, produrranno hash JA3 differenti se il loro stack TLS è diverso. Questo rende il JA3 uno strumento utile per rilevare impersonificazioni, bot e client anomali anche quando le credenziali presentate sono valide.
 
-Nel progetto, Envoy è configurato con \texttt{enable\_ja3\_fingerprinting: true} nel filtro TLS Inspector. Envoy espone la stringa JA3 grezza come variabile di metadato e la inietta negli header della richiesta inoltrata al Security Orchestrator. È quest'ultimo a calcolarne il digest MD5, ottenendo l'hash a 32 caratteri esadecimali.
+Nel progetto, Envoy è configurato con \texttt{enable\_ja3\_fingerprinting: true} nel filtro TLS Inspector. Envoy   calcola il digest MD5 del JA3 ed espone la stringa JA3  come variabile di metadato e la inietta negli header della richiesta inoltrata al Security Orchestrator.
 
 \section{Componenti tecnologici}
 
@@ -179,22 +185,21 @@ nftables è il framework di filtraggio dei pacchetti del kernel Linux, introdott
 
 Nel progetto, nftables opera come firewall di rete posizionato tra il client esterno e il
   resto dell'infrastruttura. La sua configurazione definisce una tabella \texttt{inet filter} le
-  cui 3 catene principali, \texttt{input}, \texttt{forward} e \texttt{output}, adottano tutte
+  cui 2 catene principali, \texttt{input} e \texttt{output}, adottano tutte
   una policy di default DROP, così che solo il traffico esplicitamente consentito venga
   accettato in ciascuna direzione. In particolare la catena \texttt{output} ammette il solo
   traffico in uscita strettamente necessario, ossia la risoluzione DNS e la comunicazione verso
   i microservizi interni. La catena \texttt{input} accetta il traffico locale, il traffico
-  appartenente a connessioni già stabilite e il traffico TCP verso la porta di Envoy da
-  indirizzi non presenti nella lista di blocco, loggando ogni pacchetto accettato o rifiutato
+  appartenente a connessioni già stabilite e il traffico TCP verso la porta di Envoy , loggando ogni pacchetto accettato o rifiutato
   tramite il gruppo NFLOG 100.
 
 \subsection{Snort}
 
 Snort è un sistema di rilevamento e prevenzione delle intrusioni di rete (NIDS/NIPS) open source, originariamente sviluppato da Marty Roesch nel 1998 e successivamente acquisito da Cisco. Opera analizzando il traffico di rete in tempo reale, confrontando i pacchetti catturati con un insieme di regole configurabili per rilevare pattern corrispondenti ad attività malevole note.
 
-Snort può operare in 3 modalità: sniffer (stampa i pacchetti sulla console), packet logger (salva i pacchetti su disco) e network intrusion detection system (analizza i pacchetti e genera alert). Nel progetto, Snort è configurato in modalità NIDS con output su console, condivide lo stack di rete del container firewall tramite la direttiva \texttt{network\_mode: service:firewall}, e monitora l'interfaccia eth0.
+Snort può operare in 3 modalità: sniffer (stampa i pacchetti sulla console), packet logger (salva i pacchetti su disco) e network intrusion detection system (analizza i pacchetti e genera alert). Nel progetto, Snort è configurato in modalità NIDS con output su console, condivide lo stack di rete del container firewall tramite la direttiva \texttt{network\_mode: service:firewall}.
 
-La regola custom configurata utilizza il preprocessore \texttt{sfportscan} per rilevare scansioni di porte, abilitato con il parametro \texttt{sense\_level: low} per minimizzare i falsi positivi. Una regola Snort aggiuntiva segnala esplicitamente la rilevazione di un port scan TCP quando vengono rilevati più di 5 pacchetti SYN dalla stessa sorgente nell'arco di 5 secondi. Questo scenario è uno dei vettori di attacco testati esplicitamente nel progetto, con client di test che simulano la scansione rapida di un intervallo di porte.
+La regola custom configurata utilizza il preprocessore \texttt{sfportscan} per rilevare scansioni di porte, abilitato con il parametro \texttt{sense\_level: low} per minimizzare i falsi positivi. Regole Snort aggiuntive segnalano esplicitamente la rilevazione di un port scan TCP quando vengono rilevati più di 5 pacchetti SYN dalla stessa sorgente nell'arco di 5 secondi e tentativi di SQLinjection. Questo scenario è uno dei vettori di attacco testati esplicitamente nel progetto, con client di test che simulano la scansione rapida di un intervallo di porte.
 
 \subsection{Envoy Proxy}
 
@@ -226,7 +231,7 @@ MongoDB è un database orientato ai documenti, appartenente alla famiglia NoSQL,
 
 Nel progetto sono presenti 2 istanze MongoDB con ruoli distinti. Il Security DB conserva i
   dati di identità e dispositivo gestiti dall'iam-service e dal Security Orchestrator: le
-  credenziali degli utenti con ruolo, livello di clearance e flag di enrollment TPM (collection
+  credenziali degli utenti con ruolo e flag di enrollment TPM (collection
   \texttt{identity\_users}), le credenziali WebAuthn\/FIDO2 dei dispositivi registrati
   (\texttt{device\_fingerprints}), lo stato effimero delle sessioni OTP
   (\texttt{otp\_sessions}), la blocklist dei token JWT revocati (\texttt{jwt\_blocklist}), lo

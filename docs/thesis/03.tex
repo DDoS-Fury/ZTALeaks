@@ -41,13 +41,13 @@ La \texttt{Front-Net} rappresenta l'unico canale rivolto all'esterno. In questo 
 
 La \texttt{Auth-Net} costituisce il segmento privato dedicato alla determinazione delle autorizzazioni. In questa rete cooperano il Security Orchestrator, il motore Open Policy Agent e il database di sicurezza. Il Security Orchestrator funge da unico elemento di connessione tra la \texttt{Front-Net} e la \texttt{Auth-Net}, impedendo la raggiungibilità diretta del database di sicurezza e del motore delle regole da parte dei client esterni.
 
-La \texttt{Back-Net} è una rete protetta e riservata che unisce esclusivamente il servizio di business logic al relativo database di produzione. Questa separazione assicura che il database contenente i dati sensibili della centrale sia isolato sia dall'esterno sia dallo stesso piano di decisione delle policy, riducendo l'esposizione a tentativi di esfiltrazione. Il servizio Business Logic appartiene sia alla \texttt{Back-Net} sia alla \texttt{Auth-Net}, il che consente di esporre l'endpoint interno \texttt{/internal/session} al Security Orchestrator per l'arricchimento del contesto di autorizzazione, senza però esporre il database sottostante.
+La \texttt{Back-Net} è una rete protetta e riservata che unisce il servizio di business logic al relativo database di produzione (\texttt{business-db}), attestato esclusivamente su questo segmento. Questa separazione assicura che il database contenente i dati sensibili della centrale sia isolato sia dall'esterno sia dallo stesso piano di decisione delle policy: né il Security Orchestrator né OPA dispongono di credenziali o di un percorso diretto verso di esso, e l'unico componente che vi accede è il servizio di Business Logic. Le richieste già autorizzate raggiungono quest'ultimo tramite Envoy, che condivide il namespace di rete del firewall e instrada verso il backend applicativo senza che il database lasci mai la \texttt{Back-Net}. 
 
 La \texttt{Snort-Net} è dedicata esclusivamente al trasporto degli alert dalle 3 istanze Snort verso il Security Orchestrator, descritto nella Sezione~\ref{sec:idsorchestrator}, mantenendo il canale di telemetria delle intrusioni separato dai segmenti applicativi.
 
 \section{Il firewall e il punto di ingresso}
 
-Il container denominato \texttt{firewall} costituisce la barriera iniziale per il traffico in ingresso. Configurato tramite nftables su una distribuzione Alpine Linux, il firewall adotta una politica predefinita di tipo DROP per le catene di ingresso, transito e uscita.
+Il container denominato \texttt{firewall} costituisce la barriera iniziale per il traffico in ingresso. Configurato tramite nftables su una distribuzione Alpine Linux, il firewall adotta una politica predefinita di tipo DROP per le catene di ingresso e uscita.
 
 Per impedire che il traffico possa aggirare i controlli, il proxy Envoy e i sistemi di rilevamento delle intrusioni Snort condividono lo stack di rete del firewall tramite la configurazione \texttt{network\_mode} di Docker. Questa unione assicura che ogni pacchetto debba superare i controlli a livello kernel prima di essere intercettato da Envoy o ispezionato da Snort.
 
@@ -57,8 +57,7 @@ La configurazione del firewall include regole per contrastare gli attacchi volum
 
 Il proxy Envoy agisce come Policy Enforcement Point del sistema, operando sulla porta \texttt{8443}. 
 
-Il canale TLS è configurato per richiedere la presentazione facoltativa di un certificato client, demandando la verifica del possesso e la validazione del certificato al Security Orchestrator tramite una chiamata HTTP. In caso di guasto del coordinatore, il sistema applica il principio \textit{Deny by default}. Va segnalata una conseguenza di questa configurazione che merita di essere chiarita rispetto a quanto descritto nella Sezione~\ref{sec:autenticazionestandard}: poiché a livello TLS il certificato è facoltativo, esiste una finestra in cui la connessione TCP/TLS viene stabilita senza alcun certificato client e la richiesta HTTP raggiunge effettivamente il servizio Identity prima che un certificato possa essere validato a livello di trasporto. Il controllo applicativo descritto in quella sezione mitiga il rischio principale: l'handler \texttt{Login} verifica la presenza del certificato come primo passo, prima della validazione della password, bloccando con \texttt{403 Forbidden} qualunque richiesta priva di certificato per i ruoli diversi da \texttt{guest}. Resta comunque un'esposizione residua intrinseca alla scelta architetturale: la connessione TLS viene comunque negoziata e la richiesta HTTP viene comunque ricevuta ed elaborata (seppur respinta) dal servizio applicativo prima che l'identità del client sia stata verificata a livello di trasporto, esponendo superficie d'attacco aggiuntiva (parsing della richiesta, rate limiting, logging) a un client non autenticato che in un'architettura mTLS strettamente enforced a livello TLS non raggiungerebbe mai l'applicazione.
-
+Il canale TLS è configurato per richiedere la presentazione facoltativa di un certificato client, demandando la verifica del possesso e la validazione del certificato al Security Orchestrator tramite una chiamata HTTP. In caso di guasto del coordinatore, il sistema applica il principio \textit{Deny by default}. 
 Le informazioni estratte dal certificato client e l'impronta JA3 vengono inserite negli header prima di inviare la richiesta all'orchestratore. I log di accesso di Envoy sono scritti in formato JSONL includendo il valore letterale \texttt{service: "envoy"}.
 
 \section{Il Security Orchestrator come Policy Administrator}
@@ -68,7 +67,7 @@ Il Security Orchestrator opera come Policy Administrator, ricevendo le richieste
 All'avvio, il servizio configura un logger JSON strutturato che integra il valore \texttt{service: "security-orchestrator"}. Per ogni richiesta ricevuta sulla rotta \texttt{/api/v1/evaluate}, l'orchestratore esegue le seguenti attività:
 
 \begin{itemize}
-\item estrae il token JWT dall'header di autorizzazione e ne convalida la firma crittografica tramite l'endpoint JWKS esposto dall'identity service;
+\item estrae il token JWT dall'header di autorizzazione e ne convalida la firma crittografica tramite l'endpoint JWKS esposto dall'identity access management service;
 
 \item identifica il dispositivo analizzando l'header del certificato mTLS e interroga il database di sicurezza per verificare la validità dell'attestazione TPM associata al dispositivo;
 
@@ -125,17 +124,13 @@ Per garantire la protezione contro tentativi di manomissione diretta della base 
 \section{Identity Access Management service}
 Il servizio Identity Access Management (\texttt{iam-service}) gestisce l'intero ciclo di vita dell'autenticazione e dell'identità. È scritto in Go, espone un server HTTP sulla porta \texttt{8082} e popola i propri log integrando il campo \texttt{service: "iam-service"} per la correlazione automatica in Splunk.
 
-L'autenticazione segue un flusso a 2 fasi che incorpora un secondo fattore obbligatorio. Nella prima fase, la rotta \texttt{/api/v1/auth/login} verifica le credenziali confrontando la password con un hash \texttt{Argon2id} e controlla il certificato client propagato da Envoy, verificando che il campo CN corrisponda allo username e che l'unità organizzativa corrisponda al ruolo dichiarato. Superati questi controlli, il servizio genera un codice OTP a 6 cifre, ne memorizza l'hash HMAC-SHA256 con una scadenza di 5 minuti e un massimo di 3 tentativi, e lo invia all'indirizzo email registrato. Nella seconda fase, la rotta \texttt{/api/v1/auth/verify-otp} valida il codice e, solo in caso di esito positivo, rilascia il token di sessione.
-
-Il token emesso è un JWT firmato con algoritmo RS256, la cui chiave pubblica RSA corrispondente è pubblicata sull'endpoint \texttt{/.well-known/jwks.json}, da cui il Security Orchestrator la recupera per verificare in autonomia la firma di ogni token, senza dover condividere segreti con l'iam-service.
-
-Il servizio gestisce inoltre l'elevazione del livello di fiducia del dispositivo. Attraverso le cerimonie WebAuthn/FIDO2, un utente può registrare un dispositivo tramite TPM: la credenziale viene salvata nella collezione \texttt{device\_fingerprints}.
+Il servizio gestisce il flusso di autenticazione base (tramite username e password) e il flusso di autenticazione avanzata (tramite TPM). Inoltre, il servizio si del MFA attraverso la  generazione ed invio di un codice OTP a 6 cifre, ne memorizza l'hash HMAC-SHA256 con una scadenza di 5 minuti e un massimo di 3 tentativi. Infine, in caso di esito positivi, rilascia il token JWT di sessione firmato con algoritmo RS256, la cui chiave pubblica RSA corrispondente è pubblicata sull'endpoint \texttt{/.well-known/jwks.json}
 
 \section{I database}
 
 L'infrastruttura utilizza 2 database MongoDB separati per impedire la commistione tra dati di sicurezza e informazioni di produzione.
 
-Il Business DB memorizza i dati del personale e della centrale. Il database abilita l'autenticazione obbligatoria e definisce 3 utenze (personnel, manager e admin, descritte in dettaglio nella Sezione~\ref{sec:databasemongo} del Capitolo 4). Nessuna di tali utenze è accessibile dal piano decisionale: né il Security Orchestrator né il motore PDP dispongono di credenziali proprie sul Business DB, in coerenza con il principio di complete mediation discusso nel Capitolo 2, secondo cui non deve esistere un percorso diretto dal piano decisionale verso il database applicativo. Ciascuna delle  collezioni è protetta da un JSON Schema che valida i tipi di dato e la coerenza dei formati. I documenti del personale e delle zone includono rispettivamente i sotto-documenti \texttt{ztna\_metadata} e \texttt{ztna\_policy} per supportare le verifiche del Policy Decision Point.
+Il Business DB memorizza i dati del personale e della centrale. Il database abilita l'autenticazione obbligatoria e definisce 3 utenze (operator, manager e admin, descritte in dettaglio nella Sezione~\ref{sec:databasemongo} del Capitolo 4). Nessuna di tali utenze è accessibile dal piano decisionale: né il Security Orchestrator né il motore PDP dispongono di credenziali proprie sul Business DB, in coerenza con il principio di complete mediation discusso nel Capitolo 2, secondo cui non deve esistere un percorso diretto dal piano decisionale verso il database applicativo. Ciascuna delle  collezioni è protetta da un JSON Schema che valida i tipi di dato e la coerenza dei formati. I documenti del personale e delle zone includono rispettivamente i sotto-documenti \texttt{ztna\_metadata} e \texttt{ztna\_policy} per supportare le verifiche del Policy Decision Point.
 
 Il Security DB è destinato esclusivamente al salvataggio delle impronte digitali dei dispositivi registrati nella collezione \texttt{device\_fingerprints} e degli utenti abilitati nel servizio di identità, rimanendo accessibile solo all'orchestratore e al servizio di identità.
 
@@ -161,7 +156,7 @@ Una volta normalizzato, ogni evento critico viene immediatamente inoltrato al Se
 La cooperazione tra i componenti può essere compresa seguendo il percorso di una transazione, illustrato nella catena di passaggi descritta di seguito:
 
 \begin{itemize}
-\item il client effettua la chiamata verso la porta \texttt{8443} di Envoy, attraversando le regole del firewall che verificano l'assenza dell'indirizzo sorgente dalla lista nera e valutano i limiti di frequenza;
+\item il client effettua la chiamata verso la porta \texttt{8443} di Envoy, attraversando le regole del firewall;
 
 \item Envoy instaura la sessione TLS raccogliendo i dati del certificato client e l'impronta JA3, inviando poi una chiamata HTTP al Security Orchestrator con i dettagli della transazione;
 

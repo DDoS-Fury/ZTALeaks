@@ -20,7 +20,7 @@ L'architettura è distribuita su 7 componenti principali:
 \end{enumerate} 
 conforme ai principi definiti dalla pubblicazione NIST Special Publication 800-207, il riferimento tecnico consolidato per le implementazioni Zero Trust. Il fulcro del progetto è la separazione netta tra il Policy Enforcement Point (PEP), responsabile dell'intercettazione del traffico e dell'applicazione delle decisioni, e il Policy Decision Point (PDP), che valuta le policy e produce il verdetto di accesso. Questa separazione garantisce che nessun componente concentri in sé sia la capacità di applicare le regole sia quella di definirle, riducendo la superficie di attacco e aumentando la chiarezza architetturale.
 
-Il sistema implementa un controllo degli accessi adattivo e basato sul rischio, che va ben oltre la semplice validazione delle credenziali. Ogni richiesta viene analizzata tenendo conto dell'impronta TLS del client tramite JA3 fingerprinting, della presenza di un certificato client valido mediante mutual TLS, del trust score dell'identità richiedente calcolato a partire dall'analisi comportamentale e del livello di classificazione della risorsa richiesta. Il risultato è un sistema capace di prendere decisioni di accesso granulari, contestuali e dinamiche.
+Il sistema implementa un controllo degli accessi adattivo e basato sul rischio, che va ben oltre la semplice validazione delle credenziali. Ogni richiesta viene analizzata tenendo conto dell'impronta TLS del client tramite JA3 fingerprinting, della presenza di un certificato client valido mediante mutual TLS, dello score di anomalia restituito dal modello di ai e dalle policy di accesso definite. Il risultato è un sistema capace di prendere decisioni di accesso granulari, contestuali e dinamiche.
 
 \section{Obiettivi}
 
@@ -28,7 +28,6 @@ Gli obiettivi del progetto sono articolati su più livelli. Sul piano architettu
 
 Sul piano dell'osservabilità, un obiettivo esplicito è garantire la tracciabilità completa di ogni richiesta attraverso tutti i componenti del sistema, mediante la propagazione di un identificatore di correlazione univoco (\texttt{X-Request-ID}) e la centralizzazione dei log su Splunk. Tale integrazione consente sia di ricostruire il percorso di ogni transazione, sia di rilevare scenari di attacco complessi attraverso interrogazioni e allarmi configurati sulla piattaforma di monitoraggio.
 
-Sul piano della rilevazione delle intrusioni, il progetto integra un firewall di rete basato su nftables, posizionato come primo punto di accesso all'infrastruttura, e un sistema di rilevamento delle intrusioni basato su Snort, configurato per individuare pattern di traffico anomalo come la scansione delle porte. L'insieme di questi livelli di difesa concorre a realizzare una protezione in profondità coerente con i principi Zero Trust.
 
 \section{Struttura dell'elaborato}
 

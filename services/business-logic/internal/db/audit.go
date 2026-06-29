@@ -21,7 +21,11 @@ func commentFor(ctx context.Context) string {
 	if v, ok := ctx.Value("user_id").(string); ok && v != "" {
 		user = v
 	}
-	return serviceName + "|" + user
+	requestID := "-"
+	if v, ok := ctx.Value("req_id").(string); ok && v != "" {
+		requestID = v
+	}
+	return serviceName + "|" + user + "|" + requestID
 }
 
 // Costruttori di opzioni con il comment gia' impostato, uno per tipo di
